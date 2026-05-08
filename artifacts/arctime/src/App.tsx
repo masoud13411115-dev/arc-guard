@@ -419,22 +419,30 @@ function AppContent() {
 
 // Separate component to handle scanner lifecycle
 function ScannerComponent({ onScan }: { onScan: (text: string) => void }) {
-  const scannerRef = useRef<Html5QrcodeType | null>(null);
+  // Keep latest onScan in a ref so the effect never needs to re-run
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
 
   useEffect(() => {
-    let cancelled = false;
+    let instance: Html5QrcodeType | null = null;
+    let done = false;
 
     import("html5-qrcode").then(({ Html5Qrcode }) => {
-      if (cancelled) return;
-      const instance = new Html5Qrcode("qr-reader");
-      scannerRef.current = instance;
+      if (done) return;
+      instance = new Html5Qrcode("qr-reader");
       instance
         .start(
           { facingMode: "environment" },
           { fps: 15, qrbox: 240 },
           (text) => {
-            instance.stop().then(() => instance.clear()).catch(() => {});
-            onScan(text);
+            if (done) return;
+            done = true;
+            // Stop camera first, THEN let React switch screens
+            instance?.stop()
+              .catch(() => {})
+              .finally(() => {
+                onScanRef.current(text);
+              });
           },
           () => {}
         )
@@ -442,14 +450,10 @@ function ScannerComponent({ onScan }: { onScan: (text: string) => void }) {
     }).catch(() => {});
 
     return () => {
-      cancelled = true;
-      const s = scannerRef.current;
-      if (s) {
-        s.stop().then(() => s.clear()).catch(() => {});
-        scannerRef.current = null;
-      }
+      done = true;
+      instance?.stop().catch(() => {});
     };
-  }, [onScan]);
+  }, []); // empty deps — only start once
 
   return <div id="qr-reader" style={{ width: "100%", height: "100%" }} />;
 }

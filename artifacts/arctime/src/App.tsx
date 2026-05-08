@@ -437,12 +437,8 @@ function ScannerComponent({ onScan }: { onScan: (text: string) => void }) {
           (text) => {
             if (done) return;
             done = true;
-            // Stop camera first, THEN let React switch screens
-            instance?.stop()
-              .catch(() => {})
-              .finally(() => {
-                onScanRef.current(text);
-              });
+            // Switch screen immediately — React unmount will stop the camera
+            onScanRef.current(text);
           },
           () => {}
         )

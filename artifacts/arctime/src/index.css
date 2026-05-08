@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: #07111f;
+  --color-foreground: #ffffff;
+  --color-border: rgba(255,255,255,0.14);
+  --color-input: rgba(255,255,255,0.1);
+  --color-ring: #248cff;
+
+  --color-card: rgba(255,255,255,0.09);
+  --color-card-foreground: #ffffff;
+  --color-card-border: rgba(255,255,255,0.14);
+
+  --color-primary: #248cff;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: rgba(255,255,255,0.14);
+  --color-secondary-foreground: #ffffff;
+
+  --color-destructive: #ff4b4b;
+  --color-destructive-foreground: #ffffff;
+
+  --font-sans: 'Vazirmatn', sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 18px;
+  --radius-lg: 28px;
+}
+
+:root {
+  --background: #07111f;
+  --foreground: #ffffff;
+}
+
+body {
+  font-family: 'Vazirmatn', sans-serif;
+  background: linear-gradient(135deg, #07111f 0%, #10284d 100%);
+  background-attachment: fixed;
+  color: #ffffff;
+  min-height: 100dvh;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}

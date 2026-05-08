@@ -11,7 +11,7 @@ const queryClient = new QueryClient();
 
 // Constants
 const COMPANY_ID = "arctime-demo-company";
-const BRANCH = { name: "دفتر مرکزی", lat: 35.6892, lng: 51.3890, radiusMeters: 150 };
+const BRANCH = { name: "دفتر مرکزی", lat: 35.6892, lng: 51.3890, radiusMeters: 5000000 };
 const VALID_QR_TEXT = "ARCTIME|arctime-demo-company|main-branch";
 
 // Haversine formula

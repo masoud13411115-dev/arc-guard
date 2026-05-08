@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "./firebase";
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from "firebase/firestore";
-import { Html5Qrcode } from "html5-qrcode";
+import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, RefreshCw, AlertCircle } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -419,21 +419,35 @@ function AppContent() {
 
 // Separate component to handle scanner lifecycle
 function ScannerComponent({ onScan }: { onScan: (text: string) => void }) {
+  const scannerRef = useRef<Html5QrcodeType | null>(null);
+
   useEffect(() => {
-    const html5Qrcode = new Html5Qrcode("qr-reader");
-    html5Qrcode
-      .start(
-        { facingMode: "environment" },
-        { fps: 15, qrbox: 240 },
-        (text) => {
-          html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(() => {});
-          onScan(text);
-        },
-        () => {}
-      )
-      .catch(() => {});
+    let cancelled = false;
+
+    import("html5-qrcode").then(({ Html5Qrcode }) => {
+      if (cancelled) return;
+      const instance = new Html5Qrcode("qr-reader");
+      scannerRef.current = instance;
+      instance
+        .start(
+          { facingMode: "environment" },
+          { fps: 15, qrbox: 240 },
+          (text) => {
+            instance.stop().then(() => instance.clear()).catch(() => {});
+            onScan(text);
+          },
+          () => {}
+        )
+        .catch(() => {});
+    }).catch(() => {});
+
     return () => {
-      html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(() => {});
+      cancelled = true;
+      const s = scannerRef.current;
+      if (s) {
+        s.stop().then(() => s.clear()).catch(() => {});
+        scannerRef.current = null;
+      }
     };
   }, [onScan]);
 

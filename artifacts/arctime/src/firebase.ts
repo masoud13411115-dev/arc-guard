@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -10,7 +10,18 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-const isConfigValid = Object.values(firebaseConfig).every(value => Boolean(value));
+const isConfigValid = Object.values(firebaseConfig).every(Boolean);
 
-export const app = isConfigValid ? initializeApp(firebaseConfig) : null;
-export const db = isConfigValid ? getFirestore(app!) : null;
+let db: ReturnType<typeof getFirestore> | null = null;
+
+if (isConfigValid) {
+  try {
+    const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  } catch (e) {
+    console.error('Firebase init error:', e);
+    db = null;
+  }
+}
+
+export { db };

@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "./firebase";
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from "firebase/firestore";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, RefreshCw, AlertCircle } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -278,25 +278,21 @@ function AppContent() {
         )}
 
         {screen === "scan" && (
-          <div className="flex flex-col gap-6 h-[80vh]">
+          <div className="flex flex-col gap-4">
             <div className="flex items-center gap-4">
-              <button onClick={() => setScreen("employee")} className="p-2 rounded-full hover:bg-white/10 transition-colors">
+              <button onClick={() => setScreen("employee")} className="p-2 rounded-full hover:bg-white/10 transition-colors" data-testid="btn-back-scan">
                 <ArrowRight size={24} className="rotate-180" />
               </button>
-              <h2 className="text-xl font-bold">اسکنر</h2>
-            </div>
-            
-            <div className="text-center mb-2">
-              <p className="text-white/80">QR محل شرکت را اسکن کن</p>
+              <h2 className="text-xl font-bold">اسکنر QR</h2>
             </div>
 
-            <div className="glass-card p-4 flex-1 flex flex-col justify-center overflow-hidden">
-              <div className="rounded-2xl overflow-hidden bg-white w-full max-w-[300px] mx-auto aspect-square relative">
-                <ScannerComponent onScan={(text) => {
-                  setQrText(text);
-                  setScreen("employee");
-                }} />
-              </div>
+            <p className="text-white/70 text-center text-sm">دوربین پشتی را روی QR شرکت بگیرید</p>
+
+            <div className="rounded-2xl overflow-hidden bg-black w-full" style={{ minHeight: 320 }}>
+              <ScannerComponent onScan={(text) => {
+                setQrText(text);
+                setScreen("employee");
+              }} />
             </div>
           </div>
         )}
@@ -424,20 +420,24 @@ function AppContent() {
 // Separate component to handle scanner lifecycle
 function ScannerComponent({ onScan }: { onScan: (text: string) => void }) {
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: 240 }, false);
-    scanner.render(
-      (text) => {
-        scanner.clear();
-        onScan(text);
-      },
-      () => {}
-    );
+    const html5Qrcode = new Html5Qrcode("qr-reader");
+    html5Qrcode
+      .start(
+        { facingMode: "environment" },
+        { fps: 15, qrbox: 240 },
+        (text) => {
+          html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(() => {});
+          onScan(text);
+        },
+        () => {}
+      )
+      .catch(() => {});
     return () => {
-      scanner.clear().catch(console.error);
+      html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(() => {});
     };
   }, [onScan]);
 
-  return <div id="qr-reader" className="w-full h-full [&_video]:object-cover" />;
+  return <div id="qr-reader" style={{ width: "100%", height: "100%" }} />;
 }
 
 function App() {

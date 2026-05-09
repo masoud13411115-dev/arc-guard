@@ -61,7 +61,7 @@ function AppContent() {
   const handleManagerLogout = () => {
     localStorage.removeItem("arctime_manager_auth");
     setManagerAuthed(false);
-    setScreen("home");
+    setScreen("manager");
   };
 
   // Employee State

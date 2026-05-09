@@ -71,17 +71,6 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | "check_in" | "check_out">("");
 
-  const todayRecords = useMemo(() => records.filter(isToday), [records]);
-
-  const stats = useMemo(() => ({
-    employeesToday: new Set(
-      todayRecords.filter(r => r.type === "check_in").map(r => r.employeeName)
-    ).size,
-    checkIns: todayRecords.filter(r => r.type === "check_in").length,
-    checkOuts: todayRecords.filter(r => r.type === "check_out").length,
-    lateArrivals: todayRecords.filter(isLate).length,
-  }), [todayRecords]);
-
   const branches = useMemo(() =>
     [...new Set(records.map(r => r.branchName).filter(Boolean) as string[])],
     [records]
@@ -89,11 +78,20 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
 
   const filtered = useMemo(() => records.filter(r => {
     if (todayOnly && !isToday(r)) return false;
-    if (nameFilter.trim() && !r.employeeName?.includes(nameFilter.trim())) return false;
-    if (branchFilter && r.branchName !== branchFilter) return false;
-    if (typeFilter && r.type !== typeFilter) return false;
+    if (nameFilter.trim() !== "" && !String(r.employeeName ?? "").includes(nameFilter.trim())) return false;
+    if (branchFilter !== "" && String(r.branchName ?? "") !== branchFilter) return false;
+    if (typeFilter !== "" && String(r.type ?? "") !== typeFilter) return false;
     return true;
   }), [records, todayOnly, nameFilter, branchFilter, typeFilter]);
+
+  const stats = useMemo(() => ({
+    employeesToday: new Set(
+      filtered.filter(r => String(r.type) === "check_in" && isToday(r)).map(r => r.employeeName)
+    ).size,
+    checkIns: filtered.filter(r => String(r.type) === "check_in").length,
+    checkOuts: filtered.filter(r => String(r.type) === "check_out").length,
+    lateArrivals: filtered.filter(r => isLate(r) && isToday(r)).length,
+  }), [filtered]);
 
   const exportExcel = () => {
     const rows = filtered.map(r => ({
@@ -133,7 +131,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
             data-testid="btn-manager-logout"
           >
             <LogOut size={13} />
-            خروج
+            خروج از مدیریت
           </button>
           <button
             onClick={exportExcel}

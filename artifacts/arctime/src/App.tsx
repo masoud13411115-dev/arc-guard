@@ -60,9 +60,9 @@ function AppContent() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGpsData({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy
+          lat: Number(pos.coords.latitude),
+          lng: Number(pos.coords.longitude),
+          accuracy: Number(pos.coords.accuracy)
         });
         setMessage({ text: "موقعیت مکانی دریافت شد.", type: "success" });
       },
@@ -91,7 +91,19 @@ function AppContent() {
       return;
     }
 
-    const dist = distanceMeters(gpsData.lat, gpsData.lng, BRANCH.lat, BRANCH.lng);
+    const userLat = Number(gpsData.lat);
+    const userLng = Number(gpsData.lng);
+    const branchLat = Number(BRANCH.lat);
+    const branchLng = Number(BRANCH.lng);
+
+    console.log("GPS:", userLat, userLng, "| Branch:", branchLat, branchLng);
+
+    if (!isFinite(userLat) || !isFinite(userLng)) {
+      setMessage({ text: "مختصات GPS نامعتبر است. لطفاً دوباره GPS بگیرید.", type: "error" });
+      return;
+    }
+
+    const dist = distanceMeters(userLat, userLng, branchLat, branchLng);
     if (dist > BRANCH.radiusMeters) {
       setMessage({ text: `خارج از محدوده شرکت هستی. فاصله تقریبی: ${Math.round(dist)} متر`, type: "error" });
       return;
@@ -105,7 +117,7 @@ function AppContent() {
         type,
         qrText,
         branchName: BRANCH.name,
-        gps: { lat: gpsData.lat, lng: gpsData.lng },
+        gps: { lat: userLat, lng: userLng },
         distanceMeters: Math.round(dist),
         createdAt: serverTimestamp(),
         createdAtText: nowText()
@@ -333,9 +345,16 @@ function AppContent() {
                         {record.type === "check_in" ? "ورود" : "خروج"}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-white/60 bg-black/20 p-2 rounded-xl">
-                      <MapPin size={12} />
-                      <span>فاصله ثبت از مرکز: {record.distanceMeters} متر</span>
+                    <div className="flex flex-col gap-1 text-xs text-white/60 bg-black/20 p-2 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <MapPin size={12} />
+                        <span>فاصله از مرکز: <strong className="text-white/80">{record.distanceMeters ?? "—"} متر</strong></span>
+                      </div>
+                      {record.gps && (
+                        <div className="font-mono text-white/40 pr-4">
+                          lat: {Number(record.gps.lat).toFixed(5)} | lng: {Number(record.gps.lng).toFixed(5)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

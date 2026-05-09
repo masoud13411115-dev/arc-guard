@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   ChevronRight, ChevronLeft, Download, Users, LogIn, LogOut,
-  Clock, AlertTriangle, BarChart2, Building2, Hash, TrendingUp
+  Clock, AlertTriangle, BarChart2, Building2, Hash, TrendingUp, TrendingDown
 } from "lucide-react";
 
 export interface AttendanceRecord {
@@ -17,6 +17,8 @@ export interface AttendanceRecord {
   branchId?: string;
   shiftName?: string;
   shiftType?: string;
+  shiftEndTime?: string;
+  standardWorkHours?: number;
   isLate?: boolean;
   lateMinutes?: number;
   isHolidayWork?: boolean;
@@ -38,24 +40,45 @@ function getTimestamp(r: AttendanceRecord): number | null {
   return null;
 }
 
-function calcWorkedHours(events: AttendanceRecord[]): number {
+interface SessionMetrics {
+  workedHours: number;
+  overtimeHours: number;
+  undertimeHours: number;
+}
+
+function calcSessionMetrics(events: AttendanceRecord[]): SessionMetrics {
   const sorted = [...events].sort(
     (a, b) => (getTimestamp(a) ?? 0) - (getTimestamp(b) ?? 0)
   );
-  let total = 0;
-  let lastCheckIn: number | null = null;
+  let workedMs = 0, overtimeMs = 0, undertimeMs = 0;
+  let openCheckIn: AttendanceRecord | null = null;
   for (const ev of sorted) {
     const t = getTimestamp(ev);
     if (t === null) continue;
-    if (ev.type === "check_in" && lastCheckIn === null) {
-      lastCheckIn = t;
-    } else if (ev.type === "check_out" && lastCheckIn !== null) {
-      const diff = t - lastCheckIn;
-      if (diff > 0 && diff < 24 * 60 * 60 * 1000) total += diff;
-      lastCheckIn = null;
+    if (ev.type === "check_in" && openCheckIn === null) {
+      openCheckIn = ev;
+    } else if (ev.type === "check_out" && openCheckIn !== null) {
+      const inT = getTimestamp(openCheckIn);
+      if (inT !== null) {
+        const diff = t - inT;
+        if (diff > 0 && diff < 24 * 60 * 60 * 1000) {
+          workedMs += diff;
+          const stdH = openCheckIn.standardWorkHours;
+          if (stdH && stdH > 0) {
+            const stdMs = stdH * 3_600_000;
+            if (diff > stdMs) overtimeMs += diff - stdMs;
+            else undertimeMs += stdMs - diff;
+          }
+        }
+      }
+      openCheckIn = null;
     }
   }
-  return total / (1000 * 60 * 60);
+  return {
+    workedHours: workedMs / 3_600_000,
+    overtimeHours: overtimeMs / 3_600_000,
+    undertimeHours: undertimeMs / 3_600_000,
+  };
 }
 
 function fmtHours(h: number): string {
@@ -134,8 +157,8 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
         return t !== null && new Date(t).getHours() >= LATE_HOUR;
       }).length;
       const holidayWork = events.filter(e => e.isHolidayWork === true).length;
-      const workedHours = calcWorkedHours(events);
-      return { name, code, branch, checkIns, checkOuts, lateArrivals, holidayWork, workedHours };
+      const metrics = calcSessionMetrics(events);
+      return { name, code, branch, checkIns, checkOuts, lateArrivals, holidayWork, ...metrics };
     }).sort((a, b) => b.checkIns - a.checkIns);
   }, [filtered]);
 
@@ -145,6 +168,8 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
     totalCheckOuts: employeeStats.reduce((s, e) => s + e.checkOuts, 0),
     totalLate: employeeStats.reduce((s, e) => s + e.lateArrivals, 0),
     totalWorkedHours: employeeStats.reduce((s, e) => s + e.workedHours, 0),
+    totalOvertimeHours: employeeStats.reduce((s, e) => s + e.overtimeHours, 0),
+    totalUndertimeHours: employeeStats.reduce((s, e) => s + e.undertimeHours, 0),
   }), [employeeStats]);
 
   const exportExcel = () => {
@@ -160,6 +185,8 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       "کار در تعطیلی": e.holidayWork,
       "ساعت کارکرد": Number(e.workedHours.toFixed(2)),
       "کارکرد (ساعت:دقیقه)": fmtHours(e.workedHours),
+      "اضافه‌کاری (ساعت)": Number(e.overtimeHours.toFixed(2)),
+      "کسر کاری (ساعت)": Number(e.undertimeHours.toFixed(2)),
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     ws["!cols"] = [
@@ -227,6 +254,24 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
           value={String(summary.totalLate)}
           color="bg-red-500/20"
         />
+        {summary.totalOvertimeHours > 0 && (
+          <SummaryCard
+            icon={<TrendingUp size={17} className="text-green-300" />}
+            label="اضافه‌کاری"
+            value={fmtHours(summary.totalOvertimeHours)}
+            sub="مجموع"
+            color="bg-green-500/20"
+          />
+        )}
+        {summary.totalUndertimeHours > 0 && (
+          <SummaryCard
+            icon={<TrendingDown size={17} className="text-orange-300" />}
+            label="کسر کاری"
+            value={fmtHours(summary.totalUndertimeHours)}
+            sub="مجموع"
+            color="bg-orange-500/20"
+          />
+        )}
       </div>
 
       {/* Header row + export */}
@@ -285,6 +330,24 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
                 <div className="text-[9px] text-teal-400/70 mt-0.5">ساعت کار</div>
               </div>
             </div>
+
+            {/* Overtime / undertime row */}
+            {(emp.overtimeHours > 0 || emp.undertimeHours > 0) && (
+              <div className="flex flex-wrap gap-2 pt-1 border-t border-white/8">
+                {emp.overtimeHours > 0 && (
+                  <span className="flex items-center gap-1 text-xs bg-green-500/15 text-green-300 px-2.5 py-1 rounded-xl">
+                    <TrendingUp size={10} />
+                    اضافه‌کاری: {fmtHours(emp.overtimeHours)}
+                  </span>
+                )}
+                {emp.undertimeHours > 0 && (
+                  <span className="flex items-center gap-1 text-xs bg-orange-500/15 text-orange-300 px-2.5 py-1 rounded-xl">
+                    <TrendingDown size={10} />
+                    کسر کاری: {fmtHours(emp.undertimeHours)}
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Stat pills */}
             <div className="grid grid-cols-4 gap-1.5">

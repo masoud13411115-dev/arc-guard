@@ -24,6 +24,8 @@ interface AttendanceRecord {
   shiftName?: string;
   shiftId?: string;
   shiftType?: string;
+  shiftEndTime?: string;
+  standardWorkHours?: number;
   isLate?: boolean;
   lateMinutes?: number;
   isHolidayWork?: boolean;
@@ -148,6 +150,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       "کد کارمندی": r.employeeCode ?? "",
       "شیفت": r.shiftName ?? "",
       "نوع شیفت": SHIFT_TYPE_LABELS[r.shiftType ?? ""] ?? "",
+      "ساعت استاندارد": r.standardWorkHours ?? "",
       "نوع": r.type === "check_in" ? "ورود" : "خروج",
       "تأخیر": r.isLate === true ? "بله" : r.isLate === false ? "خیر" : "",
       "دقیقه تأخیر": r.lateMinutes ?? "",

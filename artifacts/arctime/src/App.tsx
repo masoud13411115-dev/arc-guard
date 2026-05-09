@@ -169,6 +169,8 @@ function AppContent() {
     let enrichShiftName: string | undefined;
     let enrichShiftId: string | undefined;
     let enrichShiftType: string | undefined;
+    let enrichShiftEndTime: string | undefined;
+    let enrichStandardWorkHours: number | undefined;
     let enrichIsLate: boolean | undefined;
     let enrichLateMinutes: number | undefined;
     let enrichIsHolidayWork = false;
@@ -186,7 +188,6 @@ function AppContent() {
           const sType = shift.shiftType as string;
 
           if (sType === "administrative" && shift.startTime) {
-            // Fixed start: always compute late
             const [sh, sm] = (shift.startTime as string).split(":").map(Number);
             const shiftStartMin = sh * 60 + sm;
             const checkNow = new Date();
@@ -195,8 +196,9 @@ function AppContent() {
             const allowed = Number(shift.allowedLateMinutes) || 0;
             enrichIsLate = diff > allowed;
             enrichLateMinutes = Math.max(0, diff);
+            enrichShiftEndTime = shift.endTime as string | undefined;
+            enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
           } else if (sType === "normal" && shift.startTime) {
-            // Optional late: only if startTime set and allowedLateMinutes > 0
             const [sh, sm] = (shift.startTime as string).split(":").map(Number);
             const shiftStartMin = sh * 60 + sm;
             const checkNow = new Date();
@@ -205,8 +207,44 @@ function AppContent() {
             const allowed = Number(shift.allowedLateMinutes) || 0;
             enrichIsLate = allowed > 0 ? diff > allowed : false;
             enrichLateMinutes = Math.max(0, diff);
+            enrichShiftEndTime = shift.endTime as string | undefined;
+            enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
+          } else if (sType === "smart") {
+            // Rotating shift: auto-detect which base shift best matches check-in time
+            try {
+              const allShiftsSnap = await getDocs(collection(db, "shifts"));
+              const rotateNow = new Date();
+              const rotateNowMin = rotateNow.getHours() * 60 + rotateNow.getMinutes();
+              let bestDocId = "";
+              let bestShiftData: Record<string, unknown> | null = null;
+              let bestDiff = Infinity;
+              for (const sd of allShiftsSnap.docs) {
+                const s = sd.data();
+                if ((s.shiftType as string) === "smart") continue;
+                if (s.branchId !== "all" && s.branchId !== employeeProfile!.branchId) continue;
+                if (!s.startTime) continue;
+                const [sh2, sm2] = (s.startTime as string).split(":").map(Number);
+                const sMin = sh2 * 60 + sm2;
+                let d2 = Math.abs(rotateNowMin - sMin);
+                if (d2 > 720) d2 = 1440 - d2; // handle midnight wrap
+                if (d2 < bestDiff) { bestDiff = d2; bestDocId = sd.id; bestShiftData = s; }
+              }
+              if (bestShiftData && bestDiff < 360) {
+                // Override with detected shift (within 6-hour window)
+                enrichShiftName = bestShiftData.shiftName as string;
+                enrichShiftId = bestDocId;
+                enrichShiftEndTime = bestShiftData.endTime as string | undefined;
+                enrichStandardWorkHours = typeof bestShiftData.standardWorkHours === "number" ? bestShiftData.standardWorkHours : undefined;
+                const [sh3, sm3] = (bestShiftData.startTime as string).split(":").map(Number);
+                const sMin3 = sh3 * 60 + sm3;
+                const rawDiff3 = rotateNowMin - sMin3;
+                const adjDiff3 = rawDiff3 > 720 ? rawDiff3 - 1440 : rawDiff3 < -720 ? rawDiff3 + 1440 : rawDiff3;
+                const allowed3 = Number(bestShiftData.allowedLateMinutes) || 0;
+                enrichIsLate = adjDiff3 > allowed3;
+                enrichLateMinutes = Math.max(0, adjDiff3);
+              }
+            } catch { /* ignore detection errors */ }
           }
-          // smart: no late — leave enrichIsLate undefined
         }
       } catch { /* ignore shift fetch errors */ }
     }
@@ -240,6 +278,8 @@ function AppContent() {
         ...(enrichShiftName !== undefined && { shiftName: enrichShiftName }),
         ...(enrichShiftId !== undefined && { shiftId: enrichShiftId }),
         ...(enrichShiftType !== undefined && { shiftType: enrichShiftType }),
+        ...(enrichShiftEndTime !== undefined && { shiftEndTime: enrichShiftEndTime }),
+        ...(enrichStandardWorkHours !== undefined && { standardWorkHours: enrichStandardWorkHours }),
         ...(enrichIsLate !== undefined && { isLate: enrichIsLate, lateMinutes: enrichLateMinutes }),
         isHolidayWork: enrichIsHolidayWork,
         ...(enrichHolidayTitle !== undefined && { holidayTitle: enrichHolidayTitle }),

@@ -4,7 +4,10 @@ import {
   collection, addDoc, getDocs, query, orderBy,
   serverTimestamp, deleteDoc, doc
 } from "firebase/firestore";
-import { Plus, Clock, Trash2, RefreshCw, AlertCircle, Building2, Timer, Zap, Briefcase, Brain } from "lucide-react";
+import {
+  Plus, Clock, Trash2, RefreshCw, AlertCircle, Building2,
+  Timer, Zap, Briefcase, Brain, Info
+} from "lucide-react";
 
 export type ShiftType = "administrative" | "normal" | "smart";
 
@@ -15,7 +18,7 @@ export interface Shift {
   startTime?: string;
   endTime?: string;
   allowedLateMinutes?: number;
-  requiredHours?: number;
+  standardWorkHours?: number;
   branchId: string;
 }
 
@@ -36,7 +39,7 @@ const TYPE_CONFIG: Record<ShiftType, {
     badge: "bg-teal-500/15 text-teal-300",
   },
   smart: {
-    label: "هوشمند", desc: "بدون ساعت ثابت",
+    label: "چرخشی", desc: "تشخیص خودکار شیفت",
     icon: <Brain size={14} />,
     active: "bg-purple-500/20 border-purple-400/50 text-purple-300",
     badge: "bg-purple-500/15 text-purple-300",
@@ -54,7 +57,7 @@ export default function ShiftManager() {
     startTime: "08:00",
     endTime: "17:00",
     allowedLateMinutes: "10",
-    requiredHours: "8",
+    standardWorkHours: "8",
     branchId: "all",
   });
   const [formError, setFormError] = useState("");
@@ -78,11 +81,10 @@ export default function ShiftManager() {
     e.preventDefault();
     if (!db) return;
     if (!form.shiftName.trim()) { setFormError("نام شیفت الزامی است."); return; }
-    if (form.shiftType === "administrative" && (!form.startTime || !form.endTime)) {
-      setFormError("زمان شروع و پایان برای شیفت اداری الزامی است."); return;
-    }
-    if ((form.shiftType === "normal" || form.shiftType === "smart") && !form.requiredHours) {
-      setFormError("ساعت کاری روزانه الزامی است."); return;
+    if (form.shiftType !== "smart") {
+      if (!form.startTime || !form.endTime) {
+        setFormError("زمان شروع و پایان الزامی هستند."); return;
+      }
     }
     setSaving(true);
     try {
@@ -92,20 +94,28 @@ export default function ShiftManager() {
         branchId: form.branchId.trim() || "all",
         createdAt: serverTimestamp(),
       };
+
       if (form.shiftType === "administrative") {
         payload.startTime = form.startTime;
         payload.endTime = form.endTime;
         payload.allowedLateMinutes = parseInt(form.allowedLateMinutes) || 0;
+        const wh = parseFloat(form.standardWorkHours);
+        if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
       } else if (form.shiftType === "normal") {
-        payload.requiredHours = parseFloat(form.requiredHours) || 8;
-        if (form.startTime) payload.startTime = form.startTime;
+        payload.startTime = form.startTime;
+        payload.endTime = form.endTime;
         const late = parseInt(form.allowedLateMinutes);
         if (!isNaN(late) && late > 0) payload.allowedLateMinutes = late;
+        const wh = parseFloat(form.standardWorkHours);
+        if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
       } else {
-        payload.requiredHours = parseFloat(form.requiredHours) || 8;
+        // smart/rotating: no fixed times — detection from base shifts at check-in
+        const wh = parseFloat(form.standardWorkHours);
+        if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
       }
+
       await addDoc(collection(db, "shifts"), payload);
-      setForm({ shiftName: "", shiftType: "administrative", startTime: "08:00", endTime: "17:00", allowedLateMinutes: "10", requiredHours: "8", branchId: "all" });
+      setForm({ shiftName: "", shiftType: "administrative", startTime: "08:00", endTime: "17:00", allowedLateMinutes: "10", standardWorkHours: "8", branchId: "all" });
       setShowForm(false);
       setFormError("");
       await fetchShifts();
@@ -156,14 +166,13 @@ export default function ShiftManager() {
         >
           <h3 className="text-sm font-bold text-white/80">شیفت جدید</h3>
 
-          {/* Shift type selector */}
+          {/* Type selector */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-white/50">نوع شیفت</label>
             <div className="grid grid-cols-3 gap-2">
               {(["administrative", "normal", "smart"] as const).map(t => (
                 <button
-                  key={t}
-                  type="button"
+                  key={t} type="button"
                   onClick={() => setForm(f => ({ ...f, shiftType: t }))}
                   className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-colors ${
                     form.shiftType === t
@@ -180,21 +189,32 @@ export default function ShiftManager() {
             </div>
           </div>
 
+          {/* Smart shift: info notice */}
+          {form.shiftType === "smart" && (
+            <div className="flex items-start gap-2 bg-purple-500/10 border border-purple-500/20 rounded-xl p-3">
+              <Info size={14} className="text-purple-300 shrink-0 mt-0.5" />
+              <p className="text-xs text-purple-200/80 leading-relaxed">
+                کارمندان با شیفت چرخشی می‌توانند در روزهای مختلف در هر شیفت پایه کار کنند.
+                سیستم بر اساس ساعت ورود، شیفت مربوطه را به‌صورت خودکار تشخیص می‌دهد.
+              </p>
+            </div>
+          )}
+
           {/* Shift name */}
           <div className="space-y-1">
             <label className="text-xs text-white/50 block">نام شیفت</label>
             <input
               type="text" inputMode="text" autoComplete="off"
               className="input-field h-11 text-sm"
-              placeholder="مثال: شیفت صبح"
+              placeholder={form.shiftType === "smart" ? "مثال: شیفت چرخشی" : "مثال: شیفت صبح"}
               value={form.shiftName}
               onChange={e => setForm(f => ({ ...f, shiftName: e.target.value }))}
               data-testid="input-shift-name"
             />
           </div>
 
-          {/* Administrative: start + end time */}
-          {form.shiftType === "administrative" && (
+          {/* Start + End time (administrative & normal) */}
+          {form.shiftType !== "smart" && (
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <label className="text-xs text-white/50 block">زمان شروع</label>
@@ -213,10 +233,13 @@ export default function ShiftManager() {
             </div>
           )}
 
-          {/* Administrative: allowed late */}
-          {form.shiftType === "administrative" && (
+          {/* Late allowance (administrative & normal) */}
+          {form.shiftType !== "smart" && (
             <div className="space-y-1">
-              <label className="text-xs text-white/50 block">تأخیر مجاز (دقیقه)</label>
+              <label className="text-xs text-white/50 block">
+                تأخیر مجاز (دقیقه)
+                {form.shiftType === "normal" && <span className="text-white/30 mr-1">— اختیاری</span>}
+              </label>
               <input
                 type="number" inputMode="numeric" className="input-field h-11 text-sm" min="0" max="120"
                 value={form.allowedLateMinutes}
@@ -225,42 +248,19 @@ export default function ShiftManager() {
             </div>
           )}
 
-          {/* Normal + Smart: required daily hours */}
-          {(form.shiftType === "normal" || form.shiftType === "smart") && (
-            <div className="space-y-1">
-              <label className="text-xs text-white/50 block">ساعت کاری روزانه</label>
-              <input
-                type="number" inputMode="decimal" className="input-field h-11 text-sm" min="1" max="24" step="0.5"
-                placeholder="8"
-                value={form.requiredHours}
-                onChange={e => setForm(f => ({ ...f, requiredHours: e.target.value }))}
-                data-testid="input-shift-hours" />
-            </div>
-          )}
-
-          {/* Normal: optional start time + late */}
-          {form.shiftType === "normal" && (
-            <div className="flex flex-col gap-2">
-              <label className="text-xs text-white/50">تأخیر (اختیاری)</label>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-white/35 block">زمان شروع اختیاری</label>
-                  <input type="time" className="input-field h-10 text-sm"
-                    value={form.startTime}
-                    onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
-                    data-testid="input-shift-start-normal" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] text-white/35 block">تأخیر مجاز (دقیقه)</label>
-                  <input type="number" inputMode="numeric" className="input-field h-10 text-sm" min="0" max="120"
-                    placeholder="0 = بدون اعمال"
-                    value={form.allowedLateMinutes}
-                    onChange={e => setForm(f => ({ ...f, allowedLateMinutes: e.target.value }))}
-                    data-testid="input-shift-late-normal" />
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Standard work hours (all types) */}
+          <div className="space-y-1">
+            <label className="text-xs text-white/50 block">
+              ساعت کاری استاندارد روزانه
+              <span className="text-white/30 mr-1">— برای محاسبه اضافه‌کاری</span>
+            </label>
+            <input
+              type="number" inputMode="decimal" className="input-field h-11 text-sm" min="1" max="24" step="0.5"
+              placeholder="8"
+              value={form.standardWorkHours}
+              onChange={e => setForm(f => ({ ...f, standardWorkHours: e.target.value }))}
+              data-testid="input-shift-hours" />
+          </div>
 
           {/* Branch */}
           <div className="space-y-1">
@@ -294,6 +294,7 @@ export default function ShiftManager() {
       ) : (
         shifts.map(shift => {
           const cfg = TYPE_CONFIG[shift.shiftType ?? "administrative"];
+          const stdH = shift.standardWorkHours;
           return (
             <div key={shift.id} className="glass-card p-4 flex items-center justify-between gap-3" data-testid={`shift-${shift.id}`}>
               <div className="flex flex-col gap-1.5 min-w-0">
@@ -305,28 +306,28 @@ export default function ShiftManager() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {shift.shiftType === "administrative" && shift.startTime && (
+                  {shift.shiftType !== "smart" && shift.startTime && (
                     <span className="flex items-center gap-1 text-xs text-white/55 bg-black/20 px-2.5 py-1 rounded-xl">
                       <Clock size={10} />
                       {shift.startTime}{shift.endTime ? ` – ${shift.endTime}` : ""}
                     </span>
                   )}
-                  {(shift.shiftType === "normal" || shift.shiftType === "smart") && shift.requiredHours && (
-                    <span className="flex items-center gap-1 text-xs text-white/55 bg-black/20 px-2.5 py-1 rounded-xl">
+                  {shift.shiftType === "smart" && (
+                    <span className="flex items-center gap-1 text-xs bg-purple-500/15 text-purple-300 px-2.5 py-1 rounded-xl">
+                      <Zap size={10} />
+                      تشخیص خودکار در ورود
+                    </span>
+                  )}
+                  {stdH != null && stdH > 0 && (
+                    <span className="flex items-center gap-1 text-xs bg-teal-500/15 text-teal-300 px-2.5 py-1 rounded-xl">
                       <Clock size={10} />
-                      {shift.requiredHours} ساعت در روز
+                      {stdH} ساعت/روز
                     </span>
                   )}
                   {shift.allowedLateMinutes != null && shift.allowedLateMinutes > 0 && (
                     <span className="flex items-center gap-1 text-xs bg-yellow-500/15 text-yellow-300 px-2.5 py-1 rounded-xl">
                       <Timer size={10} />
                       تأخیر مجاز: {shift.allowedLateMinutes} دقیقه
-                    </span>
-                  )}
-                  {shift.shiftType === "smart" && (
-                    <span className="flex items-center gap-1 text-xs bg-purple-500/15 text-purple-300 px-2.5 py-1 rounded-xl">
-                      <Zap size={10} />
-                      بدون محدودیت تأخیر
                     </span>
                   )}
                 </div>

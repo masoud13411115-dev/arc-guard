@@ -21,6 +21,7 @@ interface Props {
   loading: boolean;
   onRefresh: () => void;
   onBack: () => void;
+  onLogout: () => void;
 }
 
 const LATE_HOUR = 9;
@@ -64,7 +65,7 @@ function StatCard({ icon, label, value, color }: {
   );
 }
 
-export default function ManagerScreen({ records, loading, onRefresh, onBack }: Props) {
+export default function ManagerScreen({ records, loading, onRefresh, onBack, onLogout }: Props) {
   const [nameFilter, setNameFilter] = useState("");
   const [todayOnly, setTodayOnly] = useState(false);
   const [branchFilter, setBranchFilter] = useState("");
@@ -126,6 +127,14 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack }: P
           <h2 className="text-xl font-bold">داشبورد مدیریت</h2>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/15 text-red-300 text-xs font-semibold hover:bg-red-500/25 transition-colors"
+            data-testid="btn-manager-logout"
+          >
+            <LogOut size={13} />
+            خروج
+          </button>
           <button
             onClick={exportExcel}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/20 text-teal-300 text-xs font-semibold hover:bg-teal-500/30 transition-colors"

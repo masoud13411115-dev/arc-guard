@@ -33,9 +33,37 @@ function nowText() {
 
 type Screen = "home" | "employee" | "scan" | "manager";
 
+const MANAGER_PASSWORD = "123456";
+
 function AppContent() {
   const [screen, setScreen] = useState<Screen>("home");
-  
+
+  // Manager auth
+  const [managerAuthed, setManagerAuthed] = useState(
+    () => localStorage.getItem("arctime_manager_auth") === "1"
+  );
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState(false);
+
+  const handleManagerLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwInput === MANAGER_PASSWORD) {
+      localStorage.setItem("arctime_manager_auth", "1");
+      setManagerAuthed(true);
+      setPwInput("");
+      setPwError(false);
+      fetchRecords();
+    } else {
+      setPwError(true);
+    }
+  };
+
+  const handleManagerLogout = () => {
+    localStorage.removeItem("arctime_manager_auth");
+    setManagerAuthed(false);
+    setScreen("home");
+  };
+
   // Employee State
   const [employeeName, setEmployeeName] = useState("علی رضایی");
   const [qrText, setQrText] = useState("");
@@ -310,12 +338,52 @@ function AppContent() {
           </div>
         )}
 
-        {screen === "manager" && (
+        {screen === "manager" && !managerAuthed && (
+          <div className="flex-1 flex flex-col items-center justify-center min-h-[70vh] gap-8 animate-in fade-in duration-300">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-16 h-16 rounded-[20px] bg-gradient-to-br from-[#248cff] to-[#25d7a0] flex items-center justify-center shadow-lg shadow-blue-900/20 mb-1">
+                <span className="text-2xl font-bold text-white">🔒</span>
+              </div>
+              <h2 className="text-xl font-bold">ورود به پنل مدیر</h2>
+              <p className="text-sm text-white/50">رمز عبور را وارد کنید</p>
+            </div>
+
+            <form onSubmit={handleManagerLogin} className="w-full flex flex-col gap-4">
+              <input
+                type="password"
+                className={`input-field text-center tracking-widest text-lg ${pwError ? "border-red-500/60" : ""}`}
+                placeholder="رمز عبور"
+                value={pwInput}
+                onChange={e => { setPwInput(e.target.value); setPwError(false); }}
+                autoFocus
+                data-testid="input-manager-password"
+              />
+              {pwError && (
+                <p className="text-center text-sm text-red-400 animate-in fade-in">
+                  رمز عبور اشتباه است. دوباره تلاش کنید.
+                </p>
+              )}
+              <button type="submit" className="btn-primary" data-testid="btn-manager-login">
+                ورود
+              </button>
+              <button
+                type="button"
+                onClick={() => { setScreen("home"); setPwInput(""); setPwError(false); }}
+                className="btn-secondary"
+              >
+                بازگشت
+              </button>
+            </form>
+          </div>
+        )}
+
+        {screen === "manager" && managerAuthed && (
           <ManagerScreen
             records={records}
             loading={loadingRecords}
             onRefresh={fetchRecords}
             onBack={() => setScreen("home")}
+            onLogout={handleManagerLogout}
           />
         )}
 

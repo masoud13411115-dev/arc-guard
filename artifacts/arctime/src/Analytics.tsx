@@ -5,6 +5,10 @@ import {
   Clock, AlertTriangle, BarChart2, Building2, Hash, TrendingUp, TrendingDown,
   CalendarDays
 } from "lucide-react";
+import {
+  nowJalali, addJalaliMonths, jalaliMonthRange,
+  toJalaliMonthLabel, toJalaliDate, todayJalali,
+} from "./jalali";
 
 export interface AttendanceRecord {
   id: string;
@@ -28,11 +32,6 @@ export interface AttendanceRecord {
 }
 
 const LATE_HOUR = 9;
-
-const MONTH_NAMES_FA = [
-  "ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن",
-  "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر",
-];
 
 function getTimestamp(r: AttendanceRecord): number | null {
   if (r.createdAt?.toDate) {
@@ -107,30 +106,29 @@ function SummaryCard({
 }
 
 export default function Analytics({ records }: { records: AttendanceRecord[] }) {
-  const now = new Date();
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+  const initJ = nowJalali();
+  const [jYear, setJYear] = useState(initJ.jy);
+  const [jMonth, setJMonth] = useState(initJ.jm); // 1-based
 
   const goPrev = () => {
-    if (selectedMonth === 0) { setSelectedYear(y => y - 1); setSelectedMonth(11); }
-    else setSelectedMonth(m => m - 1);
+    const r = addJalaliMonths(jYear, jMonth, -1);
+    setJYear(r.jy); setJMonth(r.jm);
   };
   const goNext = () => {
-    if (selectedMonth === 11) { setSelectedYear(y => y + 1); setSelectedMonth(0); }
-    else setSelectedMonth(m => m + 1);
+    const r = addJalaliMonths(jYear, jMonth, 1);
+    setJYear(r.jy); setJMonth(r.jm);
   };
-  const isCurrentMonth =
-    selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
+  const nowJ = nowJalali();
+  const isCurrentMonth = jYear === nowJ.jy && jMonth === nowJ.jm;
 
-  const filtered = useMemo(() =>
-    records.filter(r => {
+  const filtered = useMemo(() => {
+    const { start, end } = jalaliMonthRange(jYear, jMonth);
+    const s = start.getTime(), e = end.getTime();
+    return records.filter(r => {
       const t = getTimestamp(r);
-      if (t === null) return false;
-      const d = new Date(t);
-      return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
-    }),
-    [records, selectedYear, selectedMonth]
-  );
+      return t !== null && t >= s && t <= e;
+    });
+  }, [records, jYear, jMonth]);
 
   const employeeStats = useMemo(() => {
     const map = new Map<string, {
@@ -176,7 +174,7 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
   }), [employeeStats]);
 
   const exportExcel = () => {
-    const monthLabel = `${MONTH_NAMES_FA[selectedMonth]} ${selectedYear}`;
+    const monthLabel = toJalaliMonthLabel(jYear, jMonth);
     const rows = employeeStats.map(e => ({
       "ماه": monthLabel,
       "نام کارمند": e.name,
@@ -199,7 +197,7 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "آمار ماهانه");
-    XLSX.writeFile(wb, `arctime-monthly-${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}.xlsx`);
+    XLSX.writeFile(wb, `arctime-${jYear}-${String(jMonth).padStart(2,"0")}.xlsx`);
   };
 
   return (
@@ -216,7 +214,7 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
         </button>
         <div className="flex flex-col items-center gap-0.5">
           <span className="font-bold text-base">
-            {MONTH_NAMES_FA[selectedMonth]} {selectedYear}
+            {toJalaliMonthLabel(jYear, jMonth)}
           </span>
           {isCurrentMonth && (
             <span className="text-[10px] text-teal-400 font-semibold">ماه جاری</span>
@@ -300,7 +298,7 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       {employeeStats.length === 0 ? (
         <div className="glass-card p-10 text-center text-white/50 flex flex-col items-center gap-3">
           <BarChart2 size={28} className="text-white/25" />
-          <p>در {MONTH_NAMES_FA[selectedMonth]} {selectedYear} رکوردی یافت نشد.</p>
+          <p>در {toJalaliMonthLabel(jYear, jMonth)} رکوردی یافت نشد.</p>
         </div>
       ) : (
         employeeStats.map((emp, i) => (

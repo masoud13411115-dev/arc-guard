@@ -7,6 +7,7 @@ import { collection, addDoc, getDocs, getDoc, query, orderBy, where, serverTimes
 import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, AlertCircle } from "lucide-react";
 import ManagerScreen from "./ManagerScreen";
+import { toJalaliDateTime } from "./jalali";
 
 const queryClient = new QueryClient();
 
@@ -28,7 +29,7 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) 
 }
 
 function nowText() {
-  return new Date().toLocaleString("fa-IR");
+  return toJalaliDateTime(new Date());
 }
 
 type Screen = "home" | "employee" | "scan" | "manager";

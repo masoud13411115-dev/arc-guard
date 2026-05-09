@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { toJalaliDate, todayJalali } from "./jalali";
 import * as XLSX from "xlsx";
 import {
   ArrowRight, RefreshCw, Download, Users, LogIn, LogOut,
@@ -65,10 +66,7 @@ function getDate(r: AttendanceRecord): Date | null {
 function isToday(r: AttendanceRecord): boolean {
   const d = getDate(r);
   if (!d) return false;
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
+  return toJalaliDate(d) === todayJalali();
 }
 
 const SHIFT_TYPE_LABELS: Record<string, string> = {
@@ -171,7 +169,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "حضور و غیاب");
-    XLSX.writeFile(wb, `arctime-${new Date().toISOString().slice(0,10)}.xlsx`);
+    XLSX.writeFile(wb, `arctime-${todayJalali().replace(/\//g,"-")}.xlsx`);
   };
 
   return (

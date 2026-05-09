@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { todayJalali, gregToJalaliStr, jalaliStrToGreg } from "./jalali";
 import { db } from "./firebase";
 import {
   collection, addDoc, getDocs, query, orderBy,
@@ -19,7 +20,7 @@ export default function HolidayManager() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    holidayDate: new Date().toISOString().slice(0, 10),
+    holidayDate: todayJalali(),
     holidayTitle: "",
     branchId: "all",
   });
@@ -43,19 +44,24 @@ export default function HolidayManager() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!db) return;
-    if (!form.holidayDate || !form.holidayTitle.trim()) {
+    if (!form.holidayDate.trim() || !form.holidayTitle.trim()) {
       setFormError("تاریخ و عنوان تعطیلی الزامی هستند.");
+      return;
+    }
+    const gregDate = jalaliStrToGreg(form.holidayDate);
+    if (!gregDate) {
+      setFormError("فرمت تاریخ اشتباه است. مثال: ۱۴۰۳/۰۸/۲۰");
       return;
     }
     setSaving(true);
     try {
       await addDoc(collection(db, "holidays"), {
-        holidayDate: form.holidayDate,
+        holidayDate: gregDate,
         holidayTitle: form.holidayTitle.trim(),
         branchId: form.branchId.trim() || "all",
         createdAt: serverTimestamp(),
       });
-      setForm({ holidayDate: new Date().toISOString().slice(0, 10), holidayTitle: "", branchId: "all" });
+      setForm({ holidayDate: todayJalali(), holidayTitle: "", branchId: "all" });
       setShowForm(false);
       setFormError("");
       await fetchHolidays();
@@ -107,9 +113,14 @@ export default function HolidayManager() {
           <h3 className="text-sm font-bold text-white/80">تعطیلی جدید</h3>
 
           <div className="space-y-1">
-            <label className="text-xs text-white/50 block">تاریخ تعطیلی</label>
+            <label className="text-xs text-white/50 block">
+              تاریخ تعطیلی
+              <span className="text-white/30 mr-1">— شمسی (مثال: {todayJalali()})</span>
+            </label>
             <input
-              type="date" className="input-field h-11 text-sm"
+              type="text" inputMode="numeric" autoComplete="off"
+              className="input-field h-11 text-sm font-mono tracking-widest"
+              placeholder="1403/08/20"
               value={form.holidayDate}
               onChange={e => setForm(f => ({ ...f, holidayDate: e.target.value }))}
               data-testid="input-holiday-date"
@@ -164,7 +175,9 @@ export default function HolidayManager() {
             <div className="flex flex-col gap-1.5 min-w-0">
               <p className="font-bold">{h.holidayTitle}</p>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-white/50 bg-black/20 px-2.5 py-1 rounded-xl">{h.holidayDate}</span>
+                <span className="text-xs text-white/50 bg-black/20 px-2.5 py-1 rounded-xl font-mono">
+                  {gregToJalaliStr(h.holidayDate)}
+                </span>
                 <span className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-xl ${
                   h.branchId === "all"
                     ? "bg-blue-500/15 text-blue-300"

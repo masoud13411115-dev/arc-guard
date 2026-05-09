@@ -44,6 +44,7 @@
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "catalog:",
+    "@types/jalaali-js": "^1.2.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -77,6 +78,7 @@
   "dependencies": {
     "firebase": "^12.13.0",
     "html5-qrcode": "^2.3.8",
+    "jalaali-js": "^1.2.8",
     "xlsx": "^0.18.5"
   }
 }

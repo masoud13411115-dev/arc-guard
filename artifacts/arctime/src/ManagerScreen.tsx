@@ -23,6 +23,7 @@ interface AttendanceRecord {
   gps?: { lat: number; lng: number };
   shiftName?: string;
   shiftId?: string;
+  shiftType?: string;
   isLate?: boolean;
   lateMinutes?: number;
   isHolidayWork?: boolean;
@@ -67,8 +68,15 @@ function isToday(r: AttendanceRecord): boolean {
     d.getDate() === now.getDate();
 }
 
+const SHIFT_TYPE_LABELS: Record<string, string> = {
+  administrative: "اداری",
+  normal: "عادی",
+  smart: "هوشمند",
+};
+
 function computeLate(r: AttendanceRecord): boolean {
   if (r.type !== "check_in") return false;
+  if (r.shiftType === "smart") return false;
   if (r.isLate !== undefined) return r.isLate === true;
   const d = getDate(r);
   if (!d) return false;
@@ -139,6 +147,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       "نام کارمند": r.employeeName ?? "",
       "کد کارمندی": r.employeeCode ?? "",
       "شیفت": r.shiftName ?? "",
+      "نوع شیفت": SHIFT_TYPE_LABELS[r.shiftType ?? ""] ?? "",
       "نوع": r.type === "check_in" ? "ورود" : "خروج",
       "تأخیر": r.isLate === true ? "بله" : r.isLate === false ? "خیر" : "",
       "دقیقه تأخیر": r.lateMinutes ?? "",
@@ -351,8 +360,20 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
                   <h3 className="font-bold truncate">{record.employeeName ?? "—"}</h3>
                   <p className="text-xs text-white/50">{record.createdAtText ?? "نامشخص"}</p>
                   {record.shiftName && (
-                    <span className="flex items-center gap-1 text-[10px] text-blue-300/70 mt-0.5">
-                      <Clock size={9} />{record.shiftName}
+                    <span className="flex items-center gap-1.5 text-[10px] text-white/55 mt-0.5 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <Clock size={9} className="text-blue-300/60" />
+                        {record.shiftName}
+                      </span>
+                      {record.shiftType && (
+                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${
+                          record.shiftType === "administrative" ? "bg-blue-500/20 text-blue-300" :
+                          record.shiftType === "normal" ? "bg-teal-500/20 text-teal-300" :
+                          "bg-purple-500/20 text-purple-300"
+                        }`}>
+                          {SHIFT_TYPE_LABELS[record.shiftType] ?? record.shiftType}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>

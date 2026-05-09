@@ -18,7 +18,14 @@ export interface Employee {
 interface ShiftOption {
   id: string;
   shiftName: string;
+  shiftType: string;
 }
+
+const SHIFT_TYPE_LABELS: Record<string, string> = {
+  administrative: "اداری",
+  normal: "عادی",
+  smart: "هوشمند",
+};
 
 export default function EmployeeManager() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -44,7 +51,7 @@ export default function EmployeeManager() {
         getDocs(query(collection(db, "shifts"), orderBy("shiftName", "asc"))),
       ]);
       setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-      setShifts(shiftSnap.docs.map(d => ({ id: d.id, shiftName: d.data().shiftName as string })));
+      setShifts(shiftSnap.docs.map(d => ({ id: d.id, shiftName: d.data().shiftName as string, shiftType: (d.data().shiftType as string) || "administrative" })));
     } catch (e) {
       console.error(e);
     }
@@ -271,7 +278,9 @@ export default function EmployeeManager() {
                 >
                   <option value="">— بدون شیفت —</option>
                   {shifts.map(s => (
-                    <option key={s.id} value={s.id}>{s.shiftName}</option>
+                    <option key={s.id} value={s.id}>
+                      {s.shiftName} ({SHIFT_TYPE_LABELS[s.shiftType] ?? s.shiftType})
+                    </option>
                   ))}
                 </select>
               )}

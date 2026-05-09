@@ -16,6 +16,7 @@ export interface AttendanceRecord {
   branchName?: string;
   branchId?: string;
   shiftName?: string;
+  shiftType?: string;
   isLate?: boolean;
   lateMinutes?: number;
   isHolidayWork?: boolean;
@@ -127,6 +128,7 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       const checkOuts = events.filter(e => e.type === "check_out").length;
       const lateArrivals = events.filter(e => {
         if (e.type !== "check_in") return false;
+        if (e.shiftType === "smart") return false;
         if (e.isLate !== undefined) return e.isLate === true;
         const t = getTimestamp(e);
         return t !== null && new Date(t).getHours() >= LATE_HOUR;
@@ -155,13 +157,14 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       "تعداد ورود": e.checkIns,
       "تعداد خروج": e.checkOuts,
       "تأخیر": e.lateArrivals,
+      "کار در تعطیلی": e.holidayWork,
       "ساعت کارکرد": Number(e.workedHours.toFixed(2)),
       "کارکرد (ساعت:دقیقه)": fmtHours(e.workedHours),
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     ws["!cols"] = [
       { wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 16 },
-      { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 16 },
+      { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 16 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "آمار ماهانه");

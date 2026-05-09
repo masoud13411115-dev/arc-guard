@@ -168,6 +168,7 @@ function AppContent() {
     // --- Shift & holiday enrichment ---
     let enrichShiftName: string | undefined;
     let enrichShiftId: string | undefined;
+    let enrichShiftType: string | undefined;
     let enrichIsLate: boolean | undefined;
     let enrichLateMinutes: number | undefined;
     let enrichIsHolidayWork = false;
@@ -180,14 +181,32 @@ function AppContent() {
           const shift = shiftSnap.data();
           enrichShiftName = shift.shiftName as string;
           enrichShiftId = employeeProfile.shiftId;
-          const [sh, sm] = (shift.startTime as string).split(":").map(Number);
-          const shiftStartMin = sh * 60 + sm;
-          const checkNow = new Date();
-          const nowMin = checkNow.getHours() * 60 + checkNow.getMinutes();
-          const diff = nowMin - shiftStartMin;
-          const allowed = Number(shift.allowedLateMinutes) || 0;
-          enrichIsLate = diff > allowed;
-          enrichLateMinutes = Math.max(0, diff);
+          enrichShiftType = (shift.shiftType as string) || "administrative";
+
+          const sType = shift.shiftType as string;
+
+          if (sType === "administrative" && shift.startTime) {
+            // Fixed start: always compute late
+            const [sh, sm] = (shift.startTime as string).split(":").map(Number);
+            const shiftStartMin = sh * 60 + sm;
+            const checkNow = new Date();
+            const nowMin = checkNow.getHours() * 60 + checkNow.getMinutes();
+            const diff = nowMin - shiftStartMin;
+            const allowed = Number(shift.allowedLateMinutes) || 0;
+            enrichIsLate = diff > allowed;
+            enrichLateMinutes = Math.max(0, diff);
+          } else if (sType === "normal" && shift.startTime) {
+            // Optional late: only if startTime set and allowedLateMinutes > 0
+            const [sh, sm] = (shift.startTime as string).split(":").map(Number);
+            const shiftStartMin = sh * 60 + sm;
+            const checkNow = new Date();
+            const nowMin = checkNow.getHours() * 60 + checkNow.getMinutes();
+            const diff = nowMin - shiftStartMin;
+            const allowed = Number(shift.allowedLateMinutes) || 0;
+            enrichIsLate = allowed > 0 ? diff > allowed : false;
+            enrichLateMinutes = Math.max(0, diff);
+          }
+          // smart: no late — leave enrichIsLate undefined
         }
       } catch { /* ignore shift fetch errors */ }
     }
@@ -220,6 +239,7 @@ function AppContent() {
         distanceMeters: Math.round(dist),
         ...(enrichShiftName !== undefined && { shiftName: enrichShiftName }),
         ...(enrichShiftId !== undefined && { shiftId: enrichShiftId }),
+        ...(enrichShiftType !== undefined && { shiftType: enrichShiftType }),
         ...(enrichIsLate !== undefined && { isLate: enrichIsLate, lateMinutes: enrichLateMinutes }),
         isHolidayWork: enrichIsHolidayWork,
         ...(enrichHolidayTitle !== undefined && { holidayTitle: enrichHolidayTitle }),

@@ -35,9 +35,15 @@
 ## Product
 
 - **Home screen**: Logo + two buttons (Employee / Manager)
-- **Employee screen**: Name input, QR status, GPS status, scan/get-GPS/check-in/check-out buttons
+- **Employee screen**: Code input + جستجو lookup → profile card (name/branch) → QR + GPS status → check-in/out
 - **QR Scanner screen**: Camera-based QR scan using html5-qrcode
-- **Manager screen**: Last 20 attendance records from Firestore, ordered newest first
+- **Manager screen (گزارش tab)**: Stats cards, filters (name/code/type/branch/today), records list, Excel export
+- **Manager screen (کارمندان tab)**: Add/delete employees (fullName, employeeCode, branchName, branchId) saved to Firestore "employees" collection
+
+## Firestore collections
+
+- `attendance`: companyId, employeeName, employeeCode, type, qrText, branchName, branchId, gps, distanceMeters, createdAt, createdAtText
+- `employees`: fullName, employeeCode, branchName, branchId, createdAt
 
 ## User preferences
 

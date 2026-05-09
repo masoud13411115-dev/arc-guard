@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "./firebase";
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, orderBy, where, serverTimestamp } from "firebase/firestore";
 import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, AlertCircle } from "lucide-react";
 import ManagerScreen from "./ManagerScreen";
@@ -65,7 +65,11 @@ function AppContent() {
   };
 
   // Employee State
-  const [employeeName, setEmployeeName] = useState("علی رضایی");
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [employeeProfile, setEmployeeProfile] = useState<{
+    fullName: string; employeeCode: string; branchName: string; branchId: string;
+  } | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
   const [qrText, setQrText] = useState("");
   const [gpsData, setGpsData] = useState<{lat: number, lng: number, accuracy: number} | null>(null);
   const [message, setMessage] = useState<{text: string, type: "success" | "error" | "info"} | null>(null);
@@ -78,6 +82,29 @@ function AppContent() {
   useEffect(() => {
     setMessage(null);
   }, [screen]);
+
+  // Look up employee by code
+  const lookupEmployee = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!db) { setMessage({ text: "اتصال به Firebase برقرار نیست.", type: "error" }); return; }
+    if (!employeeCode.trim()) { setMessage({ text: "لطفاً کد کارمندی را وارد کنید.", type: "error" }); return; }
+    setLookingUp(true);
+    setEmployeeProfile(null);
+    try {
+      const q = query(collection(db, "employees"), where("employeeCode", "==", employeeCode.trim()));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        setMessage({ text: "کارمندی با این کد یافت نشد. لطفاً با مدیر تماس بگیرید.", type: "error" });
+      } else {
+        const data = snap.docs[0].data();
+        setEmployeeProfile({ fullName: data.fullName, employeeCode: data.employeeCode, branchName: data.branchName, branchId: data.branchId });
+        setMessage({ text: `خوش آمدید، ${data.fullName}!`, type: "success" });
+      }
+    } catch {
+      setMessage({ text: "خطا در جستجو. اتصال اینترنت را بررسی کنید.", type: "error" });
+    }
+    setLookingUp(false);
+  };
 
   // Get GPS manually
   const getGps = () => {
@@ -107,8 +134,8 @@ function AppContent() {
       setMessage({ text: "لطفاً تنظیمات Firebase را در پنل Secrets انجام دهید.", type: "error" });
       return;
     }
-    if (!employeeName.trim()) {
-      setMessage({ text: "لطفاً نام خود را وارد کنید.", type: "error" });
+    if (!employeeProfile) {
+      setMessage({ text: "لطفاً ابتدا کد کارمندی خود را جستجو کنید.", type: "error" });
       return;
     }
     if (qrText.trim() !== VALID_QR_TEXT) {
@@ -142,10 +169,12 @@ function AppContent() {
       setMessage({ text: "در حال ثبت...", type: "info" });
       await addDoc(collection(db, "attendance"), {
         companyId: COMPANY_ID,
-        employeeName: employeeName.trim(),
+        employeeName: employeeProfile.fullName,
+        employeeCode: employeeProfile.employeeCode,
         type,
         qrText,
-        branchName: BRANCH.name,
+        branchName: employeeProfile.branchName,
+        branchId: employeeProfile.branchId,
         gps: { lat: userLat, lng: userLng },
         distanceMeters: Math.round(dist),
         createdAt: serverTimestamp(),
@@ -231,16 +260,36 @@ function AppContent() {
             </div>
 
             <div className="glass-card p-6 flex flex-col gap-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-white/80 px-1">نام شما</label>
-                <input 
-                  type="text" 
-                  className="input-field" 
-                  value={employeeName}
-                  onChange={(e) => setEmployeeName(e.target.value)}
-                  data-testid="input-employee-name"
-                />
-              </div>
+              {/* Employee code lookup */}
+              <form onSubmit={lookupEmployee} className="space-y-2">
+                <label className="text-sm font-medium text-white/80 px-1 block">کد کارمندی</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input-field flex-1"
+                    placeholder="مثال: EMP001"
+                    value={employeeCode}
+                    onChange={e => { setEmployeeCode(e.target.value); setEmployeeProfile(null); }}
+                    data-testid="input-employee-code"
+                  />
+                  <button
+                    type="submit"
+                    disabled={lookingUp}
+                    className="px-4 h-[54px] rounded-[18px] bg-blue-500/30 text-blue-200 font-semibold text-sm hover:bg-blue-500/40 transition-colors shrink-0"
+                    data-testid="btn-lookup-employee"
+                  >
+                    {lookingUp ? "..." : "جستجو"}
+                  </button>
+                </div>
+              </form>
+
+              {/* Profile card */}
+              {employeeProfile && (
+                <div className="bg-teal-500/10 border border-teal-500/25 rounded-2xl px-4 py-3 flex flex-col gap-0.5">
+                  <p className="font-bold text-teal-200">{employeeProfile.fullName}</p>
+                  <p className="text-xs text-teal-300/70">{employeeProfile.branchName}</p>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <div className="status-box flex justify-between items-center">

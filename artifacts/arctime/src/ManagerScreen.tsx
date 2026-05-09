@@ -2,12 +2,14 @@ import React, { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   ArrowRight, RefreshCw, Download, Users, LogIn, LogOut,
-  Clock, MapPin, Search, Filter, AlertCircle, Building2
+  Clock, MapPin, Search, Filter, AlertCircle, Building2, UserCog
 } from "lucide-react";
+import EmployeeManager from "./EmployeeManager";
 
 interface AttendanceRecord {
   id: string;
   employeeName?: string;
+  employeeCode?: string;
   type?: "check_in" | "check_out";
   createdAtText?: string;
   createdAt?: { toDate?: () => Date; seconds?: number };
@@ -85,6 +87,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const [todayOnly, setTodayOnly] = useState(false);
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | "check_in" | "check_out">("");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "employees">("dashboard");
 
   const branches = useMemo(() => {
     const names = new Set<string>();
@@ -101,7 +104,12 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
 
   const filtered = useMemo(() => records.filter(r => {
     if (todayOnly && !isToday(r)) return false;
-    if (nameFilter.trim() !== "" && !String(r.employeeName ?? "").includes(nameFilter.trim())) return false;
+    if (nameFilter.trim() !== "") {
+      const n = nameFilter.trim();
+      const matchName = String(r.employeeName ?? "").includes(n);
+      const matchCode = String(r.employeeCode ?? "").includes(n);
+      if (!matchName && !matchCode) return false;
+    }
     if (branchFilter !== "" && !matchesBranch(r, branchFilter)) return false;
     if (typeFilter !== "" && String(r.type ?? "") !== typeFilter) return false;
     return true;
@@ -119,15 +127,17 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const exportExcel = () => {
     const rows = filtered.map(r => ({
       "نام کارمند": r.employeeName ?? "",
+      "کد کارمندی": r.employeeCode ?? "",
       "نوع": r.type === "check_in" ? "ورود" : "خروج",
       "تاریخ و ساعت": r.createdAtText ?? "",
       "فاصله از مرکز (متر)": r.distanceMeters ?? "",
       "شعبه": r.branchName ?? "",
+      "شناسه شعبه": r.branchId ?? "",
       "عرض جغرافیایی": r.gps?.lat ?? "",
       "طول جغرافیایی": r.gps?.lng ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [{ wch: 20 }, { wch: 8 }, { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 14 }, { wch: 14 }];
+    ws["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 22 }, { wch: 14 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "حضور و غیاب");
     XLSX.writeFile(wb, `arctime-${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -156,23 +166,51 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
             <LogOut size={13} />
             خروج از مدیریت
           </button>
-          <button
-            onClick={exportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/20 text-teal-300 text-xs font-semibold hover:bg-teal-500/30 transition-colors"
-            data-testid="btn-export-excel"
-          >
-            <Download size={14} />
-            اکسل
-          </button>
-          <button
-            onClick={onRefresh}
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-            data-testid="btn-refresh"
-          >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-          </button>
+          {activeTab === "dashboard" && <>
+            <button
+              onClick={exportExcel}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/20 text-teal-300 text-xs font-semibold hover:bg-teal-500/30 transition-colors"
+              data-testid="btn-export-excel"
+            >
+              <Download size={14} />
+              اکسل
+            </button>
+            <button
+              onClick={onRefresh}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              data-testid="btn-refresh"
+            >
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            </button>
+          </>}
         </div>
       </div>
+
+      {/* Tabs */}
+      <div className="flex rounded-2xl overflow-hidden border border-white/10">
+        <button
+          onClick={() => setActiveTab("dashboard")}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
+            activeTab === "dashboard" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
+          }`}
+          data-testid="tab-dashboard"
+        >
+          <Clock size={14} />
+          گزارش حضور
+        </button>
+        <button
+          onClick={() => setActiveTab("employees")}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
+            activeTab === "employees" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
+          }`}
+          data-testid="tab-employees"
+        >
+          <UserCog size={14} />
+          کارمندان
+        </button>
+      </div>
+
+      {activeTab === "dashboard" && <>
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3">
@@ -326,6 +364,10 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
           ))
         )}
       </div>
+
+      </>}
+
+      {activeTab === "employees" && <EmployeeManager />}
     </div>
   );
 }

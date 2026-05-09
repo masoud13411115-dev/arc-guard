@@ -210,40 +210,9 @@ function AppContent() {
             enrichShiftEndTime = shift.endTime as string | undefined;
             enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
           } else if (sType === "smart") {
-            // Rotating shift: auto-detect which base shift best matches check-in time
-            try {
-              const allShiftsSnap = await getDocs(collection(db, "shifts"));
-              const rotateNow = new Date();
-              const rotateNowMin = rotateNow.getHours() * 60 + rotateNow.getMinutes();
-              let bestDocId = "";
-              let bestShiftData: Record<string, unknown> | null = null;
-              let bestDiff = Infinity;
-              for (const sd of allShiftsSnap.docs) {
-                const s = sd.data();
-                if ((s.shiftType as string) === "smart") continue;
-                if (s.branchId !== "all" && s.branchId !== employeeProfile!.branchId) continue;
-                if (!s.startTime) continue;
-                const [sh2, sm2] = (s.startTime as string).split(":").map(Number);
-                const sMin = sh2 * 60 + sm2;
-                let d2 = Math.abs(rotateNowMin - sMin);
-                if (d2 > 720) d2 = 1440 - d2; // handle midnight wrap
-                if (d2 < bestDiff) { bestDiff = d2; bestDocId = sd.id; bestShiftData = s; }
-              }
-              if (bestShiftData && bestDiff < 360) {
-                // Override with detected shift (within 6-hour window)
-                enrichShiftName = bestShiftData.shiftName as string;
-                enrichShiftId = bestDocId;
-                enrichShiftEndTime = bestShiftData.endTime as string | undefined;
-                enrichStandardWorkHours = typeof bestShiftData.standardWorkHours === "number" ? bestShiftData.standardWorkHours : undefined;
-                const [sh3, sm3] = (bestShiftData.startTime as string).split(":").map(Number);
-                const sMin3 = sh3 * 60 + sm3;
-                const rawDiff3 = rotateNowMin - sMin3;
-                const adjDiff3 = rawDiff3 > 720 ? rawDiff3 - 1440 : rawDiff3 < -720 ? rawDiff3 + 1440 : rawDiff3;
-                const allowed3 = Number(bestShiftData.allowedLateMinutes) || 0;
-                enrichIsLate = adjDiff3 > allowed3;
-                enrichLateMinutes = Math.max(0, adjDiff3);
-              }
-            } catch { /* ignore detection errors */ }
+            // Simple smart shift: no fixed start time — just save hours for analytics
+            enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
+            // isLate stays undefined — no start time to compare against
           }
         }
       } catch { /* ignore shift fetch errors */ }

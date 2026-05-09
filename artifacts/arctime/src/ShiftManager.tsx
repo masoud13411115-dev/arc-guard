@@ -6,7 +6,7 @@ import {
 } from "firebase/firestore";
 import {
   Plus, Clock, Trash2, RefreshCw, AlertCircle, Building2,
-  Timer, Zap, Briefcase, Brain, Info
+  Timer, Briefcase, Brain
 } from "lucide-react";
 
 export type ShiftType = "administrative" | "normal" | "smart";
@@ -39,7 +39,7 @@ const TYPE_CONFIG: Record<ShiftType, {
     badge: "bg-teal-500/15 text-teal-300",
   },
   smart: {
-    label: "چرخشی", desc: "تشخیص خودکار شیفت",
+    label: "هوشمند", desc: "بدون ساعت ثابت",
     icon: <Brain size={14} />,
     active: "bg-purple-500/20 border-purple-400/50 text-purple-300",
     badge: "bg-purple-500/15 text-purple-300",
@@ -109,9 +109,11 @@ export default function ShiftManager() {
         const wh = parseFloat(form.standardWorkHours);
         if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
       } else {
-        // smart/rotating: no fixed times — detection from base shifts at check-in
+        // smart: no fixed start/end time — just hours and optional late threshold
         const wh = parseFloat(form.standardWorkHours);
         if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
+        const late = parseInt(form.allowedLateMinutes);
+        if (!isNaN(late) && late > 0) payload.allowedLateMinutes = late;
       }
 
       await addDoc(collection(db, "shifts"), payload);
@@ -189,17 +191,6 @@ export default function ShiftManager() {
             </div>
           </div>
 
-          {/* Smart shift: info notice */}
-          {form.shiftType === "smart" && (
-            <div className="flex items-start gap-2 bg-purple-500/10 border border-purple-500/20 rounded-xl p-3">
-              <Info size={14} className="text-purple-300 shrink-0 mt-0.5" />
-              <p className="text-xs text-purple-200/80 leading-relaxed">
-                کارمندان با شیفت چرخشی می‌توانند در روزهای مختلف در هر شیفت پایه کار کنند.
-                سیستم بر اساس ساعت ورود، شیفت مربوطه را به‌صورت خودکار تشخیص می‌دهد.
-              </p>
-            </div>
-          )}
-
           {/* Shift name */}
           <div className="space-y-1">
             <label className="text-xs text-white/50 block">نام شیفت</label>
@@ -233,20 +224,18 @@ export default function ShiftManager() {
             </div>
           )}
 
-          {/* Late allowance (administrative & normal) */}
-          {form.shiftType !== "smart" && (
-            <div className="space-y-1">
-              <label className="text-xs text-white/50 block">
-                تأخیر مجاز (دقیقه)
-                {form.shiftType === "normal" && <span className="text-white/30 mr-1">— اختیاری</span>}
-              </label>
-              <input
-                type="number" inputMode="numeric" className="input-field h-11 text-sm" min="0" max="120"
-                value={form.allowedLateMinutes}
-                onChange={e => setForm(f => ({ ...f, allowedLateMinutes: e.target.value }))}
-                data-testid="input-shift-late" />
-            </div>
-          )}
+          {/* Late allowance (all types) */}
+          <div className="space-y-1">
+            <label className="text-xs text-white/50 block">
+              تأخیر مجاز (دقیقه)
+              {form.shiftType !== "administrative" && <span className="text-white/30 mr-1">— اختیاری</span>}
+            </label>
+            <input
+              type="number" inputMode="numeric" className="input-field h-11 text-sm" min="0" max="120"
+              value={form.allowedLateMinutes}
+              onChange={e => setForm(f => ({ ...f, allowedLateMinutes: e.target.value }))}
+              data-testid="input-shift-late" />
+          </div>
 
           {/* Standard work hours (all types) */}
           <div className="space-y-1">
@@ -314,8 +303,8 @@ export default function ShiftManager() {
                   )}
                   {shift.shiftType === "smart" && (
                     <span className="flex items-center gap-1 text-xs bg-purple-500/15 text-purple-300 px-2.5 py-1 rounded-xl">
-                      <Zap size={10} />
-                      تشخیص خودکار در ورود
+                      <Brain size={10} />
+                      بدون ساعت ثابت
                     </span>
                   )}
                   {stdH != null && stdH > 0 && (

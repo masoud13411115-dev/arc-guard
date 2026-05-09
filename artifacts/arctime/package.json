@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "firebase": "^12.13.0",
-    "html5-qrcode": "^2.3.8"
+    "html5-qrcode": "^2.3.8",
+    "xlsx": "^0.18.5"
   }
 }

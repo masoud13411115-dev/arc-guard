@@ -3,9 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "./firebase";
-import { collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
-import { MapPin, QrCode, LogIn, LogOut, ArrowRight, RefreshCw, AlertCircle } from "lucide-react";
+import { MapPin, QrCode, LogIn, LogOut, ArrowRight, AlertCircle } from "lucide-react";
+import ManagerScreen from "./ManagerScreen";
 
 const queryClient = new QueryClient();
 
@@ -135,7 +136,7 @@ function AppContent() {
     if (!db) return;
     setLoadingRecords(true);
     try {
-      const q = query(collection(db, "attendance"), orderBy("createdAt", "desc"), limit(20));
+      const q = query(collection(db, "attendance"), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
       setRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (e) {
@@ -310,57 +311,12 @@ function AppContent() {
         )}
 
         {screen === "manager" && (
-          <div className="flex flex-col gap-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setScreen("home")} className="p-2 rounded-full hover:bg-white/10 transition-colors" data-testid="btn-back-manager">
-                  <ArrowRight size={24} className="rotate-180" />
-                </button>
-                <h2 className="text-xl font-bold">گزارش حضور</h2>
-              </div>
-              <button onClick={fetchRecords} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" data-testid="btn-refresh">
-                <RefreshCw size={18} className={loadingRecords ? "animate-spin" : ""} />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              {records.length === 0 && !loadingRecords ? (
-                <div className="glass-card p-10 text-center text-white/50 flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
-                    <AlertCircle size={28} className="text-white/30" />
-                  </div>
-                  <p>هنوز رکوردی ثبت نشده.</p>
-                </div>
-              ) : (
-                records.map(record => (
-                  <div key={record.id} className="glass-card p-4 flex flex-col gap-3" data-testid={`record-${record.id}`}>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-lg">{record.employeeName}</h3>
-                        <p className="text-xs text-white/50 mt-1">{record.createdAtText || "نامشخص"}</p>
-                      </div>
-                      <div className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        record.type === "check_in" ? "bg-teal-500/20 text-teal-300" : "bg-red-500/20 text-red-300"
-                      }`}>
-                        {record.type === "check_in" ? "ورود" : "خروج"}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-1 text-xs text-white/60 bg-black/20 p-2 rounded-xl">
-                      <div className="flex items-center gap-2">
-                        <MapPin size={12} />
-                        <span>فاصله از مرکز: <strong className="text-white/80">{record.distanceMeters ?? "—"} متر</strong></span>
-                      </div>
-                      {record.gps && (
-                        <div className="font-mono text-white/40 pr-4">
-                          lat: {Number(record.gps.lat).toFixed(5)} | lng: {Number(record.gps.lng).toFixed(5)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <ManagerScreen
+            records={records}
+            loading={loadingRecords}
+            onRefresh={fetchRecords}
+            onBack={() => setScreen("home")}
+          />
         )}
 
       </div>

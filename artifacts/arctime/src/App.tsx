@@ -11,7 +11,7 @@ const queryClient = new QueryClient();
 
 // Constants
 const COMPANY_ID = "arctime-demo-company";
-const BRANCH = { name: "دفتر مرکزی", lat: 36.86079, lng: 30.78304, radiusMeters: 5000000 };
+const BRANCH = { name: "دفتر مرکزی", lat: 36.86079, lng: 30.78304, radiusMeters: 50 };
 const VALID_QR_TEXT = "ARCTIME|arctime-demo-company|main-branch";
 
 // Haversine formula
@@ -105,7 +105,7 @@ function AppContent() {
 
     const dist = distanceMeters(userLat, userLng, branchLat, branchLng);
     if (dist > BRANCH.radiusMeters) {
-      setMessage({ text: `خارج از محدوده شرکت هستی. فاصله تقریبی: ${Math.round(dist)} متر`, type: "error" });
+      setMessage({ text: `شما خارج از محدوده مجاز هستید. ثبت حضور فقط تا فاصله ۵۰ متر امکان‌پذیر است. (فاصله فعلی: ${Math.round(dist)} متر)`, type: "error" });
       return;
     }
 

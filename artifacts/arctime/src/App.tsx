@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "./firebase";
-import { ref, push, get, query as dbQuery, orderByChild, limitToLast, serverTimestamp } from "firebase/database";
+import { collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "firebase/firestore";
 import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, RefreshCw, AlertCircle } from "lucide-react";
 
@@ -99,7 +99,7 @@ function AppContent() {
 
     try {
       setMessage({ text: "در حال ثبت...", type: "info" });
-      await push(ref(db, "attendance"), {
+      await addDoc(collection(db, "attendance"), {
         companyId: COMPANY_ID,
         employeeName: employeeName.trim(),
         type,
@@ -123,13 +123,9 @@ function AppContent() {
     if (!db) return;
     setLoadingRecords(true);
     try {
-      const q = dbQuery(ref(db, "attendance"), orderByChild("createdAt"), limitToLast(20));
-      const snap = await get(q);
-      const list: any[] = [];
-      snap.forEach(child => {
-        list.push({ id: child.key, ...child.val() });
-      });
-      setRecords(list.reverse()); // newest first
+      const q = query(collection(db, "attendance"), orderBy("createdAt", "desc"), limit(20));
+      const snap = await getDocs(q);
+      setRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (e) {
       console.error(e);
     }

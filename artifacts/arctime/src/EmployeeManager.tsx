@@ -112,28 +112,66 @@ export default function EmployeeManager() {
       {showForm && (
         <form
           onSubmit={handleAdd}
-          className="glass-card p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+          className="glass-card p-4 flex flex-col gap-3"
+          style={{ position: "relative", zIndex: 10 }}
         >
           <h3 className="text-sm font-bold text-white/80 mb-1">اطلاعات کارمند جدید</h3>
 
-          {[
-            { label: "نام و نام خانوادگی", key: "fullName", placeholder: "مثال: علی رضایی", testid: "input-emp-fullname" },
-            { label: "کد کارمندی", key: "employeeCode", placeholder: "مثال: EMP001", testid: "input-emp-code" },
-            { label: "نام شعبه", key: "branchName", placeholder: "مثال: دفتر مرکزی", testid: "input-emp-branch-name" },
-            { label: "شناسه شعبه (branchId)", key: "branchId", placeholder: "arctime-demo-company|main-branch", testid: "input-emp-branch-id" },
-          ].map(({ label, key, placeholder, testid }) => (
-            <div key={key} className="space-y-1">
-              <label className="text-xs text-white/50">{label}</label>
-              <input
-                type="text"
-                className="input-field h-11 text-sm"
-                placeholder={placeholder}
-                value={form[key as keyof typeof form]}
-                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                data-testid={testid}
-              />
-            </div>
-          ))}
+          <div className="space-y-1">
+            <label className="text-xs text-white/50 block">نام و نام خانوادگی</label>
+            <input
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              className="input-field h-11 text-sm"
+              placeholder="مثال: علی رضایی"
+              value={form.fullName}
+              onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))}
+              data-testid="input-emp-fullname"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-white/50 block">کد کارمندی</label>
+            <input
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              className="input-field h-11 text-sm"
+              placeholder="مثال: EMP001"
+              value={form.employeeCode}
+              onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))}
+              data-testid="input-emp-code"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-white/50 block">نام شعبه</label>
+            <input
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              className="input-field h-11 text-sm"
+              placeholder="مثال: دفتر مرکزی"
+              value={form.branchName}
+              onChange={e => setForm(f => ({ ...f, branchName: e.target.value }))}
+              data-testid="input-emp-branch-name"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-white/50 block">شناسه شعبه (branchId)</label>
+            <input
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              className="input-field h-11 text-sm"
+              placeholder="arctime-demo-company|main-branch"
+              value={form.branchId}
+              onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}
+              data-testid="input-emp-branch-id"
+            />
+          </div>
 
           {formError && <p className="text-xs text-red-400 text-center">{formError}</p>}
 

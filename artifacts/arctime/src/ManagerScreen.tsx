@@ -30,6 +30,7 @@ interface AttendanceRecord {
   lateMinutes?: number;
   isHolidayWork?: boolean;
   holidayTitle?: string;
+  isWeekendWork?: boolean;
 }
 
 // Map of branch display name → identifiers used in qrText / branchId fields
@@ -155,7 +156,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       "تأخیر": r.isLate === true ? "بله" : r.isLate === false ? "خیر" : "",
       "دقیقه تأخیر": r.lateMinutes ?? "",
       "تاریخ و ساعت": r.createdAtText ?? "",
-      "کار در تعطیلی": r.isHolidayWork ? "بله" : "خیر",
+      "کار در روز تعطیل": r.isHolidayWork ? "بله" : "خیر",
+      "تعطیل کاری": r.isWeekendWork ? "بله" : "خیر",
       "عنوان تعطیلی": r.holidayTitle ?? "",
       "فاصله از مرکز (متر)": r.distanceMeters ?? "",
       "شعبه": r.branchName ?? "",
@@ -413,10 +415,17 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
               {record.isHolidayWork && (
                 <div className="flex items-center gap-1.5 text-xs text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl">
                   <CalendarDays size={11} />
-                  کار در تعطیلی
+                  کار در روز تعطیل
                   {record.holidayTitle && (
                     <span className="mr-auto text-purple-300/60">{record.holidayTitle}</span>
                   )}
+                </div>
+              )}
+
+              {record.isWeekendWork && (
+                <div className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl">
+                  <CalendarDays size={11} />
+                  تعطیل کاری
                 </div>
               )}
             </div>

@@ -2,7 +2,8 @@ import React, { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   ChevronRight, ChevronLeft, Download, Users, LogIn, LogOut,
-  Clock, AlertTriangle, BarChart2, Building2, Hash, TrendingUp, TrendingDown
+  Clock, AlertTriangle, BarChart2, Building2, Hash, TrendingUp, TrendingDown,
+  CalendarDays
 } from "lucide-react";
 
 export interface AttendanceRecord {
@@ -23,6 +24,7 @@ export interface AttendanceRecord {
   lateMinutes?: number;
   isHolidayWork?: boolean;
   holidayTitle?: string;
+  isWeekendWork?: boolean;
 }
 
 const LATE_HOUR = 9;
@@ -157,8 +159,9 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
         return t !== null && new Date(t).getHours() >= LATE_HOUR;
       }).length;
       const holidayWork = events.filter(e => e.isHolidayWork === true).length;
+      const weekendWork = events.filter(e => e.isWeekendWork === true).length;
       const metrics = calcSessionMetrics(events);
-      return { name, code, branch, checkIns, checkOuts, lateArrivals, holidayWork, ...metrics };
+      return { name, code, branch, checkIns, checkOuts, lateArrivals, holidayWork, weekendWork, ...metrics };
     }).sort((a, b) => b.checkIns - a.checkIns);
   }, [filtered]);
 
@@ -182,7 +185,8 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       "تعداد ورود": e.checkIns,
       "تعداد خروج": e.checkOuts,
       "تأخیر": e.lateArrivals,
-      "کار در تعطیلی": e.holidayWork,
+      "کار در روز تعطیل": e.holidayWork,
+      "تعطیل کاری": e.weekendWork,
       "ساعت کارکرد": Number(e.workedHours.toFixed(2)),
       "کارکرد (ساعت:دقیقه)": fmtHours(e.workedHours),
       "اضافه‌کاری (ساعت)": Number(e.overtimeHours.toFixed(2)),
@@ -331,9 +335,15 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
               </div>
             </div>
 
-            {/* Overtime / undertime row */}
-            {(emp.overtimeHours > 0 || emp.undertimeHours > 0) && (
+            {/* Extra badges row */}
+            {(emp.weekendWork > 0 || emp.overtimeHours > 0 || emp.undertimeHours > 0) && (
               <div className="flex flex-wrap gap-2 pt-1 border-t border-white/8">
+                {emp.weekendWork > 0 && (
+                  <span className="flex items-center gap-1 text-xs bg-amber-500/15 text-amber-300 px-2.5 py-1 rounded-xl">
+                    <CalendarDays size={10} />
+                    تعطیل کاری: {emp.weekendWork}
+                  </span>
+                )}
                 {emp.overtimeHours > 0 && (
                   <span className="flex items-center gap-1 text-xs bg-green-500/15 text-green-300 px-2.5 py-1 rounded-xl">
                     <TrendingUp size={10} />
@@ -373,11 +383,11 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
               <div className={`flex flex-col items-center gap-1 rounded-2xl py-2.5 px-1 ${
                 emp.holidayWork > 0 ? "bg-purple-500/15" : "bg-white/5"
               }`}>
-                <Users size={12} className={emp.holidayWork > 0 ? "text-purple-300" : "text-white/30"} />
+                <CalendarDays size={12} className={emp.holidayWork > 0 ? "text-purple-300" : "text-white/30"} />
                 <span className={`text-base font-bold leading-none ${emp.holidayWork > 0 ? "text-purple-300" : ""}`}>
                   {emp.holidayWork}
                 </span>
-                <span className="text-[9px] text-white/45">تعطیل</span>
+                <span className="text-[9px] text-white/45">تعطیل رسمی</span>
               </div>
             </div>
           </div>

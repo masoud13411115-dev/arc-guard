@@ -232,6 +232,19 @@ function AppContent() {
       }
     } catch { /* ignore holiday fetch errors */ }
 
+    let enrichIsWeekendWork = false;
+    try {
+      const workdaySnap = await getDoc(doc(db, "settings", "workdays"));
+      const defaultDays = [6, 0, 1, 2, 3, 4]; // Sat–Thu
+      const workingDays: number[] = workdaySnap.exists()
+        ? (workdaySnap.data().workingDays as number[])
+        : defaultDays;
+      const todayDow = new Date().getDay();
+      if (!workingDays.includes(todayDow)) {
+        enrichIsWeekendWork = true;
+      }
+    } catch { /* ignore workday fetch errors */ }
+
     try {
       setMessage({ text: "در حال ثبت...", type: "info" });
       await addDoc(collection(db, "attendance"), {
@@ -252,6 +265,7 @@ function AppContent() {
         ...(enrichIsLate !== undefined && { isLate: enrichIsLate, lateMinutes: enrichLateMinutes }),
         isHolidayWork: enrichIsHolidayWork,
         ...(enrichHolidayTitle !== undefined && { holidayTitle: enrichHolidayTitle }),
+        isWeekendWork: enrichIsWeekendWork,
         createdAt: serverTimestamp(),
         createdAtText: nowText()
       });

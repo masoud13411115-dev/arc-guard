@@ -176,6 +176,8 @@ function AppContent() {
     let enrichLateMinutes: number | undefined;
     let enrichIsHolidayWork = false;
     let enrichHolidayTitle: string | undefined;
+    let enrichIsEarlyLeave: boolean | undefined;
+    let enrichEarlyLeaveMinutes: number | undefined;
 
     if (type === "check_in" && employeeProfile.shiftId) {
       try {
@@ -214,6 +216,29 @@ function AppContent() {
             // Simple smart shift: no fixed start time — just save hours for analytics
             enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
             // isLate stays undefined — no start time to compare against
+          }
+        }
+      } catch { /* ignore shift fetch errors */ }
+    }
+
+    if (type === "check_out" && employeeProfile.shiftId) {
+      try {
+        const shiftSnap = await getDoc(doc(db, "shifts", employeeProfile.shiftId));
+        if (shiftSnap.exists()) {
+          const shift = shiftSnap.data();
+          const sType = shift.shiftType as string;
+          enrichShiftName = shift.shiftName as string;
+          enrichShiftId = employeeProfile.shiftId;
+          enrichShiftType = sType;
+          enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
+          if ((sType === "administrative" || sType === "normal") && shift.endTime) {
+            const [eh, em] = (shift.endTime as string).split(":").map(Number);
+            const shiftEndMin = eh * 60 + em;
+            const now = new Date();
+            const nowMin = now.getHours() * 60 + now.getMinutes();
+            const earlyMin = shiftEndMin - nowMin;
+            enrichIsEarlyLeave = earlyMin > 0;
+            enrichEarlyLeaveMinutes = Math.max(0, earlyMin);
           }
         }
       } catch { /* ignore shift fetch errors */ }
@@ -264,6 +289,7 @@ function AppContent() {
         ...(enrichShiftEndTime !== undefined && { shiftEndTime: enrichShiftEndTime }),
         ...(enrichStandardWorkHours !== undefined && { standardWorkHours: enrichStandardWorkHours }),
         ...(enrichIsLate !== undefined && { isLate: enrichIsLate, lateMinutes: enrichLateMinutes }),
+        ...(enrichIsEarlyLeave !== undefined && { isEarlyLeave: enrichIsEarlyLeave, earlyLeaveMinutes: enrichEarlyLeaveMinutes }),
         isHolidayWork: enrichIsHolidayWork,
         ...(enrichHolidayTitle !== undefined && { holidayTitle: enrichHolidayTitle }),
         isWeekendWork: enrichIsWeekendWork,

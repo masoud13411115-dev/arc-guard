@@ -29,6 +29,8 @@ interface AttendanceRecord {
   standardWorkHours?: number;
   isLate?: boolean;
   lateMinutes?: number;
+  isEarlyLeave?: boolean;
+  earlyLeaveMinutes?: number;
   isHolidayWork?: boolean;
   holidayTitle?: string;
   isWeekendWork?: boolean;
@@ -153,6 +155,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       "نوع": r.type === "check_in" ? "ورود" : "خروج",
       "تأخیر": r.isLate === true ? "بله" : r.isLate === false ? "خیر" : "",
       "دقیقه تأخیر": r.lateMinutes ?? "",
+      "خروج زود": r.isEarlyLeave === true ? "بله" : r.isEarlyLeave === false ? "خیر" : "",
+      "دقیقه خروج زود": r.earlyLeaveMinutes ?? "",
       "تاریخ و ساعت": r.createdAtText ?? "",
       "کار در روز تعطیل": r.isHolidayWork ? "بله" : "خیر",
       "تعطیل کاری": r.isWeekendWork ? "بله" : "خیر",
@@ -406,6 +410,16 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
                   تأخیر در ورود
                   {record.lateMinutes != null && record.lateMinutes > 0 && (
                     <span className="mr-auto font-mono">{record.lateMinutes} دقیقه</span>
+                  )}
+                </div>
+              )}
+
+              {record.isEarlyLeave && record.type === "check_out" && (
+                <div className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl">
+                  <LogOut size={11} />
+                  خروج زودهنگام
+                  {record.earlyLeaveMinutes != null && record.earlyLeaveMinutes > 0 && (
+                    <span className="mr-auto font-mono">{record.earlyLeaveMinutes} دقیقه</span>
                   )}
                 </div>
               )}

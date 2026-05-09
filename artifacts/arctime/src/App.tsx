@@ -74,7 +74,18 @@ function AppContent() {
   const [qrText, setQrText] = useState("");
   const [gpsData, setGpsData] = useState<{lat: number, lng: number, accuracy: number} | null>(null);
   const [message, setMessage] = useState<{text: string, type: "success" | "error" | "info"} | null>(null);
-  
+
+  // Leave request state
+  const [showLeaveForm, setShowLeaveForm] = useState(false);
+  const [leaveType, setLeaveType] = useState<"hourly_leave" | "daily_leave" | "mission" | "excused_absence">("daily_leave");
+  const [leaveStartDate, setLeaveStartDate] = useState("");
+  const [leaveEndDate, setLeaveEndDate] = useState("");
+  const [leaveStartTime, setLeaveStartTime] = useState("");
+  const [leaveEndTime, setLeaveEndTime] = useState("");
+  const [leaveDesc, setLeaveDesc] = useState("");
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [leaveMessage, setLeaveMessage] = useState<{text: string, type: "success" | "error"} | null>(null);
+
   // Manager State
   const [records, setRecords] = useState<any[]>([]);
   const [loadingRecords, setLoadingRecords] = useState(false);
@@ -128,6 +139,44 @@ function AppContent() {
       },
       { enableHighAccuracy: true, timeout: 12000 }
     );
+  };
+
+  const submitLeaveRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db) { setLeaveMessage({ text: "اتصال به Firebase برقرار نیست.", type: "error" }); return; }
+    if (!employeeProfile) { setLeaveMessage({ text: "ابتدا کد کارمندی را جستجو کنید.", type: "error" }); return; }
+    if (!leaveStartDate.trim()) { setLeaveMessage({ text: "تاریخ شروع را وارد کنید.", type: "error" }); return; }
+    const { jalaliStrToGreg } = await import("./jalali");
+    const gregStart = jalaliStrToGreg(leaveStartDate.trim());
+    if (!gregStart) { setLeaveMessage({ text: "فرمت تاریخ اشتباه است. مثال: ۱۴۰۳/۰۸/۲۰", type: "error" }); return; }
+    const gregEnd = leaveEndDate.trim() ? jalaliStrToGreg(leaveEndDate.trim()) : null;
+    if (leaveEndDate.trim() && !gregEnd) { setLeaveMessage({ text: "فرمت تاریخ پایان اشتباه است.", type: "error" }); return; }
+    setLeaveSubmitting(true);
+    try {
+      const { toJalaliDateTime } = await import("./jalali");
+      await addDoc(collection(db, "requests"), {
+        companyId: COMPANY_ID,
+        employeeCode: employeeProfile.employeeCode,
+        employeeName: employeeProfile.fullName,
+        branchName: employeeProfile.branchName,
+        branchId: employeeProfile.branchId,
+        requestType: leaveType,
+        startDate: gregStart,
+        ...(gregEnd && { endDate: gregEnd }),
+        ...((leaveType === "hourly_leave" || leaveType === "mission") && leaveStartTime && { startTime: leaveStartTime }),
+        ...((leaveType === "hourly_leave" || leaveType === "mission") && leaveEndTime && { endTime: leaveEndTime }),
+        ...(leaveDesc.trim() && { description: leaveDesc.trim() }),
+        status: "pending",
+        createdAt: serverTimestamp(),
+        createdAtText: toJalaliDateTime(new Date()),
+      });
+      setLeaveMessage({ text: "درخواست با موفقیت ثبت شد و در انتظار تأیید مدیر است.", type: "success" });
+      setLeaveStartDate(""); setLeaveEndDate(""); setLeaveStartTime(""); setLeaveEndTime(""); setLeaveDesc("");
+      setShowLeaveForm(false);
+    } catch {
+      setLeaveMessage({ text: "خطا در ثبت درخواست. دوباره امتحان کنید.", type: "error" });
+    }
+    setLeaveSubmitting(false);
   };
 
   const submitAttendance = async (type: "check_in" | "check_out") => {
@@ -474,7 +523,129 @@ function AppContent() {
               </button>
             </div>
 
-            <div className="mt-8 p-4 rounded-2xl border border-white/5 bg-white/5 text-center">
+            {/* Leave / mission request */}
+            {employeeProfile && (
+              <div className="glass-card overflow-hidden">
+                <button
+                  onClick={() => { setShowLeaveForm(v => !v); setLeaveMessage(null); }}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📋</span>
+                    ارسال درخواست مرخصی / مأموریت
+                  </span>
+                  <span className={`text-white/40 text-xs transition-transform ${showLeaveForm ? "rotate-180" : ""}`}>▼</span>
+                </button>
+
+                {showLeaveForm && (
+                  <form onSubmit={submitLeaveRequest} className="flex flex-col gap-4 px-4 pb-4 pt-1 border-t border-white/10">
+                    {/* Type selector */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-white/60 font-medium">نوع درخواست</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          ["daily_leave", "مرخصی روزانه"],
+                          ["hourly_leave", "مرخصی ساعتی"],
+                          ["mission", "مأموریت"],
+                          ["excused_absence", "غیبت موجه"],
+                        ] as const).map(([v, label]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setLeaveType(v)}
+                            className={`py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                              leaveType === v
+                                ? "bg-blue-500/25 border-blue-500/50 text-blue-200"
+                                : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Dates */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs text-white/60">تاریخ شروع</label>
+                        <input
+                          type="text"
+                          className="input-field text-sm"
+                          placeholder="۱۴۰۳/۰۸/۲۰"
+                          value={leaveStartDate}
+                          onChange={e => setLeaveStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs text-white/60">تاریخ پایان (اختیاری)</label>
+                        <input
+                          type="text"
+                          className="input-field text-sm"
+                          placeholder="۱۴۰۳/۰۸/۲۲"
+                          value={leaveEndDate}
+                          onChange={e => setLeaveEndDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Time (only for hourly/mission) */}
+                    {(leaveType === "hourly_leave" || leaveType === "mission") && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-xs text-white/60">ساعت شروع</label>
+                          <input
+                            type="time"
+                            className="input-field text-sm"
+                            value={leaveStartTime}
+                            onChange={e => setLeaveStartTime(e.target.value)}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-xs text-white/60">ساعت پایان</label>
+                          <input
+                            type="time"
+                            className="input-field text-sm"
+                            value={leaveEndTime}
+                            onChange={e => setLeaveEndTime(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-white/60">توضیحات (اختیاری)</label>
+                      <textarea
+                        className="input-field text-sm resize-none"
+                        rows={2}
+                        placeholder="دلیل درخواست..."
+                        value={leaveDesc}
+                        onChange={e => setLeaveDesc(e.target.value)}
+                      />
+                    </div>
+
+                    {leaveMessage && (
+                      <div className={`text-xs text-center p-2.5 rounded-xl ${
+                        leaveMessage.type === "success" ? "bg-teal-500/10 text-teal-300" : "bg-red-500/10 text-red-400"
+                      }`}>
+                        {leaveMessage.text}
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={leaveSubmitting}
+                      className="btn-primary text-sm py-3 disabled:opacity-50"
+                    >
+                      {leaveSubmitting ? "در حال ثبت..." : "ارسال درخواست"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 p-4 rounded-2xl border border-white/5 bg-white/5 text-center">
               <p className="text-xs text-white/50 mb-2">مقدار معتبر برای اسکن QR (جهت تست):</p>
               <code className="text-xs text-teal-300 font-mono select-all bg-black/30 p-2 rounded-lg block">
                 {VALID_QR_TEXT}

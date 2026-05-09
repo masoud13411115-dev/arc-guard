@@ -9,6 +9,7 @@ import {
 import EmployeeManager from "./EmployeeManager";
 import Analytics from "./Analytics";
 import WorkSettings from "./WorkSettings";
+import LeaveManager from "./LeaveManager";
 
 interface AttendanceRecord {
   id: string;
@@ -108,7 +109,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const [todayOnly, setTodayOnly] = useState(false);
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | "check_in" | "check_out">("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "analytics" | "employees" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "analytics" | "leaves" | "employees" | "settings">("dashboard");
 
   const branches = useMemo(() => {
     const names = new Set<string>();
@@ -221,11 +222,11 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
 
       {/* Tabs */}
       <div className="flex rounded-2xl overflow-hidden border border-white/10">
-        {(["dashboard","analytics","employees","settings"] as const).map((t, i) => {
-          const labels: Record<string, string> = { dashboard: "گزارش", analytics: "آمار", employees: "کارمندان", settings: "تنظیمات" };
+        {(["dashboard","analytics","leaves","employees","settings"] as const).map((t, i) => {
+          const labels: Record<string, string> = { dashboard: "گزارش", analytics: "آمار", leaves: "مرخصی", employees: "کارمند", settings: "تنظیم" };
           const icons: Record<string, React.ReactNode> = {
             dashboard: <Clock size={12} />, analytics: <BarChart2 size={12} />,
-            employees: <UserCog size={12} />, settings: <Settings2 size={12} />,
+            leaves: <CalendarDays size={12} />, employees: <UserCog size={12} />, settings: <Settings2 size={12} />,
           };
           return (
             <button
@@ -448,6 +449,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       </>}
 
       {activeTab === "analytics" && <Analytics records={records} />}
+
+      {activeTab === "leaves" && <LeaveManager />}
 
       {activeTab === "employees" && <EmployeeManager />}
 

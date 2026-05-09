@@ -1,16 +1,34 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
 import {
   ChevronRight, ChevronLeft, Download, Users, LogIn, LogOut,
   Clock, AlertTriangle, BarChart2, Building2, Hash, TrendingUp, TrendingDown,
-  CalendarDays, ChevronDown, ChevronUp, Timer,
+  CalendarDays, ChevronDown, ChevronUp, Timer, Briefcase, FileCheck2,
 } from "lucide-react";
 import {
   nowJalali, addJalaliMonths, jalaliMonthRange,
-  toJalaliMonthLabel, toJalaliDate,
+  toJalaliMonthLabel, toJalaliDate, gregToJalaliStr,
 } from "./jalali";
+import { db } from "./firebase";
+import { collection, getDocs, query, where } from "firebase/firestore";
+
+const COMPANY_ID = "arctime-demo-company";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface LeaveRequest {
+  id: string;
+  employeeCode: string;
+  employeeName: string;
+  requestType: "hourly_leave" | "daily_leave" | "mission" | "excused_absence";
+  startDate: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  description?: string;
+  status: "pending" | "approved" | "rejected";
+  createdAtText?: string;
+}
 
 export interface AttendanceRecord {
   id: string;
@@ -123,12 +141,16 @@ interface EmployeeMetrics {
   requiredHours: number;
   overtimeHours: number;
   undertimeHours: number;
+  effectiveUndertimeHours: number;
   totalLateMinutes: number;
   totalEarlyLeaveMinutes: number;
+  approvedLeaveHours: number;
+  approvedMissionHours: number;
+  approvedAbsenceDays: number;
   sessions: DaySession[];
 }
 
-function calcEmployeeMetrics(events: AttendanceRecord[]): EmployeeMetrics {
+function calcEmployeeMetrics(events: AttendanceRecord[], leaveRequests: LeaveRequest[] = []): EmployeeMetrics {
   const sorted = [...events].sort(
     (a, b) => (getTimestamp(a) ?? 0) - (getTimestamp(b) ?? 0)
   );
@@ -179,13 +201,45 @@ function calcEmployeeMetrics(events: AttendanceRecord[]): EmployeeMetrics {
       openIn = null;
     }
   }
+
+  // Approved leave / mission compensation
+  let approvedLeaveMin = 0, approvedMissionMin = 0, approvedAbsenceDays = 0;
+  for (const req of leaveRequests) {
+    if (req.requestType === "hourly_leave" || req.requestType === "mission") {
+      if (req.startTime && req.endTime) {
+        const [sh, sm] = req.startTime.split(":").map(Number);
+        const [eh, em] = req.endTime.split(":").map(Number);
+        const mins = (eh * 60 + em) - (sh * 60 + sm);
+        if (mins > 0) {
+          if (req.requestType === "hourly_leave") approvedLeaveMin += mins;
+          else approvedMissionMin += mins;
+        }
+      }
+    } else if (req.requestType === "daily_leave") {
+      const sD = new Date(req.startDate + "T00:00:00");
+      const eD = new Date((req.endDate || req.startDate) + "T00:00:00");
+      const days = Math.max(1, Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1);
+      approvedLeaveMin += days * 8 * 60;
+    } else if (req.requestType === "excused_absence") {
+      const sD = new Date(req.startDate + "T00:00:00");
+      const eD = new Date((req.endDate || req.startDate) + "T00:00:00");
+      approvedAbsenceDays += Math.max(1, Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1);
+    }
+  }
+  const coveredMs = (approvedLeaveMin + approvedMissionMin) * 60000;
+  const effectiveUndertimeMs = Math.max(0, undertimeMs - coveredMs);
+
   return {
     workedHours: workedMs / 3_600_000,
     requiredHours: requiredMs / 3_600_000,
     overtimeHours: overtimeMs / 3_600_000,
     undertimeHours: undertimeMs / 3_600_000,
+    effectiveUndertimeHours: effectiveUndertimeMs / 3_600_000,
     totalLateMinutes: totalLateMin,
     totalEarlyLeaveMinutes: totalEarlyMin,
+    approvedLeaveHours: approvedLeaveMin / 60,
+    approvedMissionHours: approvedMissionMin / 60,
+    approvedAbsenceDays,
     sessions,
   };
 }
@@ -225,6 +279,23 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
   const [jYear, setJYear] = useState(initJ.jy);
   const [jMonth, setJMonth] = useState(initJ.jm);
   const [expandedEmps, setExpandedEmps] = useState<Set<string>>(new Set());
+  const [approvedRequests, setApprovedRequests] = useState<LeaveRequest[]>([]);
+
+  useEffect(() => {
+    async function fetchApproved() {
+      if (!db) return;
+      try {
+        const q = query(
+          collection(db, "requests"),
+          where("companyId", "==", COMPANY_ID),
+          where("status", "==", "approved"),
+        );
+        const snap = await getDocs(q);
+        setApprovedRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest)));
+      } catch { /* ignore */ }
+    }
+    fetchApproved();
+  }, []);
 
   const toggleExpand = (k: string) =>
     setExpandedEmps(prev => { const s = new Set(prev); s.has(k) ? s.delete(k) : s.add(k); return s; });
@@ -239,6 +310,14 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
     const s = start.getTime(), e = end.getTime();
     return records.filter(r => { const t = getTimestamp(r); return t !== null && t >= s && t <= e; });
   }, [records, jYear, jMonth]);
+
+  const monthApprovedRequests = useMemo(() => {
+    const { start, end } = jalaliMonthRange(jYear, jMonth);
+    return approvedRequests.filter(r => {
+      const d = new Date(r.startDate + "T00:00:00");
+      return d >= start && d <= end;
+    });
+  }, [approvedRequests, jYear, jMonth]);
 
   const employeeStats = useMemo(() => {
     const map = new Map<string, { name: string; code: string; branch: string; events: AttendanceRecord[] }>();
@@ -260,10 +339,11 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       const earlyLeaves = events.filter(e => e.type === "check_out" && e.isEarlyLeave === true).length;
       const holidayWork = events.filter(e => e.isHolidayWork === true).length;
       const weekendWork = events.filter(e => e.isWeekendWork === true).length;
-      const metrics = calcEmployeeMetrics(events);
+      const empRequests = monthApprovedRequests.filter(r => r.employeeCode === code);
+      const metrics = calcEmployeeMetrics(events, empRequests);
       return { name, code, branch, checkIns, checkOuts, lateArrivals, earlyLeaves, holidayWork, weekendWork, ...metrics };
     }).sort((a, b) => b.checkIns - a.checkIns);
-  }, [filtered]);
+  }, [filtered, monthApprovedRequests]);
 
   const summary = useMemo(() => ({
     activeEmployees: employeeStats.length,
@@ -292,6 +372,13 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       "اضافه‌کاری (س:د)": fmtHours(e.overtimeHours),
       "کسر کاری (اعشار)": Number(e.undertimeHours.toFixed(2)),
       "کسر کاری (س:د)": fmtHours(e.undertimeHours),
+      "مرخصی تأییدشده (اعشار)": Number(e.approvedLeaveHours.toFixed(2)),
+      "مرخصی تأییدشده (س:د)": fmtHours(e.approvedLeaveHours),
+      "مأموریت تأییدشده (اعشار)": Number(e.approvedMissionHours.toFixed(2)),
+      "مأموریت تأییدشده (س:د)": fmtHours(e.approvedMissionHours),
+      "غیبت موجه (روز)": e.approvedAbsenceDays,
+      "کسر کاری موثر (اعشار)": Number(e.effectiveUndertimeHours.toFixed(2)),
+      "کسر کاری موثر (س:د)": fmtHours(e.effectiveUndertimeHours),
       "تعداد ورود": e.checkIns,
       "تعداد خروج": e.checkOuts,
       "دفعات تأخیر": e.lateArrivals,
@@ -511,6 +598,38 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
                   </div>
                 )}
               </div>
+
+              {/* Approved leave / mission / absence */}
+              {(emp.approvedLeaveHours > 0 || emp.approvedMissionHours > 0 || emp.approvedAbsenceDays > 0) && (
+                <div className="flex flex-col gap-2 pt-1 border-t border-white/8">
+                  <div className="text-[10px] text-white/35 px-0.5">مرخصی و مأموریت تأییدشده:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {emp.approvedLeaveHours > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-xl border bg-blue-500/15 border-blue-500/25 text-blue-300">
+                        <CalendarDays size={9} />مرخصی: {fmtHours(emp.approvedLeaveHours)}
+                      </span>
+                    )}
+                    {emp.approvedMissionHours > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-xl border bg-purple-500/15 border-purple-500/25 text-purple-300">
+                        <Briefcase size={9} />مأموریت: {fmtHours(emp.approvedMissionHours)}
+                      </span>
+                    )}
+                    {emp.approvedAbsenceDays > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-xl border bg-amber-500/15 border-amber-500/25 text-amber-300">
+                        <FileCheck2 size={9} />غیبت موجه: {emp.approvedAbsenceDays} روز
+                      </span>
+                    )}
+                  </div>
+                  {emp.effectiveUndertimeHours < emp.undertimeHours && emp.undertimeHours > 0 && (
+                    <div className="flex items-center justify-between text-xs px-0.5">
+                      <span className="text-white/40">کسر کاری پس از کسر مرخصی:</span>
+                      <span className={`font-bold ${emp.effectiveUndertimeHours > 0 ? "text-orange-300" : "text-teal-300"}`}>
+                        {emp.effectiveUndertimeHours > 0 ? fmtHours(emp.effectiveUndertimeHours) : "جبران شده ✓"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Expandable daily sessions */}
               {emp.sessions.length > 0 && (

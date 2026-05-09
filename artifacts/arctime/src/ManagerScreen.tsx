@@ -2,9 +2,10 @@ import React, { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   ArrowRight, RefreshCw, Download, Users, LogIn, LogOut,
-  Clock, MapPin, Search, Filter, AlertCircle, Building2, UserCog
+  Clock, MapPin, Search, Filter, AlertCircle, Building2, UserCog, BarChart2
 } from "lucide-react";
 import EmployeeManager from "./EmployeeManager";
+import Analytics from "./Analytics";
 
 interface AttendanceRecord {
   id: string;
@@ -87,7 +88,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const [todayOnly, setTodayOnly] = useState(false);
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | "check_in" | "check_out">("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "employees">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "analytics" | "employees">("dashboard");
 
   const branches = useMemo(() => {
     const names = new Set<string>();
@@ -190,22 +191,32 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       <div className="flex rounded-2xl overflow-hidden border border-white/10">
         <button
           onClick={() => setActiveTab("dashboard")}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors ${
             activeTab === "dashboard" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
           }`}
           data-testid="tab-dashboard"
         >
-          <Clock size={14} />
-          گزارش حضور
+          <Clock size={13} />
+          گزارش
+        </button>
+        <button
+          onClick={() => setActiveTab("analytics")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors border-x border-white/10 ${
+            activeTab === "analytics" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
+          }`}
+          data-testid="tab-analytics"
+        >
+          <BarChart2 size={13} />
+          آمار ماهانه
         </button>
         <button
           onClick={() => setActiveTab("employees")}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors ${
             activeTab === "employees" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
           }`}
           data-testid="tab-employees"
         >
-          <UserCog size={14} />
+          <UserCog size={13} />
           کارمندان
         </button>
       </div>
@@ -366,6 +377,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       </div>
 
       </>}
+
+      {activeTab === "analytics" && <Analytics records={records} />}
 
       {activeTab === "employees" && <EmployeeManager />}
     </div>

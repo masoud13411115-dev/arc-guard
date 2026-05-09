@@ -13,7 +13,22 @@ interface AttendanceRecord {
   createdAt?: { toDate?: () => Date; seconds?: number };
   distanceMeters?: number;
   branchName?: string;
+  branchId?: string;
+  qrText?: string;
   gps?: { lat: number; lng: number };
+}
+
+// Map of branch display name → identifiers used in qrText / branchId fields
+const BRANCH_IDENTIFIERS: Record<string, string[]> = {
+  "دفتر مرکزی": ["arctime-demo-company|main-branch", "main-branch"],
+};
+
+function matchesBranch(r: AttendanceRecord, branchFilter: string): boolean {
+  if (String(r.branchName ?? "") === branchFilter) return true;
+  if (String(r.branchId ?? "") === branchFilter) return true;
+  const ids = BRANCH_IDENTIFIERS[branchFilter] ?? [];
+  const qr = String(r.qrText ?? "");
+  return ids.some(id => qr.includes(id));
 }
 
 interface Props {
@@ -71,15 +86,23 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | "check_in" | "check_out">("");
 
-  const branches = useMemo(() =>
-    [...new Set(records.map(r => r.branchName).filter(Boolean) as string[])],
-    [records]
-  );
+  const branches = useMemo(() => {
+    const names = new Set<string>();
+    records.forEach(r => {
+      if (r.branchName) { names.add(r.branchName); return; }
+      // Fall back: derive display name from qrText / branchId
+      for (const [displayName, ids] of Object.entries(BRANCH_IDENTIFIERS)) {
+        const qr = String(r.qrText ?? r.branchId ?? "");
+        if (ids.some(id => qr.includes(id))) { names.add(displayName); break; }
+      }
+    });
+    return [...names];
+  }, [records]);
 
   const filtered = useMemo(() => records.filter(r => {
     if (todayOnly && !isToday(r)) return false;
     if (nameFilter.trim() !== "" && !String(r.employeeName ?? "").includes(nameFilter.trim())) return false;
-    if (branchFilter !== "" && String(r.branchName ?? "") !== branchFilter) return false;
+    if (branchFilter !== "" && !matchesBranch(r, branchFilter)) return false;
     if (typeFilter !== "" && String(r.type ?? "") !== typeFilter) return false;
     return true;
   }), [records, todayOnly, nameFilter, branchFilter, typeFilter]);

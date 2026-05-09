@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "./firebase";
-import { collection, addDoc, getDocs, query, orderBy, where, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, getDocs, getDoc, query, orderBy, where, serverTimestamp, doc } from "firebase/firestore";
 import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, AlertCircle } from "lucide-react";
 import ManagerScreen from "./ManagerScreen";
@@ -67,7 +67,7 @@ function AppContent() {
   // Employee State
   const [employeeCode, setEmployeeCode] = useState("");
   const [employeeProfile, setEmployeeProfile] = useState<{
-    fullName: string; employeeCode: string; branchName: string; branchId: string;
+    fullName: string; employeeCode: string; branchName: string; branchId: string; shiftId?: string;
   } | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const [qrText, setQrText] = useState("");
@@ -97,7 +97,7 @@ function AppContent() {
         setMessage({ text: "کارمندی با این کد یافت نشد. لطفاً با مدیر تماس بگیرید.", type: "error" });
       } else {
         const data = snap.docs[0].data();
-        setEmployeeProfile({ fullName: data.fullName, employeeCode: data.employeeCode, branchName: data.branchName, branchId: data.branchId });
+        setEmployeeProfile({ fullName: data.fullName, employeeCode: data.employeeCode, branchName: data.branchName, branchId: data.branchId, shiftId: data.shiftId });
         setMessage({ text: `خوش آمدید، ${data.fullName}!`, type: "success" });
       }
     } catch {
@@ -165,6 +165,47 @@ function AppContent() {
       return;
     }
 
+    // --- Shift & holiday enrichment ---
+    let enrichShiftName: string | undefined;
+    let enrichShiftId: string | undefined;
+    let enrichIsLate: boolean | undefined;
+    let enrichLateMinutes: number | undefined;
+    let enrichIsHolidayWork = false;
+    let enrichHolidayTitle: string | undefined;
+
+    if (type === "check_in" && employeeProfile.shiftId) {
+      try {
+        const shiftSnap = await getDoc(doc(db, "shifts", employeeProfile.shiftId));
+        if (shiftSnap.exists()) {
+          const shift = shiftSnap.data();
+          enrichShiftName = shift.shiftName as string;
+          enrichShiftId = employeeProfile.shiftId;
+          const [sh, sm] = (shift.startTime as string).split(":").map(Number);
+          const shiftStartMin = sh * 60 + sm;
+          const checkNow = new Date();
+          const nowMin = checkNow.getHours() * 60 + checkNow.getMinutes();
+          const diff = nowMin - shiftStartMin;
+          const allowed = Number(shift.allowedLateMinutes) || 0;
+          enrichIsLate = diff > allowed;
+          enrichLateMinutes = Math.max(0, diff);
+        }
+      } catch { /* ignore shift fetch errors */ }
+    }
+
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const holidaysQ = query(collection(db, "holidays"), where("holidayDate", "==", todayStr));
+      const holidaysSnap = await getDocs(holidaysQ);
+      const todayHoliday = holidaysSnap.docs.find(d => {
+        const hd = d.data();
+        return hd.branchId === "all" || hd.branchId === employeeProfile!.branchId;
+      });
+      if (todayHoliday) {
+        enrichIsHolidayWork = true;
+        enrichHolidayTitle = todayHoliday.data().holidayTitle as string;
+      }
+    } catch { /* ignore holiday fetch errors */ }
+
     try {
       setMessage({ text: "در حال ثبت...", type: "info" });
       await addDoc(collection(db, "attendance"), {
@@ -177,6 +218,11 @@ function AppContent() {
         branchId: employeeProfile.branchId,
         gps: { lat: userLat, lng: userLng },
         distanceMeters: Math.round(dist),
+        ...(enrichShiftName !== undefined && { shiftName: enrichShiftName }),
+        ...(enrichShiftId !== undefined && { shiftId: enrichShiftId }),
+        ...(enrichIsLate !== undefined && { isLate: enrichIsLate, lateMinutes: enrichLateMinutes }),
+        isHolidayWork: enrichIsHolidayWork,
+        ...(enrichHolidayTitle !== undefined && { holidayTitle: enrichHolidayTitle }),
         createdAt: serverTimestamp(),
         createdAtText: nowText()
       });

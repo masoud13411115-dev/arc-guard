@@ -15,6 +15,11 @@ export interface AttendanceRecord {
   distanceMeters?: number;
   branchName?: string;
   branchId?: string;
+  shiftName?: string;
+  isLate?: boolean;
+  lateMinutes?: number;
+  isHolidayWork?: boolean;
+  holidayTitle?: string;
 }
 
 const LATE_HOUR = 9;
@@ -122,11 +127,13 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       const checkOuts = events.filter(e => e.type === "check_out").length;
       const lateArrivals = events.filter(e => {
         if (e.type !== "check_in") return false;
+        if (e.isLate !== undefined) return e.isLate === true;
         const t = getTimestamp(e);
         return t !== null && new Date(t).getHours() >= LATE_HOUR;
       }).length;
+      const holidayWork = events.filter(e => e.isHolidayWork === true).length;
       const workedHours = calcWorkedHours(events);
-      return { name, code, branch, checkIns, checkOuts, lateArrivals, workedHours };
+      return { name, code, branch, checkIns, checkOuts, lateArrivals, holidayWork, workedHours };
     }).sort((a, b) => b.checkIns - a.checkIns);
   }, [filtered]);
 
@@ -277,25 +284,34 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
             </div>
 
             {/* Stat pills */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="flex flex-col items-center gap-1 bg-indigo-500/10 rounded-2xl py-2.5 px-2">
-                <LogIn size={13} className="text-indigo-300" />
-                <span className="text-lg font-bold leading-none">{emp.checkIns}</span>
-                <span className="text-[10px] text-white/45">ورود</span>
+            <div className="grid grid-cols-4 gap-1.5">
+              <div className="flex flex-col items-center gap-1 bg-indigo-500/10 rounded-2xl py-2.5 px-1">
+                <LogIn size={12} className="text-indigo-300" />
+                <span className="text-base font-bold leading-none">{emp.checkIns}</span>
+                <span className="text-[9px] text-white/45">ورود</span>
               </div>
-              <div className="flex flex-col items-center gap-1 bg-orange-500/10 rounded-2xl py-2.5 px-2">
-                <LogOut size={13} className="text-orange-300" />
-                <span className="text-lg font-bold leading-none">{emp.checkOuts}</span>
-                <span className="text-[10px] text-white/45">خروج</span>
+              <div className="flex flex-col items-center gap-1 bg-orange-500/10 rounded-2xl py-2.5 px-1">
+                <LogOut size={12} className="text-orange-300" />
+                <span className="text-base font-bold leading-none">{emp.checkOuts}</span>
+                <span className="text-[9px] text-white/45">خروج</span>
               </div>
-              <div className={`flex flex-col items-center gap-1 rounded-2xl py-2.5 px-2 ${
+              <div className={`flex flex-col items-center gap-1 rounded-2xl py-2.5 px-1 ${
                 emp.lateArrivals > 0 ? "bg-red-500/15" : "bg-white/5"
               }`}>
-                <AlertTriangle size={13} className={emp.lateArrivals > 0 ? "text-red-300" : "text-white/30"} />
-                <span className={`text-lg font-bold leading-none ${emp.lateArrivals > 0 ? "text-red-300" : ""}`}>
+                <AlertTriangle size={12} className={emp.lateArrivals > 0 ? "text-red-300" : "text-white/30"} />
+                <span className={`text-base font-bold leading-none ${emp.lateArrivals > 0 ? "text-red-300" : ""}`}>
                   {emp.lateArrivals}
                 </span>
-                <span className="text-[10px] text-white/45">تأخیر</span>
+                <span className="text-[9px] text-white/45">تأخیر</span>
+              </div>
+              <div className={`flex flex-col items-center gap-1 rounded-2xl py-2.5 px-1 ${
+                emp.holidayWork > 0 ? "bg-purple-500/15" : "bg-white/5"
+              }`}>
+                <Users size={12} className={emp.holidayWork > 0 ? "text-purple-300" : "text-white/30"} />
+                <span className={`text-base font-bold leading-none ${emp.holidayWork > 0 ? "text-purple-300" : ""}`}>
+                  {emp.holidayWork}
+                </span>
+                <span className="text-[9px] text-white/45">تعطیل</span>
               </div>
             </div>
           </div>

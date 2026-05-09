@@ -2,9 +2,9 @@ import React, { useState, useEffect } from "react";
 import { db } from "./firebase";
 import {
   collection, addDoc, getDocs, query, orderBy,
-  serverTimestamp, deleteDoc, doc
+  serverTimestamp, deleteDoc, doc, updateDoc
 } from "firebase/firestore";
-import { UserPlus, Users, Trash2, RefreshCw, AlertCircle, Building2, Hash } from "lucide-react";
+import { UserPlus, Users, Trash2, RefreshCw, AlertCircle, Building2, Hash, Clock } from "lucide-react";
 
 export interface Employee {
   id: string;
@@ -12,13 +12,21 @@ export interface Employee {
   employeeCode: string;
   branchName: string;
   branchId: string;
+  shiftId?: string;
+}
+
+interface ShiftOption {
+  id: string;
+  shiftName: string;
 }
 
 export default function EmployeeManager() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [shifts, setShifts] = useState<ShiftOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
   const [form, setForm] = useState({
     fullName: "",
     employeeCode: "",
@@ -27,20 +35,23 @@ export default function EmployeeManager() {
   });
   const [formError, setFormError] = useState("");
 
-  const fetchEmployees = async () => {
+  const fetchAll = async () => {
     if (!db) return;
     setLoading(true);
     try {
-      const q = query(collection(db, "employees"), orderBy("fullName", "asc"));
-      const snap = await getDocs(q);
-      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+      const [empSnap, shiftSnap] = await Promise.all([
+        getDocs(query(collection(db, "employees"), orderBy("fullName", "asc"))),
+        getDocs(query(collection(db, "shifts"), orderBy("shiftName", "asc"))),
+      ]);
+      setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+      setShifts(shiftSnap.docs.map(d => ({ id: d.id, shiftName: d.data().shiftName as string })));
     } catch (e) {
       console.error(e);
     }
     setLoading(false);
   };
 
-  useEffect(() => { fetchEmployees(); }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +77,7 @@ export default function EmployeeManager() {
       setForm({ fullName: "", employeeCode: "", branchName: "دفتر مرکزی", branchId: "arctime-demo-company|main-branch" });
       setShowForm(false);
       setFormError("");
-      await fetchEmployees();
+      await fetchAll();
     } catch {
       setFormError("خطا در ذخیره‌سازی. دوباره تلاش کنید.");
     }
@@ -84,6 +95,25 @@ export default function EmployeeManager() {
     }
   };
 
+  const handleAssignShift = async (employeeId: string, shiftId: string) => {
+    if (!db) return;
+    setAssigningId(employeeId);
+    try {
+      await updateDoc(doc(db, "employees", employeeId), { shiftId: shiftId || null });
+      setEmployees(prev => prev.map(e =>
+        e.id === employeeId ? { ...e, shiftId: shiftId || undefined } : e
+      ));
+    } catch (e) {
+      console.error(e);
+    }
+    setAssigningId(null);
+  };
+
+  const getShiftName = (shiftId?: string) => {
+    if (!shiftId) return null;
+    return shifts.find(s => s.id === shiftId)?.shiftName ?? null;
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -93,7 +123,7 @@ export default function EmployeeManager() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchEmployees}
+            onClick={fetchAll}
             className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
@@ -120,9 +150,7 @@ export default function EmployeeManager() {
           <div className="space-y-1">
             <label className="text-xs text-white/50 block">نام و نام خانوادگی</label>
             <input
-              type="text"
-              inputMode="text"
-              autoComplete="off"
+              type="text" inputMode="text" autoComplete="off"
               className="input-field h-11 text-sm"
               placeholder="مثال: علی رضایی"
               value={form.fullName}
@@ -134,9 +162,7 @@ export default function EmployeeManager() {
           <div className="space-y-1">
             <label className="text-xs text-white/50 block">کد کارمندی</label>
             <input
-              type="text"
-              inputMode="text"
-              autoComplete="off"
+              type="text" inputMode="text" autoComplete="off"
               className="input-field h-11 text-sm"
               placeholder="مثال: EMP001"
               value={form.employeeCode}
@@ -148,9 +174,7 @@ export default function EmployeeManager() {
           <div className="space-y-1">
             <label className="text-xs text-white/50 block">نام شعبه</label>
             <input
-              type="text"
-              inputMode="text"
-              autoComplete="off"
+              type="text" inputMode="text" autoComplete="off"
               className="input-field h-11 text-sm"
               placeholder="مثال: دفتر مرکزی"
               value={form.branchName}
@@ -162,9 +186,7 @@ export default function EmployeeManager() {
           <div className="space-y-1">
             <label className="text-xs text-white/50 block">شناسه شعبه (branchId)</label>
             <input
-              type="text"
-              inputMode="text"
-              autoComplete="off"
+              type="text" inputMode="text" autoComplete="off"
               className="input-field h-11 text-sm"
               placeholder="arctime-demo-company|main-branch"
               value={form.branchId}
@@ -209,27 +231,57 @@ export default function EmployeeManager() {
         employees.map(emp => (
           <div
             key={emp.id}
-            className="glass-card p-4 flex items-start justify-between gap-3"
+            className="glass-card p-4 flex flex-col gap-3"
             data-testid={`employee-${emp.id}`}
           >
-            <div className="flex flex-col gap-1.5 min-w-0">
-              <p className="font-bold">{emp.fullName}</p>
-              <div className="flex items-center gap-1.5 text-xs text-white/50">
-                <Hash size={10} />
-                <span className="font-mono">{emp.employeeCode}</span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <p className="font-bold">{emp.fullName}</p>
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
+                  <Hash size={10} />
+                  <span className="font-mono">{emp.employeeCode}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
+                  <Building2 size={10} />
+                  <span>{emp.branchName}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-white/50">
-                <Building2 size={10} />
-                <span>{emp.branchName}</span>
-              </div>
+              <button
+                onClick={() => handleDelete(emp.id)}
+                className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors shrink-0 mt-0.5"
+                data-testid={`btn-delete-emp-${emp.id}`}
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
-            <button
-              onClick={() => handleDelete(emp.id)}
-              className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors shrink-0 mt-0.5"
-              data-testid={`btn-delete-emp-${emp.id}`}
-            >
-              <Trash2 size={14} />
-            </button>
+
+            {/* Shift assignment */}
+            <div className="flex items-center gap-2 pt-1 border-t border-white/8">
+              <Clock size={12} className="text-blue-300 shrink-0" />
+              <span className="text-xs text-white/50 shrink-0">شیفت:</span>
+              {shifts.length === 0 ? (
+                <span className="text-xs text-white/30 italic">ابتدا شیفت تعریف کنید</span>
+              ) : (
+                <select
+                  className="flex-1 bg-white/8 border border-white/12 rounded-xl px-2 py-1.5 text-xs text-white appearance-none cursor-pointer"
+                  value={emp.shiftId ?? ""}
+                  onChange={e => handleAssignShift(emp.id, e.target.value)}
+                  disabled={assigningId === emp.id}
+                  data-testid={`select-shift-${emp.id}`}
+                >
+                  <option value="">— بدون شیفت —</option>
+                  {shifts.map(s => (
+                    <option key={s.id} value={s.id}>{s.shiftName}</option>
+                  ))}
+                </select>
+              )}
+              {assigningId === emp.id && (
+                <RefreshCw size={12} className="animate-spin text-blue-400 shrink-0" />
+              )}
+              {emp.shiftId && assigningId !== emp.id && (
+                <span className="text-[10px] text-teal-400 shrink-0">✓</span>
+              )}
+            </div>
           </div>
         ))
       )}

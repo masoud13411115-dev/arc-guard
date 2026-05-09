@@ -2,10 +2,12 @@ import React, { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   ArrowRight, RefreshCw, Download, Users, LogIn, LogOut,
-  Clock, MapPin, Search, Filter, AlertCircle, Building2, UserCog, BarChart2
+  Clock, MapPin, Search, Filter, AlertCircle, Building2, UserCog, BarChart2,
+  CalendarDays, Settings2
 } from "lucide-react";
 import EmployeeManager from "./EmployeeManager";
 import Analytics from "./Analytics";
+import WorkSettings from "./WorkSettings";
 
 interface AttendanceRecord {
   id: string;
@@ -19,6 +21,12 @@ interface AttendanceRecord {
   branchId?: string;
   qrText?: string;
   gps?: { lat: number; lng: number };
+  shiftName?: string;
+  shiftId?: string;
+  isLate?: boolean;
+  lateMinutes?: number;
+  isHolidayWork?: boolean;
+  holidayTitle?: string;
 }
 
 // Map of branch display name → identifiers used in qrText / branchId fields
@@ -59,8 +67,9 @@ function isToday(r: AttendanceRecord): boolean {
     d.getDate() === now.getDate();
 }
 
-function isLate(r: AttendanceRecord): boolean {
+function computeLate(r: AttendanceRecord): boolean {
   if (r.type !== "check_in") return false;
+  if (r.isLate !== undefined) return r.isLate === true;
   const d = getDate(r);
   if (!d) return false;
   return d.getHours() >= LATE_HOUR;
@@ -88,7 +97,7 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
   const [todayOnly, setTodayOnly] = useState(false);
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | "check_in" | "check_out">("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "analytics" | "employees">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "analytics" | "employees" | "settings">("dashboard");
 
   const branches = useMemo(() => {
     const names = new Set<string>();
@@ -122,23 +131,30 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
     ).size,
     checkIns: filtered.filter(r => String(r.type) === "check_in").length,
     checkOuts: filtered.filter(r => String(r.type) === "check_out").length,
-    lateArrivals: filtered.filter(r => isLate(r) && isToday(r)).length,
+    lateArrivals: filtered.filter(r => computeLate(r) && isToday(r)).length,
   }), [filtered]);
 
   const exportExcel = () => {
     const rows = filtered.map(r => ({
       "نام کارمند": r.employeeName ?? "",
       "کد کارمندی": r.employeeCode ?? "",
+      "شیفت": r.shiftName ?? "",
       "نوع": r.type === "check_in" ? "ورود" : "خروج",
+      "تأخیر": r.isLate === true ? "بله" : r.isLate === false ? "خیر" : "",
+      "دقیقه تأخیر": r.lateMinutes ?? "",
       "تاریخ و ساعت": r.createdAtText ?? "",
+      "کار در تعطیلی": r.isHolidayWork ? "بله" : "خیر",
+      "عنوان تعطیلی": r.holidayTitle ?? "",
       "فاصله از مرکز (متر)": r.distanceMeters ?? "",
       "شعبه": r.branchName ?? "",
-      "شناسه شعبه": r.branchId ?? "",
       "عرض جغرافیایی": r.gps?.lat ?? "",
       "طول جغرافیایی": r.gps?.lng ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 22 }, { wch: 14 }, { wch: 14 }];
+    ws["!cols"] = [
+      { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 10 },
+      { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 15 }, { wch: 14 }, { wch: 14 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "حضور و غیاب");
     XLSX.writeFile(wb, `arctime-${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -189,36 +205,26 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
 
       {/* Tabs */}
       <div className="flex rounded-2xl overflow-hidden border border-white/10">
-        <button
-          onClick={() => setActiveTab("dashboard")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors ${
-            activeTab === "dashboard" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
-          }`}
-          data-testid="tab-dashboard"
-        >
-          <Clock size={13} />
-          گزارش
-        </button>
-        <button
-          onClick={() => setActiveTab("analytics")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors border-x border-white/10 ${
-            activeTab === "analytics" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
-          }`}
-          data-testid="tab-analytics"
-        >
-          <BarChart2 size={13} />
-          آمار ماهانه
-        </button>
-        <button
-          onClick={() => setActiveTab("employees")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors ${
-            activeTab === "employees" ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
-          }`}
-          data-testid="tab-employees"
-        >
-          <UserCog size={13} />
-          کارمندان
-        </button>
+        {(["dashboard","analytics","employees","settings"] as const).map((t, i) => {
+          const labels: Record<string, string> = { dashboard: "گزارش", analytics: "آمار", employees: "کارمندان", settings: "تنظیمات" };
+          const icons: Record<string, React.ReactNode> = {
+            dashboard: <Clock size={12} />, analytics: <BarChart2 size={12} />,
+            employees: <UserCog size={12} />, settings: <Settings2 size={12} />,
+          };
+          return (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
+              className={`flex-1 flex items-center justify-center gap-1 py-3 text-[11px] font-semibold transition-colors ${i > 0 ? "border-r border-white/10" : ""} ${
+                activeTab === t ? "bg-white/15 text-white" : "text-white/45 hover:text-white/70"
+              }`}
+              data-testid={`tab-${t}`}
+            >
+              {icons[t]}
+              {labels[t]}
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === "dashboard" && <>
@@ -340,10 +346,15 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
         ) : (
           filtered.map(record => (
             <div key={record.id} className="glass-card p-4 flex flex-col gap-3" data-testid={`record-${record.id}`}>
-              <div className="flex justify-between items-start">
-                <div className="flex flex-col gap-0.5">
-                  <h3 className="font-bold">{record.employeeName ?? "—"}</h3>
+              <div className="flex justify-between items-start gap-2">
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <h3 className="font-bold truncate">{record.employeeName ?? "—"}</h3>
                   <p className="text-xs text-white/50">{record.createdAtText ?? "نامشخص"}</p>
+                  {record.shiftName && (
+                    <span className="flex items-center gap-1 text-[10px] text-blue-300/70 mt-0.5">
+                      <Clock size={9} />{record.shiftName}
+                    </span>
+                  )}
                 </div>
                 <div className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${
                   record.type === "check_in"
@@ -365,10 +376,23 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
                 </div>
               </div>
 
-              {isLate(record) && record.type === "check_in" && (
+              {computeLate(record) && record.type === "check_in" && (
                 <div className="flex items-center gap-1.5 text-xs text-red-300 bg-red-500/10 px-3 py-1.5 rounded-xl">
                   <Clock size={11} />
                   تأخیر در ورود
+                  {record.lateMinutes != null && record.lateMinutes > 0 && (
+                    <span className="mr-auto font-mono">{record.lateMinutes} دقیقه</span>
+                  )}
+                </div>
+              )}
+
+              {record.isHolidayWork && (
+                <div className="flex items-center gap-1.5 text-xs text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl">
+                  <CalendarDays size={11} />
+                  کار در تعطیلی
+                  {record.holidayTitle && (
+                    <span className="mr-auto text-purple-300/60">{record.holidayTitle}</span>
+                  )}
                 </div>
               )}
             </div>
@@ -381,6 +405,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       {activeTab === "analytics" && <Analytics records={records} />}
 
       {activeTab === "employees" && <EmployeeManager />}
+
+      {activeTab === "settings" && <WorkSettings />}
     </div>
   );
 }

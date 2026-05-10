@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   MapPin, Plus, QrCode, Trash2, Shield, Clock,
-  CheckCircle, Pencil, X, Download, ChevronDown, ChevronUp
+  CheckCircle, Pencil, X, Download, ChevronDown, ChevronUp, Info
 } from "lucide-react";
 import { saveCheckpoint, updateCheckpoint, deleteCheckpoint, subscribeCheckpoints } from "@/lib/firestore";
 import { getCurrentPosition } from "@/lib/gps";
-import { db } from "@/firebase";
+import { isFirebaseReady } from "@/firebase";
+import { DEMO_CHECKPOINTS } from "@/lib/demo";
 import type { Checkpoint } from "@/types";
 
 interface CheckpointManagerProps {
@@ -31,16 +32,18 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const qrRefs = useRef<Record<string, SVGSVGElement | null>>({});
+  const isDemo = !isFirebaseReady;
 
   useEffect(() => {
-    if (!db) return;
+    if (!isFirebaseReady) {
+      setCheckpoints(DEMO_CHECKPOINTS);
+      return;
+    }
     return subscribeCheckpoints(companyId, setCheckpoints);
   }, [companyId]);
 
   const setF = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
-
   const openCreate = () => { setEditId(null); setForm(EMPTY_FORM); setShowForm(true); };
-
   const openEdit = (cp: Checkpoint) => {
     setEditId(cp.id);
     setForm({ name: cp.name, location: cp.location ?? "", lat: String(cp.lat), lng: String(cp.lng), radiusMeters: String(cp.radiusMeters), schedule: "every-2h" });
@@ -67,6 +70,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDemo) { alert("در حالت نمونه ذخیره‌سازی غیرفعال است. Firebase را پیکربندی کنید."); return; }
     if (!form.name || !form.lat || !form.lng) return;
     setSaving(true);
     try {
@@ -78,26 +82,18 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         radiusMeters: parseInt(form.radiusMeters),
         scheduledMinutes: scheduleToMinutes(form.schedule),
         active: true,
-        qrCode: editId
-          ? (checkpoints.find((c) => c.id === editId)?.qrCode ?? generateQrCode(form.name))
-          : generateQrCode(form.name),
+        qrCode: editId ? (checkpoints.find((c) => c.id === editId)?.qrCode ?? generateQrCode(form.name)) : generateQrCode(form.name),
       };
-      if (editId) {
-        await updateCheckpoint(companyId, editId, payload);
-        setSavedMsg("ایستگاه ویرایش شد");
-      } else {
-        await saveCheckpoint(companyId, payload);
-        setSavedMsg("ایستگاه ذخیره شد");
-      }
-      setShowForm(false);
-      setEditId(null);
-      setForm(EMPTY_FORM);
+      if (editId) { await updateCheckpoint(companyId, editId, payload); setSavedMsg("ایستگاه ویرایش شد"); }
+      else { await saveCheckpoint(companyId, payload); setSavedMsg("ایستگاه ذخیره شد"); }
+      setShowForm(false); setEditId(null); setForm(EMPTY_FORM);
       setTimeout(() => setSavedMsg(""), 3000);
     } catch (err) { alert("خطا: " + err); }
     finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
+    if (isDemo) { alert("در حالت نمونه حذف غیرفعال است."); return; }
     if (deleteConfirm !== id) { setDeleteConfirm(id); return; }
     try {
       await deleteCheckpoint(companyId, id);
@@ -117,22 +113,27 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
     a.click();
   };
 
-  const scheduleLabel: Record<string, string> = {
-    "every-1h": "هر ۱ ساعت", "every-2h": "هر ۲ ساعت", "every-4h": "هر ۴ ساعت", "every-8h": "هر ۸ ساعت",
-  };
-
   const inputClass = "w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors";
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Demo notice */}
+      {isDemo && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground">
+            <span className="font-semibold text-yellow-400">حالت نمونه:</span> ایستگاه‌های زیر نمونه هستند. پس از اتصال Firebase، می‌توانید ایستگاه واقعی اضافه کنید.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-bold text-foreground">مدیریت ایستگاه‌ها</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{checkpoints.length} ایستگاه فعال</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{checkpoints.length} ایستگاه{isDemo ? " (نمونه)" : " فعال"}</p>
         </div>
-        <button onClick={openCreate}
-          className="flex items-center gap-1.5 text-xs font-semibold text-primary-foreground bg-primary rounded-lg px-3 py-2 hover:opacity-90 transition-opacity">
+        <button onClick={openCreate} disabled={isDemo}
+          className="flex items-center gap-1.5 text-xs font-semibold text-primary-foreground bg-primary rounded-lg px-3 py-2 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
           <Plus className="w-3.5 h-3.5" />افزودن ایستگاه
         </button>
       </div>
@@ -144,7 +145,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       )}
 
       {/* Form */}
-      {showForm && (
+      {showForm && !isDemo && (
         <div className="rounded-xl border border-primary/40 bg-card p-5 animate-fade-in-up">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
@@ -175,12 +176,12 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                   {["10","25","50","100","200"].map((v) => <option key={v} value={v}>{v} متر</option>)}</select></div>
               <div className="space-y-1"><label className="text-xs text-muted-foreground">برنامه گشت</label>
                 <select value={form.schedule} onChange={(e) => setF("schedule", e.target.value)} className={inputClass}>
-                  {Object.entries(scheduleLabel).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+                  {[["every-1h","هر ۱ ساعت"],["every-2h","هر ۲ ساعت"],["every-4h","هر ۴ ساعت"],["every-8h","هر ۸ ساعت"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
             </div>
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => { setShowForm(false); setEditId(null); }}
                 className="flex-1 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent transition-colors">انصراف</button>
-              <button type="submit" disabled={saving || !db}
+              <button type="submit" disabled={saving}
                 className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50 transition-opacity">
                 {saving ? "در حال ذخیره..." : editId ? "ذخیره تغییرات" : "ایجاد ایستگاه"}</button>
             </div>
@@ -189,70 +190,62 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       )}
 
       {/* List */}
-      {checkpoints.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-card/50 px-4 py-12 text-center">
-          <Shield className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm font-medium text-muted-foreground">هنوز ایستگاهی تعریف نشده</p>
-          <button onClick={openCreate} className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary border border-primary/30 rounded-lg px-4 py-2 hover:bg-primary/10 transition-colors">
-            <Plus className="w-3.5 h-3.5" />افزودن اولین ایستگاه</button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {checkpoints.map((cp) => (
-            <div key={cp.id} className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/30 transition-colors">
-              <div className="flex items-start gap-3 p-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                  <MapPin className="w-5 h-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-foreground">{cp.name}</p>
-                      {cp.location && <p className="text-xs text-muted-foreground mt-0.5 truncate">{cp.location}</p>}
-                    </div>
+      <div className="space-y-3">
+        {checkpoints.map((cp) => (
+          <div key={cp.id} className={`rounded-xl border bg-card overflow-hidden transition-colors ${isDemo ? "border-border opacity-80" : "border-border hover:border-primary/30"}`}>
+            <div className="flex items-start gap-3 p-4">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                <MapPin className="w-5 h-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-foreground">{cp.name}</p>
+                    {cp.location && <p className="text-xs text-muted-foreground mt-0.5 truncate">{cp.location}</p>}
+                  </div>
+                  {!isDemo && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => openEdit(cp)} className="w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors">
                         <Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => handleDelete(cp.id)} className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${deleteConfirm === cp.id ? "bg-destructive/10 border-destructive/30 text-destructive" : "bg-muted border-border text-muted-foreground hover:text-destructive hover:border-destructive/30"}`}>
                         <Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
-                  </div>
-                  {deleteConfirm === cp.id && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <p className="text-xs text-destructive flex-1">آیا مطمئنید؟</p>
-                      <button onClick={() => handleDelete(cp.id)} className="text-xs text-destructive border border-destructive/30 rounded px-2 py-0.5 hover:bg-destructive/10 transition-colors">حذف</button>
-                      <button onClick={() => setDeleteConfirm(null)} className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5 hover:bg-muted transition-colors">نه</button>
-                    </div>
                   )}
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground font-mono"><MapPin className="w-3 h-3" />{cp.lat.toFixed(4)}, {cp.lng.toFixed(4)}</span>
-                    <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary rounded px-2 py-0.5"><Shield className="w-3 h-3" />شعاع: {cp.radiusMeters} متر</span>
-                    <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground"><Clock className="w-3 h-3" />{cp.scheduledMinutes.length} بازدید/روز</span>
-                  </div>
                 </div>
-              </div>
-              <div className="border-t border-border">
-                <button onClick={() => setExpandedQr(expandedQr === cp.id ? null : cp.id)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-muted-foreground hover:bg-accent/30 transition-colors">
-                  <span className="flex items-center gap-1.5"><QrCode className="w-3.5 h-3.5 text-primary" />نمایش کد QR</span>
-                  {expandedQr === cp.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
-                {expandedQr === cp.id && (
-                  <div className="px-4 pb-4 animate-fade-in-up">
-                    <div className="flex flex-col items-center gap-3 p-4 bg-white rounded-xl">
-                      <QRCodeSVG ref={(el) => { qrRefs.current[cp.id] = el; }} value={cp.qrCode} size={180} level="H" includeMargin bgColor="#ffffff" fgColor="#0a1628" />
-                      <p className="text-xs text-gray-500 font-mono text-center break-all px-2">{cp.qrCode}</p>
-                    </div>
-                    <button onClick={() => downloadQr(cp)} className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-border text-xs text-muted-foreground hover:bg-accent transition-colors">
-                      <Download className="w-3.5 h-3.5" />دانلود QR Code</button>
+                {deleteConfirm === cp.id && !isDemo && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <p className="text-xs text-destructive flex-1">آیا مطمئنید؟</p>
+                    <button onClick={() => handleDelete(cp.id)} className="text-xs text-destructive border border-destructive/30 rounded px-2 py-0.5 hover:bg-destructive/10">حذف</button>
+                    <button onClick={() => setDeleteConfirm(null)} className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5 hover:bg-muted">نه</button>
                   </div>
                 )}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground font-mono"><MapPin className="w-3 h-3" />{cp.lat.toFixed(4)}, {cp.lng.toFixed(4)}</span>
+                  <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary rounded px-2 py-0.5"><Shield className="w-3 h-3" />شعاع: {cp.radiusMeters} متر</span>
+                  <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground"><Clock className="w-3 h-3" />{cp.scheduledMinutes.length} بازدید/روز</span>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
-      )}
-      {!db && <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-xs text-yellow-400">Firebase پیکربندی نشده.</div>}
+            <div className="border-t border-border">
+              <button onClick={() => setExpandedQr(expandedQr === cp.id ? null : cp.id)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-muted-foreground hover:bg-accent/30 transition-colors">
+                <span className="flex items-center gap-1.5"><QrCode className="w-3.5 h-3.5 text-primary" />نمایش کد QR</span>
+                {expandedQr === cp.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+              {expandedQr === cp.id && (
+                <div className="px-4 pb-4 animate-fade-in-up">
+                  <div className="flex flex-col items-center gap-3 p-4 bg-white rounded-xl">
+                    <QRCodeSVG ref={(el) => { qrRefs.current[cp.id] = el; }} value={cp.qrCode} size={180} level="H" includeMargin bgColor="#ffffff" fgColor="#0a1628" />
+                    <p className="text-xs text-gray-500 font-mono text-center break-all px-2">{cp.qrCode}</p>
+                  </div>
+                  <button onClick={() => downloadQr(cp)} className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-border text-xs text-muted-foreground hover:bg-accent transition-colors">
+                    <Download className="w-3.5 h-3.5" />دانلود QR Code</button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

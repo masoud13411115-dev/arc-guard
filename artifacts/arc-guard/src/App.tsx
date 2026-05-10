@@ -8,6 +8,7 @@ import SetupPage from "@/pages/SetupPage";
 import Dashboard from "@/pages/Dashboard";
 import GuardPatrol from "@/pages/GuardPatrol";
 import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
+import { isFirebaseReady } from "@/firebase";
 import type { UserProfile } from "@/types";
 
 const queryClient = new QueryClient();
@@ -17,9 +18,12 @@ type Screen = "splash" | "login" | "setup" | "manager-dashboard" | "guard-patrol
 function AppContent() {
   const [screen, setScreen] = useState<Screen>("splash");
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(!isFirebaseReady);
 
   useEffect(() => {
+    // No Firebase → skip auth check, go straight to login (demo mode)
+    if (!isFirebaseReady) return;
+
     const unsub = onAuthChange(async (firebaseUser) => {
       if (firebaseUser) {
         const p = await getUserProfile(firebaseUser.uid);
@@ -27,22 +31,17 @@ function AppContent() {
           setProfile(p);
           setScreen(p.role === "manager" ? "manager-dashboard" : "guard-patrol");
         } else {
-          // Authenticated but no profile → show setup
           setScreen("setup");
         }
       } else {
         setProfile(null);
-        if (screen !== "splash") setScreen("login");
       }
-      setAuthLoading(false);
+      setAuthChecked(true);
     });
     return unsub;
   }, []);
 
-  const handleSplashComplete = () => {
-    if (!authLoading) setScreen(profile ? (profile.role === "manager" ? "manager-dashboard" : "guard-patrol") : "login");
-    else setScreen("login");
-  };
+  const handleSplashComplete = () => setScreen("login");
 
   const handleLogin = (p: UserProfile) => {
     setProfile(p);

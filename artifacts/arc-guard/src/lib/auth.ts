@@ -9,31 +9,37 @@ import {
 import {
   doc, getDoc, setDoc, collection, addDoc,
 } from 'firebase/firestore';
-import { auth, db } from '@/firebase';
+import { auth, db, isFirebaseReady } from '@/firebase';
 import type { UserProfile, Company } from '@/types';
+import { DEMO_MANAGER_PROFILE, DEMO_GUARD_PROFILE } from './demo';
 
 export type { User };
 
-// ── Auth state ───────────────────────────────────────────────────────────────
+// ── Demo login (no Firebase needed) ──────────────────────────────────────────
+export function demoLogin(role: 'manager' | 'guard'): UserProfile {
+  return role === 'manager' ? DEMO_MANAGER_PROFILE : DEMO_GUARD_PROFILE;
+}
+
+// ── Auth state ────────────────────────────────────────────────────────────────
 export function onAuthChange(cb: (user: User | null) => void): () => void {
-  if (!auth) { cb(null); return () => {}; }
+  if (!auth || !isFirebaseReady) { cb(null); return () => {}; }
   return onAuthStateChanged(auth, cb);
 }
 
-// ── Login ────────────────────────────────────────────────────────────────────
+// ── Login ─────────────────────────────────────────────────────────────────────
 export async function signIn(email: string, password: string): Promise<User> {
-  if (!auth) throw new Error('Firebase Auth پیکربندی نشده است.');
+  if (!auth) throw new Error('Firebase پیکربندی نشده است.');
   const cred = await signInWithEmailAndPassword(auth, email, password);
   return cred.user;
 }
 
-// ── Logout ───────────────────────────────────────────────────────────────────
+// ── Logout ────────────────────────────────────────────────────────────────────
 export async function signOut(): Promise<void> {
   if (!auth) return;
   await firebaseSignOut(auth);
 }
 
-// ── User profile ─────────────────────────────────────────────────────────────
+// ── User profile ──────────────────────────────────────────────────────────────
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   if (!db) return null;
   const snap = await getDoc(doc(db, 'users', uid));
@@ -54,7 +60,6 @@ export async function registerManager(
   const uid = cred.user.uid;
   await updateProfile(cred.user, { displayName });
 
-  // Create company document
   const companyRef = await addDoc(collection(db, 'companies'), {
     name: companyName,
     adminUid: uid,
@@ -76,7 +81,7 @@ export async function registerManager(
   return { uid, ...profile };
 }
 
-// ── Register guard (called by manager) ───────────────────────────────────────
+// ── Register guard ────────────────────────────────────────────────────────────
 export async function registerGuard(
   email: string,
   password: string,

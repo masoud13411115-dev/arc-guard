@@ -1,29 +1,18 @@
 import { useState, useEffect } from "react";
-import { CheckCircle, AlertTriangle, MapPin, Clock, Download, Search } from "lucide-react";
+import { CheckCircle, AlertTriangle, MapPin, Clock, Download, Search, Info } from "lucide-react";
 import { getPatrolLogs } from "@/lib/firestore";
 import { getQueue } from "@/lib/offline";
-import { db } from "@/firebase";
+import { isFirebaseReady } from "@/firebase";
+import { DEMO_LOGS } from "@/lib/demo";
 import type { PatrolLog, ScanStatus } from "@/types";
 
 interface PatrolLogsProps {
   companyId: string;
 }
 
-const statusLabel: Record<ScanStatus, string> = {
-  valid: "✓ معتبر",
-  outside: "⚠ خارج",
-  failed: "✗ ناموفق",
-};
-const statusColor: Record<ScanStatus, string> = {
-  valid: "bg-green-500/10 text-green-400",
-  outside: "bg-yellow-500/10 text-yellow-400",
-  failed: "bg-destructive/10 text-destructive",
-};
-const statusBorder: Record<ScanStatus, string> = {
-  valid: "border-r-2 border-green-500",
-  outside: "border-r-2 border-yellow-400",
-  failed: "border-r-2 border-destructive",
-};
+const statusLabel: Record<ScanStatus, string> = { valid: "✓ معتبر", outside: "⚠ خارج", failed: "✗ ناموفق" };
+const statusColor: Record<ScanStatus, string> = { valid: "bg-green-500/10 text-green-400", outside: "bg-yellow-500/10 text-yellow-400", failed: "bg-destructive/10 text-destructive" };
+const statusBorder: Record<ScanStatus, string> = { valid: "border-r-2 border-green-500", outside: "border-r-2 border-yellow-400", failed: "border-r-2 border-destructive" };
 
 export default function PatrolLogs({ companyId }: PatrolLogsProps) {
   const [logs, setLogs] = useState<PatrolLog[]>([]);
@@ -31,11 +20,16 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | ScanStatus | "offline">("all");
+  const isDemo = !isFirebaseReady;
 
   useEffect(() => {
     const queue = getQueue();
     setOfflineLogs(queue.map((q) => q.payload));
-    if (!db) { setLoading(false); return; }
+    if (!isFirebaseReady) {
+      setLogs(DEMO_LOGS);
+      setLoading(false);
+      return;
+    }
     getPatrolLogs(companyId).then((data) => { setLogs(data); setLoading(false); });
   }, [companyId]);
 
@@ -56,12 +50,11 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
   });
 
   const exportCsv = () => {
-    const header = "نگهبان,ایستگاه,زمان,عرض,طول,فاصله(متر),وضعیت,آفلاین";
+    const header = "نگهبان,ایستگاه,زمان,عرض,طول,فاصله(متر),وضعیت";
     const rows = filtered.map((l) =>
       [l.guardName, l.checkpointName, l.scannedAtText,
         l.gps?.lat ?? "", l.gps?.lng ?? "",
-        l.distanceMeters ?? "", statusLabel[l.status ?? "failed"],
-        l.offlineQueued ? "بله" : "خیر"].join(",")
+        l.distanceMeters ?? "", statusLabel[l.status ?? "failed"]].join(",")
     );
     const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
     const a = document.createElement("a");
@@ -77,10 +70,19 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
 
   return (
     <div className="space-y-4">
+      {isDemo && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground">
+            <span className="font-semibold text-yellow-400">حالت نمونه:</span> گزارش‌های زیر داده‌های نمونه هستند. پس از اتصال Firebase، لاگ‌های واقعی نمایش داده می‌شوند.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-bold text-foreground">گزارش گشت</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} رکورد</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} رکورد{isDemo ? " (نمونه)" : ""}</p>
         </div>
         <button onClick={exportCsv} className="flex items-center gap-1.5 text-xs text-primary border border-primary/30 rounded-lg px-3 py-1.5 hover:bg-primary/10 transition-colors font-medium">
           <Download className="w-3 h-3" />خروجی Excel

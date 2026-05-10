@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Activity, MapPin, Clock, AlertTriangle, CheckCircle, Users, Shield, Bell } from "lucide-react";
 import { subscribeGuardSessions, subscribeMissedAlerts, subscribePatrolLogs, resolveAlert } from "@/lib/firestore";
-import { db } from "@/firebase";
+import { isFirebaseReady } from "@/firebase";
+import { DEMO_SESSIONS, DEMO_ALERTS, DEMO_LOGS } from "@/lib/demo";
 import type { GuardSession, MissedAlert, PatrolLog, ScanStatus } from "@/types";
 
 interface LiveMonitorProps {
@@ -16,12 +17,27 @@ export default function LiveMonitor({ companyId }: LiveMonitorProps) {
   const [alerts, setAlerts] = useState<MissedAlert[]>([]);
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
   const [tab, setTab] = useState<"guards" | "alerts" | "feed">("guards");
+  const [isDemo, setIsDemo] = useState(!isFirebaseReady);
 
   useEffect(() => {
-    if (!db) return;
-    const u1 = subscribeGuardSessions(companyId, setSessions);
-    const u2 = subscribeMissedAlerts(companyId, setAlerts);
-    const u3 = subscribePatrolLogs(companyId, setRecentLogs, 30);
+    if (!isFirebaseReady) {
+      setSessions(DEMO_SESSIONS);
+      setAlerts(DEMO_ALERTS);
+      setRecentLogs(DEMO_LOGS);
+      setIsDemo(true);
+      return;
+    }
+
+    const u1 = subscribeGuardSessions(companyId, (data) => {
+      setSessions(data.length > 0 ? data : DEMO_SESSIONS);
+      setIsDemo(data.length === 0);
+    });
+    const u2 = subscribeMissedAlerts(companyId, (data) => {
+      setAlerts(data.length > 0 ? data : DEMO_ALERTS);
+    });
+    const u3 = subscribePatrolLogs(companyId, (data) => {
+      setRecentLogs(data.length > 0 ? data : DEMO_LOGS);
+    }, 30);
     return () => { u1(); u2(); u3(); };
   }, [companyId]);
 
@@ -36,12 +52,26 @@ export default function LiveMonitor({ companyId }: LiveMonitorProps) {
 
   return (
     <div className="space-y-4">
+      {isDemo && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 flex items-start gap-3">
+          <Shield className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-yellow-400">نمایش داده‌های نمونه</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {isFirebaseReady
+                ? "هنوز هیچ نگهبانی وارد نشده. داده‌های نمونه نمایش داده می‌شوند."
+                : "Firebase پیکربندی نشده. داده‌های نمونه نمایش داده می‌شوند."}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: "نگهبان فعال", value: activeGuards.length, icon: Users, color: "text-green-400", bg: "bg-green-400/10", border: "border-green-500/20" },
           { label: "هشدارهای باز", value: alerts.length, icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-400/10", border: "border-yellow-500/20" },
-          { label: "اسکن‌های امروز", value: recentLogs.length, icon: CheckCircle, color: "text-primary", bg: "bg-primary/10", border: "border-primary/20" },
+          { label: "اسکن‌های اخیر", value: recentLogs.length, icon: CheckCircle, color: "text-primary", bg: "bg-primary/10", border: "border-primary/20" },
         ].map(({ label, value, icon: Icon, color, bg, border }) => (
           <div key={label} className={`rounded-xl border ${border} ${bg} p-3 text-center`}>
             <div className="w-8 h-8 rounded-lg bg-background/30 flex items-center justify-center mx-auto mb-1.5">
@@ -71,13 +101,7 @@ export default function LiveMonitor({ companyId }: LiveMonitorProps) {
       {/* Guards */}
       {tab === "guards" && (
         <div className="space-y-2">
-          {sessions.length === 0 ? (
-            <div className="rounded-xl border border-border bg-card px-4 py-10 text-center">
-              <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-sm font-medium text-muted-foreground">هنوز هیچ نگهبانی وارد نشده</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">وقتی نگهبانان وارد شوند، موقعیت آن‌ها اینجا نشان داده می‌شود.</p>
-            </div>
-          ) : sessions.map((s) => (
+          {sessions.map((s) => (
             <div key={s.guardId} className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
               <div className="relative shrink-0">
                 <div className="w-11 h-11 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary">
@@ -94,11 +118,9 @@ export default function LiveMonitor({ companyId }: LiveMonitorProps) {
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">آخرین ایستگاه: <span className="text-primary font-medium">{s.lastCheckpoint || "—"}</span></p>
                 <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                  {s.lastGps ? (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <MapPin className="w-3 h-3 text-green-400" />{s.lastGps.lat.toFixed(4)}, {s.lastGps.lng.toFixed(4)}
-                    </span>
-                  ) : <span className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="w-3 h-3" />بدون GPS</span>}
+                  {s.lastGps
+                    ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="w-3 h-3 text-green-400" />{s.lastGps.lat.toFixed(4)}, {s.lastGps.lng.toFixed(4)}</span>
+                    : <span className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="w-3 h-3" />بدون GPS</span>}
                   <span className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="w-3 h-3" />{timeSince(s.lastSeen)}</span>
                 </div>
               </div>
@@ -124,11 +146,12 @@ export default function LiveMonitor({ companyId }: LiveMonitorProps) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-foreground">ایستگاه از دست رفت</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  <span className="text-foreground font-medium">{alert.guardName}</span> ایستگاه <span className="text-yellow-400 font-medium">{alert.checkpointName}</span> را بازدید نکرد
+                  <span className="text-foreground font-medium">{alert.guardName}</span> ایستگاه{" "}
+                  <span className="text-yellow-400 font-medium">{alert.checkpointName}</span> را بازدید نکرد
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">{timeSince(alert.alertedAt)}</p>
               </div>
-              {alert.id && (
+              {alert.id && isFirebaseReady && !isDemo && (
                 <button onClick={() => resolveAlert(companyId, alert.id!)}
                   className="text-xs text-green-400 border border-green-500/30 rounded-lg px-2.5 py-1 hover:bg-green-500/10 transition-colors shrink-0 mt-0.5">
                   حل شد
@@ -149,37 +172,30 @@ export default function LiveMonitor({ companyId }: LiveMonitorProps) {
             </div>
             <span className="text-xs text-muted-foreground">{recentLogs.length} اسکن</span>
           </div>
-          {recentLogs.length === 0 ? (
-            <div className="px-4 py-10 text-center">
-              <Activity className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">هنوز اسکنی انجام نشده</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border max-h-96 overflow-y-auto">
-              {recentLogs.map((log, i) => {
-                const s = log.status ?? (log.withinRadius ? "valid" : "outside");
-                return (
-                  <div key={log.id ?? i} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/20 transition-colors">
-                    <div className={`w-2 h-2 rounded-full shrink-0 ${s === "valid" ? "bg-green-400" : s === "outside" ? "bg-yellow-400" : "bg-destructive"}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">
-                        <span className="font-medium">{log.guardName}</span>
-                        <span className="text-muted-foreground"> ← </span>
-                        <span className="text-primary">{log.checkpointName}</span>
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {timeSince(log.scanTime ?? log.scannedAt)}
-                        {log.distanceMeters !== null && <span className={`mr-2 ${statusColor[s]}`}>{log.distanceMeters} متر</span>}
-                      </p>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${s === "valid" ? "bg-green-400/10 text-green-400" : s === "outside" ? "bg-yellow-400/10 text-yellow-400" : "bg-destructive/10 text-destructive"}`}>
-                      {statusLabel[s]}
-                    </span>
+          <div className="divide-y divide-border max-h-96 overflow-y-auto">
+            {recentLogs.map((log, i) => {
+              const s = log.status ?? (log.withinRadius ? "valid" : "outside");
+              return (
+                <div key={log.id ?? i} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/20 transition-colors">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${s === "valid" ? "bg-green-400" : s === "outside" ? "bg-yellow-400" : "bg-destructive"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground truncate">
+                      <span className="font-medium">{log.guardName}</span>
+                      <span className="text-muted-foreground"> ← </span>
+                      <span className="text-primary">{log.checkpointName}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {timeSince(log.scanTime ?? log.scannedAt)}
+                      {log.distanceMeters !== null && <span className={`mr-2 ${statusColor[s]}`}>{log.distanceMeters} متر</span>}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${s === "valid" ? "bg-green-400/10 text-green-400" : s === "outside" ? "bg-yellow-400/10 text-yellow-400" : "bg-destructive/10 text-destructive"}`}>
+                    {statusLabel[s]}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

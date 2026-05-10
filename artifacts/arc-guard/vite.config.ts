@@ -13,6 +13,8 @@ if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${raw
 const basePath = process.env.BASE_PATH;
 if (!basePath) throw new Error("BASE_PATH environment variable is required but was not provided.");
 
+const isProd = process.env.NODE_ENV === "production";
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -30,9 +32,7 @@ export default defineConfig({
         injectionPoint: "self.__WB_MANIFEST",
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
       },
-      devOptions: {
-        enabled: false,
-      },
+      devOptions: { enabled: false },
 
       manifest: {
         name: "ARC Guard — سیستم گشت امنیتی",
@@ -50,7 +50,6 @@ export default defineConfig({
         dir: "rtl",
         categories: ["security", "business", "productivity"],
         prefer_related_applications: false,
-
         icons: [
           { src: "icon-72.png",          sizes: "72x72",   type: "image/png" },
           { src: "icon-96.png",          sizes: "96x96",   type: "image/png" },
@@ -60,14 +59,8 @@ export default defineConfig({
           { src: "icon-192.png",         sizes: "192x192", type: "image/png" },
           { src: "icon-384.png",         sizes: "384x384", type: "image/png" },
           { src: "icon-512.png",         sizes: "512x512", type: "image/png" },
-          {
-            src: "icon-maskable-512.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "maskable",
-          },
+          { src: "icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
-
         shortcuts: [
           {
             name: "داشبورد مدیر",
@@ -84,8 +77,6 @@ export default defineConfig({
             icons: [{ src: "icon-96.png", sizes: "96x96" }],
           },
         ],
-
-        // App screenshots for enhanced install prompt (Android Chrome 103+)
         screenshots: [
           {
             src: "icon-512.png",
@@ -95,8 +86,6 @@ export default defineConfig({
             label: "ARC Guard داشبورد امنیتی",
           },
         ],
-
-        // Related Android app (TWA)
         related_applications: [
           {
             platform: "play",
@@ -116,6 +105,7 @@ export default defineConfig({
         ]
       : []),
   ],
+
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
@@ -123,11 +113,37 @@ export default defineConfig({
     },
     dedupe: ["react", "react-dom"],
   },
+
   root: path.resolve(import.meta.dirname),
+
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Target modern browsers — allows smaller output, no polyfills
+    target: "esnext",
+    // Source maps in production for error tracking
+    sourcemap: isProd ? "hidden" : true,
+    // Warn on chunks > 600 KB (before gzip)
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        // Split vendor bundles so users only re-download what changed
+        manualChunks: {
+          // React core (rarely changes)
+          "vendor-react": ["react", "react-dom"],
+          // Firebase — split auth vs firestore (guards need both, but loaded async)
+          "vendor-firebase": ["firebase/app", "firebase/auth", "firebase/firestore"],
+          // QR scanner — only loaded when scanning (dynamic import in GuardPatrol)
+          // Note: html5-qrcode is already dynamically imported via import()
+          // Maps
+          "vendor-maps": ["leaflet"],
+          // Charts + UI
+          "vendor-ui": ["@tanstack/react-query", "lucide-react"],
+        },
+      },
+    },
   },
+
   server: {
     port,
     strictPort: true,
@@ -135,6 +151,7 @@ export default defineConfig({
     allowedHosts: true,
     fs: { strict: true },
   },
+
   preview: {
     port,
     host: "0.0.0.0",

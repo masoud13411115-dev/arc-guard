@@ -279,3 +279,154 @@
   color: #64748b !important;
 }
 .leaflet-control-attribution a { color: #38bdf8 !important; }
+
+/* ══════════════════════════════════════════════════════════════════
+   RTL PERSIAN POLISH + MOBILE PERFORMANCE
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Font rendering — crisp on OLED dark backgrounds */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Prevent font-size inflation on iOS rotation */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* RTL base layout */
+html, body {
+  direction: rtl;
+  /* Safe area insets — iPhone notch / Dynamic Island */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  /* Smooth momentum scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: none;
+}
+
+/* Remove 300ms tap delay on mobile */
+* {
+  touch-action: manipulation;
+}
+
+/* Prevent double-tap zoom on buttons and links */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  /* Remove iOS blue highlight flash */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* User select — disable on interactive UI chrome, keep on content */
+button, label, nav, header, footer, [role="tab"], [role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea, [contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Smooth scrolling for all scrollable containers */
+* {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* RTL-aware number display — Persian numerals stay LTR */
+.ltr-num, [data-ltr], .font-mono, time, code, pre {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+/* Input RTL alignment */
+input[type="email"],
+input[type="text"],
+input[type="number"],
+input[type="tel"] {
+  text-align: right;
+}
+input[type="email"] {
+  /* Email addresses are always LTR */
+  direction: ltr;
+  text-align: left;
+}
+input[type="password"] {
+  direction: ltr;
+}
+
+/* Focus ring — visible on keyboard nav */
+:focus-visible {
+  outline: 2px solid rgba(14, 165, 233, 0.7);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Mobile nav bottom safe area */
+.arc-bottom-nav {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Full-height viewport — accounts for browser chrome on mobile */
+.arc-screen {
+  min-height: 100svh;
+}
+
+/* Thin styled scrollbar — desktop only */
+@media (pointer: fine) {
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(14,165,233,0.25); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(14,165,233,0.5); }
+  * { scrollbar-width: thin; scrollbar-color: rgba(14,165,233,0.25) transparent; }
+}
+
+/* Image loading — fade in smoothly */
+img {
+  display: block;
+}
+img[loading="lazy"] {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+img[loading="lazy"].loaded {
+  opacity: 1;
+}
+
+/* Card hover — subtle lift on desktop, none on mobile */
+@media (hover: hover) and (pointer: fine) {
+  .arc-card-hover {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .arc-card-hover:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(14,165,233,0.18);
+  }
+}
+
+/* QR Reader div — ensure white bg for camera preview */
+#qr-reader {
+  background: #fff !important;
+  border-radius: 12px;
+  overflow: hidden;
+}
+#qr-reader * {
+  direction: ltr !important;
+}
+
+/* Leaflet map — fix RTL layout issues */
+.leaflet-container {
+  direction: ltr;
+  font-family: var(--app-font-sans);
+}
+

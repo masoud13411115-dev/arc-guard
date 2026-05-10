@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Shield, Eye, EyeOff, Lock, Mail, AlertCircle, Info, ChevronDown, ChevronUp, Crown } from "lucide-react";
+import { Shield, Eye, EyeOff, Lock, Mail, AlertCircle, Info, ChevronDown, ChevronUp } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import { signIn, getUserProfile, demoLogin } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
+import { logger } from "@/lib/logger";
 import type { UserProfile } from "@/types";
 
 interface Props {
@@ -10,46 +11,67 @@ interface Props {
   onRegister: () => void;
 }
 
+// Demo mode is shown unless explicitly disabled via env var (set VITE_SHOW_DEMO=false in production)
+const SHOW_DEMO = import.meta.env.VITE_SHOW_DEMO !== "false";
+
+const FIREBASE_ERROR_MAP: Record<string, string> = {
+  "auth/user-not-found":      "ایمیل یا رمز عبور اشتباه است.",
+  "auth/wrong-password":      "ایمیل یا رمز عبور اشتباه است.",
+  "auth/invalid-credential":  "ایمیل یا رمز عبور اشتباه است.",
+  "auth/too-many-requests":   "تعداد تلاش زیاد. چند دقیقه صبر کنید.",
+  "auth/network-request-failed": "خطای اتصال به اینترنت. اتصال شبکه را بررسی کنید.",
+  "auth/user-disabled":       "حساب شما توسط مدیر غیرفعال شده است.",
+  "auth/invalid-email":       "فرمت ایمیل اشتباه است.",
+};
+
 export default function LoginPage({ onLogin, onRegister }: Props) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [showPw, setShowPw]     = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده. از دکمه‌های دمو بالا استفاده کنید."); return; }
-    if (!email.trim() || !password) { setError("ایمیل و رمز عبور الزامی است."); return; }
+
+    if (!isFirebaseReady) {
+      setError("Firebase پیکربندی نشده. از دکمه‌های نمونه استفاده کنید یا Secrets را تنظیم کنید.");
+      return;
+    }
+    if (!email.trim()) { setError("ایمیل الزامی است."); return; }
+    if (!password)     { setError("رمز عبور الزامی است."); return; }
+
     setLoading(true);
     try {
-      const user = await signIn(email.trim(), password);
+      const user    = await signIn(email.trim().toLowerCase(), password);
       const profile = await getUserProfile(user.uid);
-      if (!profile) { setError("پروفایل کاربری یافت نشد."); return; }
+      if (!profile)        { setError("پروفایل کاربری یافت نشد. با مدیر تماس بگیرید."); return; }
       if (!profile.active) { setError("حساب شما غیرفعال است. با مدیر تماس بگیرید."); return; }
+      logger.info("login", `Success: ${profile.role}`);
       onLogin(profile);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code ?? "";
-      if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(code))
-        setError("ایمیل یا رمز عبور اشتباه است.");
-      else if (code === "auth/too-many-requests") setError("تعداد تلاش زیاد. چند دقیقه صبر کنید.");
-      else if (code === "auth/network-request-failed") setError("خطای اتصال به اینترنت.");
-      else setError("خطا در ورود. دوباره تلاش کنید.");
-    } finally { setLoading(false); }
+      logger.warn("login", "Failed", code);
+      setError(FIREBASE_ERROR_MAP[code] ?? "خطا در ورود. دوباره تلاش کنید.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background arc-grid-bg" dir="rtl">
+      {/* Background glow */}
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
         <div className="w-[500px] h-[500px] rounded-full opacity-10"
           style={{ background: "radial-gradient(circle,rgba(14,165,233,.5) 0%,transparent 65%)" }} />
       </div>
 
-      <div className="relative w-full max-w-sm mx-auto px-5 py-8 space-y-4">
+      <div className="relative w-full max-w-sm mx-auto px-5 py-8 space-y-4"
+        style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom))" }}>
 
-        {/* Logo */}
+        {/* ── Logo ── */}
         <div className="flex flex-col items-center mb-1">
           <img src={arcGuardLogo} alt="ARC Guard" className="w-20 h-20 object-contain mb-3"
             style={{ filter: "drop-shadow(0 0 20px rgba(14,165,233,.5))" }} />
@@ -57,69 +79,38 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           <p className="text-xs text-muted-foreground mt-1">سیستم هوشمند گشت امنیتی · پلتفرم SaaS</p>
         </div>
 
-        {/* ── Demo buttons ── */}
-        <div className="rounded-2xl border-2 border-sky-500/50 bg-sky-500/10 p-4">
-          <p className="text-center text-sm font-bold text-sky-400 mb-3">
-            ورود نمونه — بدون نیاز به Firebase
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {/* Manager */}
-            <button
-              type="button"
-              onClick={() => onLogin(demoLogin("manager"))}
-              style={{
-                minHeight: 76, background: "rgba(14,165,233,0.25)",
-                border: "2px solid rgba(14,165,233,0.7)", borderRadius: 12,
-                color: "#38bdf8", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center",
-                justifyContent: "center", gap: 4,
-                WebkitTapHighlightColor: "rgba(14,165,233,0.4)", userSelect: "none",
-              }}
-            >
-              <span style={{ fontSize: 22 }}>👔</span>
-              <span>مدیر</span>
-              <span style={{ fontSize: 10, opacity: 0.75, fontWeight: 400 }}>Manager</span>
-            </button>
-
-            {/* Guard */}
-            <button
-              type="button"
-              onClick={() => onLogin(demoLogin("guard"))}
-              style={{
-                minHeight: 76, background: "rgba(255,255,255,0.07)",
-                border: "2px solid rgba(255,255,255,0.2)", borderRadius: 12,
-                color: "#e2e8f0", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center",
-                justifyContent: "center", gap: 4,
-                WebkitTapHighlightColor: "rgba(255,255,255,0.15)", userSelect: "none",
-              }}
-            >
-              <span style={{ fontSize: 22 }}>🛡️</span>
-              <span>نگهبان</span>
-              <span style={{ fontSize: 10, opacity: 0.6, fontWeight: 400 }}>Guard</span>
-            </button>
-
-            {/* Super Admin */}
-            <button
-              type="button"
-              onClick={() => onLogin(demoLogin("super_admin"))}
-              style={{
-                minHeight: 76, background: "rgba(234,179,8,0.15)",
-                border: "2px solid rgba(234,179,8,0.5)", borderRadius: 12,
-                color: "#facc15", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center",
-                justifyContent: "center", gap: 4,
-                WebkitTapHighlightColor: "rgba(234,179,8,0.3)", userSelect: "none",
-              }}
-            >
-              <span style={{ fontSize: 22 }}>👑</span>
-              <span>ادمین</span>
-              <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>Super Admin</span>
-            </button>
+        {/* ── Demo buttons (hidden in production when VITE_SHOW_DEMO=false) ── */}
+        {SHOW_DEMO && (
+          <div className="rounded-2xl border-2 border-sky-500/50 bg-sky-500/10 p-4">
+            <p className="text-center text-sm font-bold text-sky-400 mb-1">ورود نمونه</p>
+            <p className="text-center text-[11px] text-sky-400/60 mb-3">بدون نیاز به Firebase — برای بررسی امکانات</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { role: "manager"    as const, label: "مدیر",   sub: "Manager",    emoji: "👔", bg: "rgba(14,165,233,0.25)", border: "rgba(14,165,233,0.7)", color: "#38bdf8", tap: "rgba(14,165,233,0.4)" },
+                { role: "guard"      as const, label: "نگهبان", sub: "Guard",      emoji: "🛡️", bg: "rgba(255,255,255,0.07)", border: "rgba(255,255,255,0.2)", color: "#e2e8f0", tap: "rgba(255,255,255,0.15)" },
+                { role: "super_admin"as const, label: "ادمین",  sub: "Super Admin",emoji: "👑", bg: "rgba(234,179,8,0.15)", border: "rgba(234,179,8,0.5)", color: "#facc15", tap: "rgba(234,179,8,0.3)" },
+              ]).map(({ role, label, sub, emoji, bg, border, color, tap }) => (
+                <button key={role} type="button" onClick={() => onLogin(demoLogin(role))}
+                  style={{
+                    minHeight: 76, background: bg, border: `2px solid ${border}`, borderRadius: 12,
+                    color, fontWeight: 700, fontSize: 13, cursor: "pointer",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                    WebkitTapHighlightColor: tap, userSelect: "none", transition: "opacity 0.15s",
+                  }}
+                  onPointerDown={(e) => (e.currentTarget.style.opacity = "0.75")}
+                  onPointerUp={(e) => (e.currentTarget.style.opacity = "1")}
+                  onPointerLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                >
+                  <span style={{ fontSize: 22 }}>{emoji}</span>
+                  <span>{label}</span>
+                  <span style={{ fontSize: 10, opacity: 0.65, fontWeight: 400 }}>{sub}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Firebase warning */}
+        {/* ── Firebase not configured warning ── */}
         {!isFirebaseReady && (
           <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/[0.06]">
             <div className="flex items-start gap-3 px-4 py-3">
@@ -127,15 +118,14 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
               <div>
                 <p className="text-xs font-bold text-yellow-400">Firebase پیکربندی نشده</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  برای حالت واقعی، کلیدهای <span className="font-mono text-yellow-400/80">VITE_ARC_GUARD_*</span> را در Secrets اضافه کنید.
+                  برای حالت واقعی، کلیدهای{" "}
+                  <span className="font-mono text-yellow-400/80">VITE_ARC_GUARD_*</span>{" "}
+                  را در Secrets اضافه کنید.
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowGuide(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-2 border-t border-yellow-500/20 text-xs text-yellow-400/70 hover:bg-yellow-500/10 transition-colors"
-            >
+            <button type="button" onClick={() => setShowGuide(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-2 border-t border-yellow-500/20 text-xs text-yellow-400/70 hover:bg-yellow-500/10 transition-colors">
               <span>راهنمای راه‌اندازی Firebase</span>
               {showGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
@@ -143,9 +133,9 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
               <div className="px-4 pb-4 pt-2 space-y-3 border-t border-yellow-500/20 bg-black/20">
                 {[
                   { n:"۱", t:"پروژه Firebase جدید بسازید", b:"console.firebase.google.com → Add project" },
-                  { n:"۲", t:"Auth و Firestore را فعال کنید", b:"Authentication → Email/Password → Enable\nFirestore → Create database → Test mode" },
+                  { n:"۲", t:"Auth و Firestore را فعال کنید", b:"Authentication → Email/Password → Enable\nFirestore → Create database → Production mode" },
                   { n:"۳", t:"این ۶ Secret را در Replit اضافه کنید", b:"VITE_ARC_GUARD_API_KEY\nVITE_ARC_GUARD_AUTH_DOMAIN\nVITE_ARC_GUARD_PROJECT_ID\nVITE_ARC_GUARD_STORAGE_BUCKET\nVITE_ARC_GUARD_MESSAGING_SENDER_ID\nVITE_ARC_GUARD_APP_ID" },
-                ].map(({n,t,b}) => (
+                ].map(({ n, t, b }) => (
                   <div key={n} className="flex gap-3">
                     <div className="w-5 h-5 rounded-full bg-yellow-400/20 border border-yellow-500/40 flex items-center justify-center text-[10px] font-bold text-yellow-400 shrink-0 mt-0.5">{n}</div>
                     <div>
@@ -159,55 +149,87 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
         )}
 
-        {/* Login form */}
+        {/* ── Login form ── */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-2 mb-4">
             <Shield className="w-4 h-4 text-primary" />
             <span className="text-sm font-bold">ورود با حساب Firebase</span>
             {!isFirebaseReady && (
-              <span className="mr-auto text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">غیرفعال</span>
+              <span className="mr-auto text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                غیرفعال
+              </span>
             )}
           </div>
-          <form onSubmit={handleSubmit} className="space-y-3">
+
+          <form onSubmit={handleSubmit} className="space-y-3" noValidate>
+            {/* Email */}
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">ایمیل</label>
+              <label htmlFor="arc-email" className="text-xs text-muted-foreground block mb-1">ایمیل</label>
               <div className="relative">
-                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="example@company.com" autoComplete="email" disabled={!isFirebaseReady}
-                  className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed" />
+                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  id="arc-email"
+                  type="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="example@company.com"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  disabled={!isFirebaseReady}
+                  className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                />
               </div>
             </div>
+
+            {/* Password */}
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">رمز عبور</label>
+              <label htmlFor="arc-password" className="text-xs text-muted-foreground block mb-1">رمز عبور</label>
               <div className="relative">
-                <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••" autoComplete="current-password" disabled={!isFirebaseReady}
-                  className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed" />
+                <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  id="arc-password"
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  disabled={!isFirebaseReady}
+                  className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                />
                 <button type="button" onClick={() => setShowPw(v => !v)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1} aria-label={showPw ? "مخفی کردن رمز" : "نمایش رمز"}>
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
+
+            {/* Error */}
             {error && (
-              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{error}
+              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>{error}</span>
               </div>
             )}
+
+            {/* Submit */}
             <button type="submit" disabled={loading || !isFirebaseReady}
-              className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all">
-              {loading
-                ? <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                    </svg>در حال ورود...
-                  </span>
-                : "ورود"}
+              className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                  در حال ورود...
+                </span>
+              ) : "ورود"}
             </button>
           </form>
+
+          {/* Firebase status indicator */}
           <div className="mt-4 pt-3 border-t border-border flex items-center justify-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${isFirebaseReady ? "bg-green-400 animate-pulse" : "bg-yellow-400"}`} />
             <span className="text-xs text-muted-foreground">
@@ -216,6 +238,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
         </div>
 
+        {/* Register link */}
         {isFirebaseReady && (
           <div className="text-center">
             <p className="text-xs text-muted-foreground">
@@ -227,7 +250,9 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
         )}
 
-        <p className="text-center text-xs text-muted-foreground opacity-40">ARC Guard v3.0 · SaaS Multi-Tenant</p>
+        <p className="text-center text-[10px] text-muted-foreground opacity-30 select-none">
+          ARC Guard v3.0 · SaaS Multi-Tenant
+        </p>
       </div>
     </div>
   );

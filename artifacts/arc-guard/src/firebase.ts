@@ -1,24 +1,41 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import firebaseConfig from './firebaseConfig';
+import { logger } from './lib/logger';
 
+/** True only when all required VITE_ARC_GUARD_* env vars are present */
 export const isFirebaseReady = Object.values(firebaseConfig).every(Boolean);
 
-let db: ReturnType<typeof getFirestore> | null = null;
+let db: ReturnType<typeof initializeFirestore> | null = null;
 let auth: ReturnType<typeof getAuth> | null = null;
 
 if (isFirebaseReady) {
   try {
     const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    db = getFirestore(app);
+
+    // Modern persistent cache (replaces deprecated enableIndexedDbPersistence)
+    // Multi-tab support keeps multiple browser tabs in sync
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+
     auth = getAuth(app);
-    enableIndexedDbPersistence(db).catch(() => {});
+
+    logger.info('firebase', 'Initialized — persistent multi-tab cache enabled');
   } catch (e) {
-    console.warn('Firebase init error — running in demo mode:', e);
+    logger.error('firebase', 'Init failed — running in demo mode', e);
     db = null;
     auth = null;
   }
+} else {
+  logger.warn('firebase', 'Missing VITE_ARC_GUARD_* env vars — demo mode active');
 }
 
 export { db, auth };

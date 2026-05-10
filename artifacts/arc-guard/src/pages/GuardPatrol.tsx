@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Html5Qrcode } from "html5-qrcode";
 import {
   QrCode, MapPin, Wifi, WifiOff, CheckCircle, AlertTriangle,
   Shield, LogOut, RefreshCw, Camera, XCircle, Clock
@@ -28,7 +27,8 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
   const [scanResult, setScanResult] = useState<{ ok: boolean; title: string; msg: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null);
 
   useEffect(() => {
     const onOnline = () => { setOnline(true); handleSync(); };
@@ -70,13 +70,14 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
   const startScanner = async () => {
     setScanning(true);
     setScanResult(null);
-    const scanner = new Html5Qrcode("qr-reader-guard");
-    scannerRef.current = scanner;
     try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const scanner = new Html5Qrcode("qr-reader-guard");
+      scannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 220, height: 220 } },
-        (text) => handleQrScan(text),
+        (text: string) => handleQrScan(text),
         () => {}
       );
     } catch {

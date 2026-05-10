@@ -15,56 +15,73 @@ const queryClient = new QueryClient();
 
 type Screen = "splash" | "login" | "setup" | "manager-dashboard" | "guard-patrol";
 
+interface AppState {
+  screen: Screen;
+  profile: UserProfile | null;
+}
+
 function AppContent() {
-  const [screen, setScreen] = useState<Screen>("splash");
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [authChecked, setAuthChecked] = useState(!isFirebaseReady);
+  // Combined into one state object so screen + profile always update atomically
+  const [appState, setAppState] = useState<AppState>({ screen: "splash", profile: null });
 
   useEffect(() => {
-    // No Firebase → skip auth check, go straight to login (demo mode)
     if (!isFirebaseReady) return;
-
     const unsub = onAuthChange(async (firebaseUser) => {
       if (firebaseUser) {
         const p = await getUserProfile(firebaseUser.uid);
         if (p) {
-          setProfile(p);
-          setScreen(p.role === "manager" ? "manager-dashboard" : "guard-patrol");
+          setAppState({ screen: p.role === "manager" ? "manager-dashboard" : "guard-patrol", profile: p });
         } else {
-          setScreen("setup");
+          setAppState({ screen: "setup", profile: null });
         }
       } else {
-        setProfile(null);
+        setAppState(s => ({ ...s, profile: null }));
       }
-      setAuthChecked(true);
     });
     return unsub;
   }, []);
 
-  const handleSplashComplete = useCallback(() => setScreen("login"), []);
+  const handleSplashComplete = useCallback(() => {
+    setAppState({ screen: "login", profile: null });
+  }, []);
 
   const handleLogin = useCallback((p: UserProfile) => {
-    setProfile(p);
-    setScreen(p.role === "manager" ? "manager-dashboard" : "guard-patrol");
+    setAppState({
+      screen: p.role === "manager" ? "manager-dashboard" : "guard-patrol",
+      profile: p,
+    });
   }, []);
 
   const handleSetupComplete = useCallback((p: UserProfile) => {
-    setProfile(p);
-    setScreen(p.role === "manager" ? "manager-dashboard" : "guard-patrol");
+    setAppState({
+      screen: p.role === "manager" ? "manager-dashboard" : "guard-patrol",
+      profile: p,
+    });
   }, []);
 
   const handleLogout = useCallback(async () => {
-    await signOut();
-    setProfile(null);
-    setScreen("login");
+    if (isFirebaseReady) await signOut().catch(() => {});
+    setAppState({ screen: "login", profile: null });
   }, []);
 
-  if (screen === "splash") return <SplashScreen onComplete={handleSplashComplete} />;
-  if (screen === "login") return <LoginPage onLogin={handleLogin} onRegister={() => setScreen("setup")} />;
-  if (screen === "setup") return <SetupPage onComplete={handleSetupComplete} onBack={() => setScreen("login")} />;
+  const { screen, profile } = appState;
+
+  if (screen === "splash") {
+    return <SplashScreen onComplete={handleSplashComplete} />;
+  }
+
+  if (screen === "login") {
+    return <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />;
+  }
+
+  if (screen === "setup") {
+    return <SetupPage onComplete={handleSetupComplete} onBack={() => setAppState({ screen: "login", profile: null })} />;
+  }
+
   if (screen === "manager-dashboard" && profile) {
     return <Dashboard profile={profile} onLogout={handleLogout} />;
   }
+
   if (screen === "guard-patrol" && profile) {
     return (
       <GuardPatrol
@@ -75,7 +92,9 @@ function AppContent() {
       />
     );
   }
-  return <SplashScreen onComplete={handleSplashComplete} />;
+
+  // Fallback: if we somehow get here, go to login (never back to splash)
+  return <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />;
 }
 
 function App() {

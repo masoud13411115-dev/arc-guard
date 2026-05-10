@@ -7,7 +7,9 @@ interface SplashScreenProps {
 
 export default function SplashScreen({ onComplete }: SplashScreenProps) {
   useEffect(() => {
-    const t = setTimeout(onComplete, 2800);
+    // ?skip param lets us screenshot the login page directly
+    const delay = new URLSearchParams(location.search).has("skip") ? 0 : 2800;
+    const t = setTimeout(onComplete, delay);
     return () => clearTimeout(t);
   }, [onComplete]);
 

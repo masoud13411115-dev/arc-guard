@@ -96,10 +96,10 @@ export const DEMO_COMPANIES: CompanyRecord[] = [
 ];
 
 export const DEMO_CHECKPOINTS: Checkpoint[] = [
-  { id: 'cp1', name: 'دروازه اصلی', location: 'ورودی شمالی', qrCode: 'ARC_GUARD_CP_MAIN_GATE', lat: 35.6892, lng: 51.3890, radiusMeters: 50, scheduledMinutes: [0, 120, 240, 360, 480, 600, 720], active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
-  { id: 'cp2', name: 'اتاق سرور', location: 'ساختمان فناوری، طبقه B1', qrCode: 'ARC_GUARD_CP_SERVER_ROOM', lat: 35.6901, lng: 51.3912, radiusMeters: 30, scheduledMinutes: [60, 180, 300, 420, 540, 660, 780], active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
-  { id: 'cp3', name: 'پارکینگ B', location: 'زیرزمین، جنوب غربی', qrCode: 'ARC_GUARD_CP_PARKING_B', lat: 35.6855, lng: 51.3775, radiusMeters: 80, scheduledMinutes: [90, 210, 330, 450, 570, 690], active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
-  { id: 'cp4', name: 'دسترسی پشت‌بام', location: 'ساختمان اصلی، طبقه آخر', qrCode: 'ARC_GUARD_CP_ROOF', lat: 35.6893, lng: 51.3891, radiusMeters: 25, scheduledMinutes: [0, 240, 480, 720], active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
+  { id: 'cp1', name: 'دروازه اصلی', location: 'ورودی شمالی', qrCode: 'ARC_GUARD_CP_MAIN_GATE', lat: 35.6892, lng: 51.3890, radiusMeters: 50, patrolIntervalMinutes: 120, active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
+  { id: 'cp2', name: 'اتاق سرور', location: 'ساختمان فناوری، طبقه B1', qrCode: 'ARC_GUARD_CP_SERVER_ROOM', lat: 35.6901, lng: 51.3912, radiusMeters: 30, patrolIntervalMinutes: 60, active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
+  { id: 'cp3', name: 'پارکینگ B', location: 'زیرزمین، جنوب غربی', qrCode: 'ARC_GUARD_CP_PARKING_B', lat: 35.6855, lng: 51.3775, radiusMeters: 80, patrolIntervalMinutes: 90, active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
+  { id: 'cp4', name: 'دسترسی پشت‌بام', location: 'ساختمان اصلی، طبقه آخر', qrCode: 'ARC_GUARD_CP_ROOF', lat: 35.6893, lng: 51.3891, radiusMeters: 25, patrolIntervalMinutes: 240, active: true, companyId: DEMO_COMPANY_ID, createdAt: now - 86400000 },
 ];
 
 export const DEMO_LOGS: PatrolLog[] = [

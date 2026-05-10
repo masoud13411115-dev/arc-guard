@@ -37,6 +37,19 @@ const STATUS_LABEL: Record<ScanStatus, string> = {
 
 const SOS_HOLD_MS = 3000;
 
+type PatrolCountdown = {
+  lastScanAt: number | null;
+  nextPatrolAt: number | null;
+  secsRemaining: number;
+  isOverdue: boolean;
+};
+
+function formatPatrolInterval(mins: number): string {
+  if (mins < 60) return `${mins}د`;
+  if (mins % 60 === 0) return `${mins / 60}س`;
+  return `${Math.floor(mins / 60)}س${mins % 60}د`;
+}
+
 export default function GuardPatrol({ guardId, guardName, companyId, onLogout, onSwitchGuard }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -46,8 +59,10 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
   const [online, setOnline] = useState(navigator.onLine);
   const [queueCount, setQueueCount] = useState(getQueueCount());
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
+  const [allLogs, setAllLogs] = useState<PatrolLog[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
+  const [patrolCountdowns, setPatrolCountdowns] = useState<Record<string, PatrolCountdown>>({});
 
   // SOS state
   const [sosHolding, setSosHolding] = useState(false);
@@ -96,6 +111,15 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
     return subscribeCheckpoints(companyId, setCheckpoints);
   }, [companyId, isDemo]);
 
+  // ── Load all patrol logs (for countdown computation) ───────────────────────
+  useEffect(() => {
+    if (isDemo) {
+      return demoStore.subscribeLogs(setAllLogs);
+    }
+    // In Firebase mode, recentLogs session data is sufficient; allLogs stays empty
+    return undefined;
+  }, [isDemo]);
+
   // ── Online sync ────────────────────────────────────────────────────────────
   const handleSync = useCallback(async () => {
     if (!online || !db) return;
@@ -116,15 +140,50 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
     };
   }, [handleSync]);
 
-  // ── Cooldown countdown timer ───────────────────────────────────────────────
+  // ── Cooldown + patrol countdown timer ─────────────────────────────────────
   const refreshCooldowns = useCallback(() => {
-    const updated: Record<string, number> = {};
-    for (const cp of checkpoints) {
-      const s = secondsUntilNextScan(cp.id);
-      if (s > 0) updated[cp.id] = s;
+    const updatedCooldowns: Record<string, number> = {};
+    const updatedPatrol: Record<string, PatrolCountdown> = {};
+
+    // Merge allLogs (demo/firebase) + recentLogs (session), per checkpoint latest scan
+    const logsToSearch = allLogs.length > 0
+      ? [...recentLogs, ...allLogs]
+      : recentLogs;
+
+    const lastScanByCheckpoint: Record<string, number> = {};
+    for (const log of logsToSearch) {
+      if (log.guardId === guardId && log.checkpointId) {
+        const prev = lastScanByCheckpoint[log.checkpointId] ?? 0;
+        if ((log.scannedAt ?? 0) > prev) {
+          lastScanByCheckpoint[log.checkpointId] = log.scannedAt ?? 0;
+        }
+      }
     }
-    setCooldowns(updated);
-  }, [checkpoints]);
+
+    const now = Date.now();
+    for (const cp of checkpoints) {
+      // Anti-cheat cooldown
+      const s = secondsUntilNextScan(cp.id);
+      if (s > 0) updatedCooldowns[cp.id] = s;
+
+      // Patrol interval countdown
+      const lastScan = lastScanByCheckpoint[cp.id] ?? null;
+      const intervalMs = (cp.patrolIntervalMinutes ?? 120) * 60 * 1000;
+      const nextPatrolAt = lastScan !== null ? lastScan + intervalMs : null;
+      const secsRemaining = nextPatrolAt !== null
+        ? Math.ceil((nextPatrolAt - now) / 1000)
+        : Infinity;
+      updatedPatrol[cp.id] = {
+        lastScanAt: lastScan,
+        nextPatrolAt,
+        secsRemaining: secsRemaining === Infinity ? 0 : secsRemaining,
+        isOverdue: nextPatrolAt !== null && now > nextPatrolAt,
+      };
+    }
+
+    setCooldowns(updatedCooldowns);
+    setPatrolCountdowns(updatedPatrol);
+  }, [checkpoints, allLogs, recentLogs, guardId]);
 
   useEffect(() => {
     refreshCooldowns();
@@ -655,39 +714,114 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
                 const s = log?.status;
                 const coolSecs = cooldowns[cp.id] ?? 0;
                 const locked = coolSecs > 0;
+                const patrol = patrolCountdowns[cp.id];
+                const isOverdue = patrol?.isOverdue ?? false;
+                const hasPatrolData = patrol?.lastScanAt !== null && patrol?.lastScanAt !== undefined;
+                const secsLeft = patrol?.secsRemaining ?? 0;
+
+                // Derive icon + accent colour from patrol state
+                let iconEl: React.ReactNode;
+                let accentClass: string;
+                if (locked) {
+                  iconEl = <Lock className="w-4 h-4 text-sky-400" />;
+                  accentClass = "text-sky-400";
+                } else if (isOverdue) {
+                  iconEl = <AlertTriangle className="w-4 h-4 text-red-400" />;
+                  accentClass = "text-red-400";
+                } else if (s === "valid") {
+                  iconEl = <CheckCircle className="w-4 h-4 text-green-400" />;
+                  accentClass = "text-green-400";
+                } else if (s === "outside") {
+                  iconEl = <AlertTriangle className="w-4 h-4 text-yellow-400" />;
+                  accentClass = "text-yellow-400";
+                } else if (s === "failed") {
+                  iconEl = <AlertTriangle className="w-4 h-4 text-destructive" />;
+                  accentClass = "text-destructive";
+                } else {
+                  iconEl = <MapPin className="w-4 h-4 text-muted-foreground" />;
+                  accentClass = "text-foreground";
+                }
+
+                // Border colour for the icon circle
+                const circleBorder = locked ? "bg-sky-500/10 border-sky-500/30"
+                  : isOverdue ? "bg-red-500/10 border-red-500/30"
+                  : s === "valid" ? "bg-green-500/15 border-green-500/40"
+                  : s === "outside" ? "bg-yellow-500/15 border-yellow-500/40"
+                  : s === "failed" ? "bg-destructive/15 border-destructive/40"
+                  : "bg-muted border-border";
+
+                // Patrol countdown display
+                const patrolDisplay = () => {
+                  if (locked) {
+                    return (
+                      <p className="text-[11px] font-mono text-sky-400 whitespace-nowrap">
+                        🔒 {formatCountdown(coolSecs)}
+                      </p>
+                    );
+                  }
+                  if (!hasPatrolData) {
+                    return (
+                      <p className="text-[11px] text-muted-foreground whitespace-nowrap">بازدید نشده</p>
+                    );
+                  }
+                  if (isOverdue) {
+                    const overdueMin = Math.ceil(Math.abs(secsLeft) / 60);
+                    return (
+                      <div className="text-center">
+                        <p className="text-[11px] font-bold text-red-400 whitespace-nowrap animate-pulse">
+                          ⚠ تأخیر
+                        </p>
+                        <p className="text-[10px] text-red-400/70 whitespace-nowrap">
+                          {overdueMin} دقیقه
+                        </p>
+                      </div>
+                    );
+                  }
+                  // Count down
+                  const totalSecs = Math.max(0, secsLeft);
+                  const mm = Math.floor(totalSecs / 60);
+                  const ss = totalSecs % 60;
+                  const timeStr = mm >= 60
+                    ? `${Math.floor(mm / 60)}:${String(mm % 60).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+                    : `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+                  const intervalMins = cp.patrolIntervalMinutes ?? 120;
+                  const nextPct = patrol?.nextPatrolAt
+                    ? Math.max(0, Math.min(100, ((patrol.nextPatrolAt - Date.now()) / (intervalMins * 60000)) * 100))
+                    : 100;
+                  return (
+                    <div className="flex flex-col items-center gap-1 min-w-[60px]">
+                      <p className={`text-[11px] font-mono font-bold whitespace-nowrap ${nextPct < 20 ? "text-yellow-400" : "text-primary"}`}>
+                        {timeStr}
+                      </p>
+                      <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${nextPct < 20 ? "bg-yellow-400" : "bg-primary"}`}
+                          style={{ width: `${nextPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                };
+
                 return (
-                  <div key={cp.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className={`w-9 h-9 rounded-full border flex items-center justify-center shrink-0 ${
-                      locked ? "bg-sky-500/10 border-sky-500/30" :
-                      s === "valid" ? "bg-green-500/15 border-green-500/40" :
-                      s === "outside" ? "bg-yellow-500/15 border-yellow-500/40" :
-                      s === "failed" ? "bg-destructive/15 border-destructive/40" : "bg-muted border-border"
-                    }`}>
-                      {locked ? <Lock className="w-4 h-4 text-sky-400" /> :
-                       s === "valid" ? <CheckCircle className="w-4 h-4 text-green-400" /> :
-                       s === "outside" ? <AlertTriangle className="w-4 h-4 text-yellow-400" /> :
-                       s === "failed" ? <AlertTriangle className="w-4 h-4 text-destructive" /> :
-                       <MapPin className="w-4 h-4 text-muted-foreground" />}
+                  <div key={cp.id} className={`flex items-center gap-3 px-4 py-3 ${isOverdue ? "bg-red-500/5" : ""}`}>
+                    <div className={`w-9 h-9 rounded-full border flex items-center justify-center shrink-0 ${circleBorder}`}>
+                      {iconEl}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-semibold ${
-                        locked ? "text-sky-400" : s === "valid" ? "text-green-400" :
-                        s === "outside" ? "text-yellow-400" : s === "failed" ? "text-destructive" : "text-foreground"
-                      }`}>{cp.name}</p>
-                      {cp.location && <p className="text-xs text-muted-foreground truncate">{cp.location}</p>}
+                      <p className={`text-sm font-semibold ${accentClass}`}>{cp.name}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        {cp.location && (
+                          <p className="text-[11px] text-muted-foreground truncate">{cp.location}</p>
+                        )}
+                        <span className="text-[10px] text-primary/50 border border-primary/20 rounded px-1 py-0.5 whitespace-nowrap shrink-0">
+                          <Clock className="w-2.5 h-2.5 inline mr-0.5" />
+                          {formatPatrolInterval(cp.patrolIntervalMinutes ?? 120)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="shrink-0 text-left min-w-[70px]">
-                      {locked ? (
-                        <p className="text-xs font-mono text-sky-400 text-center">🔒 {formatCountdown(coolSecs)}</p>
-                      ) : (
-                        <>
-                          <p className={`text-xs font-semibold ${
-                            s === "valid" ? "text-green-400" : s === "outside" ? "text-yellow-400" :
-                            s === "failed" ? "text-destructive" : "text-muted-foreground"
-                          }`}>{s ? STATUS_LABEL[s] : "در انتظار"}</p>
-                          <p className="text-xs text-muted-foreground">{cp.radiusMeters} متر</p>
-                        </>
-                      )}
+                    <div className="shrink-0 min-w-[60px] flex justify-end">
+                      {patrolDisplay()}
                     </div>
                   </div>
                 );

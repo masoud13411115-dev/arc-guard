@@ -102,7 +102,7 @@ function checkpointPopupHtml(cp: Checkpoint): string {
       ${cp.location ? `<p style="font-size:11px;color:#64748b;margin:0 0 5px">${cp.location}</p>` : ""}
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <span style="background:#0c2340;color:#38bdf8;padding:2px 8px;border-radius:99px;font-size:11px;">شعاع: ${cp.radiusMeters} متر</span>
-        <span style="background:#0c2340;color:#38bdf8;padding:2px 8px;border-radius:99px;font-size:11px;">${cp.scheduledMinutes.length} بازدید/روز</span>
+        <span style="background:#0c2340;color:#38bdf8;padding:2px 8px;border-radius:99px;font-size:11px;">بازه: ${cp.patrolIntervalMinutes < 60 ? cp.patrolIntervalMinutes + " دقیقه" : (cp.patrolIntervalMinutes / 60) + " ساعت"}</span>
       </div>
     </div>`;
 }

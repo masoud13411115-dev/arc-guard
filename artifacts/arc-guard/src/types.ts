@@ -50,7 +50,8 @@ export interface Checkpoint {
   lat: number;
   lng: number;
   radiusMeters: number;
-  scheduledMinutes: number[];
+  /** Patrol interval in minutes — e.g. 17, 30, 120 */
+  patrolIntervalMinutes: number;
   active: boolean;
   companyId: string;
   createdAt: number;

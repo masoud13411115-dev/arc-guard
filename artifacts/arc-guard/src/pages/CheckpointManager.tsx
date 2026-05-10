@@ -20,16 +20,28 @@ interface CheckpointManagerProps {
   companyId: string;
 }
 
-const EMPTY_FORM = { name: "", location: "", lat: "", lng: "", radiusMeters: "50", schedule: "every-2h" };
+type IntervalUnit = "minutes" | "hours";
+const EMPTY_FORM = {
+  name: "", location: "", lat: "", lng: "",
+  radiusMeters: "50",
+  intervalValue: "30",
+  intervalUnit: "minutes" as IntervalUnit,
+};
 type FormState = typeof EMPTY_FORM;
 
 const inputClass = "w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors";
 
-function scheduleToMinutes(s: string): number[] {
-  const base = new Date().getHours() * 60 + new Date().getMinutes();
-  const intervals: Record<string, number> = { "every-1h": 60, "every-2h": 120, "every-4h": 240, "every-8h": 480 };
-  const interval = intervals[s] ?? 120;
-  return Array.from({ length: Math.floor(1440 / interval) }, (_, i) => (base + i * interval) % 1440);
+function toIntervalMinutes(value: string, unit: IntervalUnit): number {
+  const n = Math.max(1, parseInt(value) || 1);
+  return unit === "hours" ? n * 60 : n;
+}
+
+function formatIntervalLabel(mins: number): string {
+  if (mins < 60) return `هر ${mins} دقیقه`;
+  if (mins % 60 === 0) return `هر ${mins / 60} ساعت`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `هر ${h} ساعت و ${m} دقیقه`;
 }
 
 export default function CheckpointManager({ companyId }: CheckpointManagerProps) {
@@ -69,13 +81,21 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
 
   const openEdit = (cp: Checkpoint) => {
     setEditId(cp.id);
+    const mins = cp.patrolIntervalMinutes ?? 120;
+    let intervalValue = String(mins);
+    let intervalUnit: IntervalUnit = "minutes";
+    if (mins >= 60 && mins % 60 === 0) {
+      intervalValue = String(mins / 60);
+      intervalUnit = "hours";
+    }
     setForm({
       name: cp.name,
       location: cp.location ?? "",
       lat: String(cp.lat),
       lng: String(cp.lng),
       radiusMeters: String(cp.radiusMeters),
-      schedule: "every-2h",
+      intervalValue,
+      intervalUnit,
     });
     setGpsPreview(null);
     setShowForm(true);
@@ -116,7 +136,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         lat,
         lng,
         radiusMeters: parseInt(form.radiusMeters),
-        scheduledMinutes: scheduleToMinutes(form.schedule),
+        patrolIntervalMinutes: toIntervalMinutes(form.intervalValue, form.intervalUnit),
         active: true,
         qrCode: editId
           ? (checkpoints.find((c) => c.id === editId)?.qrCode ?? demoStore.generateQrCode(form.name))
@@ -245,7 +265,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   <div class="name">${cp.name}</div>
   ${cp.location ? `<div class="loc">${cp.location}</div>` : ""}
   <div class="code">${cp.qrCode}</div>
-  <div class="badge">شعاع: ${cp.radiusMeters} متر · ${cp.scheduledMinutes.length} بازدید/روز</div>
+  <div class="badge">شعاع: ${cp.radiusMeters} متر · بازه: ${formatIntervalLabel(cp.patrolIntervalMinutes)}</div>
   <div class="gps">${cp.lat.toFixed(6)}, ${cp.lng.toFixed(6)}</div>
   <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
 </body>
@@ -410,37 +430,48 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
               مختصات را از GPS بالا بگیرید یا دستی وارد کنید
             </p>
 
-            {/* Radius + Schedule */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">شعاع مجاز (متر)</label>
+            {/* Radius */}
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">شعاع مجاز (متر)</label>
+              <select
+                value={form.radiusMeters}
+                onChange={(e) => setF("radiusMeters", e.target.value)}
+                className={inputClass}
+              >
+                {["10", "25", "50", "100", "200"].map((v) => (
+                  <option key={v} value={v}>{v} متر</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Patrol interval */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                بازه گشت (فاصله بین هر بازدید)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  value={form.intervalValue}
+                  onChange={(e) => setF("intervalValue", e.target.value)}
+                  className={inputClass + " w-24 text-center font-mono"}
+                  dir="ltr"
+                />
                 <select
-                  value={form.radiusMeters}
-                  onChange={(e) => setF("radiusMeters", e.target.value)}
+                  value={form.intervalUnit}
+                  onChange={(e) => setF("intervalUnit", e.target.value as IntervalUnit)}
                   className={inputClass}
                 >
-                  {["10", "25", "50", "100", "200"].map((v) => (
-                    <option key={v} value={v}>{v} متر</option>
-                  ))}
+                  <option value="minutes">دقیقه</option>
+                  <option value="hours">ساعت</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">برنامه گشت</label>
-                <select
-                  value={form.schedule}
-                  onChange={(e) => setF("schedule", e.target.value)}
-                  className={inputClass}
-                >
-                  {[
-                    ["every-1h", "هر ۱ ساعت"],
-                    ["every-2h", "هر ۲ ساعت"],
-                    ["every-4h", "هر ۴ ساعت"],
-                    ["every-8h", "هر ۸ ساعت"],
-                  ].map(([v, l]) => (
-                    <option key={v} value={v}>{l}</option>
-                  ))}
-                </select>
-              </div>
+              <p className="text-[11px] text-primary/70 text-center">
+                {formatIntervalLabel(toIntervalMinutes(form.intervalValue, form.intervalUnit))}
+                {" · "}هر نگهبان باید در این بازه از این ایستگاه بازدید کند
+              </p>
             </div>
 
             {/* Buttons */}
@@ -537,7 +568,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                     <Shield className="w-3 h-3" />{cp.radiusMeters} متر
                   </span>
                   <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground">
-                    <Clock className="w-3 h-3" />{cp.scheduledMinutes.length} بازدید/روز
+                    <Clock className="w-3 h-3" />{formatIntervalLabel(cp.patrolIntervalMinutes)}
                   </span>
                 </div>
               </div>

@@ -64,10 +64,11 @@ function makeSubscribe<T>(
   };
 }
 
-// ── QR code generation (matches isValidQrFormat) ─────────────────────────────
-export function generateQrCode(name: string): string {
-  const clean = name.toUpperCase().replace(/[^A-Z0-9]/g, '_').replace(/__+/g, '_').slice(0, 40);
-  return `ARC_GUARD_CP_${clean}_${Date.now()}`;
+// ── QR code generation ────────────────────────────────────────────────────────
+// v2 format: ARCG|{companyId}|{checkpointId}
+// Embeds both IDs so guard scanner can validate company ownership.
+export function generateQrCode(companyId: string, checkpointId: string): string {
+  return `ARCG|${companyId}|${checkpointId}`;
 }
 
 // ── Unique ID helper ──────────────────────────────────────────────────────────
@@ -84,12 +85,15 @@ export function getCheckpoints(): Checkpoint[] {
 }
 
 export function addCheckpoint(
-  cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId'>,
+  cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId' | 'qrCode'>,
 ): Checkpoint {
+  const id = uid('cp');
+  const companyId = 'demo-company';
   const item: Checkpoint = {
     ...cp,
-    id: uid('cp'),
-    companyId: 'demo-company',
+    id,
+    companyId,
+    qrCode: generateQrCode(companyId, id),
     createdAt: Date.now(),
   };
   save('checkpoints', [...getCheckpoints(), item]);

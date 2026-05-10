@@ -1,7 +1,13 @@
 import { useState } from "react";
-import { Shield, Eye, EyeOff, Lock, Mail, AlertCircle, Info, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Shield, Eye, EyeOff, Lock, Mail, AlertCircle, Info,
+  ChevronDown, ChevronUp, Hash, Building2,
+} from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
-import { signIn, getUserProfile, demoLogin } from "@/lib/auth";
+import {
+  signIn, signInWithGuardCode, resolveCompanyByInviteCode,
+  getUserProfile, demoLogin,
+} from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
 import type { UserProfile } from "@/types";
@@ -11,35 +17,42 @@ interface Props {
   onRegister: () => void;
 }
 
-// Demo mode is shown unless explicitly disabled via env var (set VITE_SHOW_DEMO=false in production)
 const SHOW_DEMO = import.meta.env.VITE_SHOW_DEMO !== "false";
 
-const FIREBASE_ERROR_MAP: Record<string, string> = {
-  "auth/user-not-found":      "ایمیل یا رمز عبور اشتباه است.",
-  "auth/wrong-password":      "ایمیل یا رمز عبور اشتباه است.",
-  "auth/invalid-credential":  "ایمیل یا رمز عبور اشتباه است.",
-  "auth/too-many-requests":   "تعداد تلاش زیاد. چند دقیقه صبر کنید.",
+const FIREBASE_MANAGER_ERRORS: Record<string, string> = {
+  "auth/user-not-found":         "ایمیل یا رمز عبور اشتباه است.",
+  "auth/wrong-password":         "ایمیل یا رمز عبور اشتباه است.",
+  "auth/invalid-credential":     "ایمیل یا رمز عبور اشتباه است.",
+  "auth/too-many-requests":      "تعداد تلاش زیاد. چند دقیقه صبر کنید.",
   "auth/network-request-failed": "خطای اتصال به اینترنت. اتصال شبکه را بررسی کنید.",
-  "auth/user-disabled":       "حساب شما توسط مدیر غیرفعال شده است.",
-  "auth/invalid-email":       "فرمت ایمیل اشتباه است.",
+  "auth/user-disabled":          "حساب شما توسط مدیر غیرفعال شده است.",
+  "auth/invalid-email":          "فرمت ایمیل اشتباه است.",
 };
 
+type LoginMode = "manager" | "guard";
+
 export default function LoginPage({ onLogin, onRegister }: Props) {
+  const [mode, setMode] = useState<LoginMode>("manager");
+
+  // Manager fields
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [showPw, setShowPw]     = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
+
+  // Guard fields
+  const [guardCode, setGuardCode]       = useState("");
+  const [inviteCode, setInviteCode]     = useState("");
+  const [pin, setPin]                   = useState("");
+
+  const [showPw, setShowPw]   = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // ── Manager login ──────────────────────────────────────────────────────────
+  const handleManagerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    if (!isFirebaseReady) {
-      setError("Firebase پیکربندی نشده. از دکمه‌های نمونه استفاده کنید یا Secrets را تنظیم کنید.");
-      return;
-    }
+    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده. از دکمه‌های نمونه استفاده کنید."); return; }
     if (!email.trim()) { setError("ایمیل الزامی است."); return; }
     if (!password)     { setError("رمز عبور الزامی است."); return; }
 
@@ -47,14 +60,54 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
     try {
       const user    = await signIn(email.trim().toLowerCase(), password);
       const profile = await getUserProfile(user.uid);
-      if (!profile)        { setError("پروفایل کاربری یافت نشد. با مدیر تماس بگیرید."); return; }
+      if (!profile)        { setError("پروفایل کاربری یافت نشد. با پشتیبانی تماس بگیرید."); return; }
       if (!profile.active) { setError("حساب شما غیرفعال است. با مدیر تماس بگیرید."); return; }
-      logger.info("login", `Success: ${profile.role}`);
+      if (profile.role === "guard") { setError("برای ورود نگهبان، تب «نگهبان» را انتخاب کنید."); return; }
+      logger.info("login", `Manager success: ${profile.role}`);
       onLogin(profile);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code ?? "";
-      logger.warn("login", "Failed", code);
-      setError(FIREBASE_ERROR_MAP[code] ?? "خطا در ورود. دوباره تلاش کنید.");
+      logger.warn("login", "Manager failed", code);
+      setError(FIREBASE_MANAGER_ERRORS[code] ?? "خطا در ورود. دوباره تلاش کنید.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Guard login ────────────────────────────────────────────────────────────
+  const handleGuardLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده. از دکمه‌های نمونه استفاده کنید."); return; }
+    if (!guardCode.trim()) { setError("کد نگهبان الزامی است."); return; }
+    if (!inviteCode.trim()) { setError("کد دعوت شرکت الزامی است."); return; }
+    if (!pin)               { setError("PIN الزامی است."); return; }
+
+    setLoading(true);
+    try {
+      // Resolve companyId from inviteCode
+      const company = await resolveCompanyByInviteCode(inviteCode.trim().toUpperCase());
+      // Sign in with synthetic email derived from guardCode + companyId
+      const user    = await signInWithGuardCode(guardCode.trim().toUpperCase(), company.id, pin);
+      const profile = await getUserProfile(user.uid);
+      if (!profile)        { setError("پروفایل نگهبان یافت نشد. ابتدا ثبت‌نام کنید."); return; }
+      if (!profile.active) { setError("حساب نگهبان غیرفعال است. با مدیر تماس بگیرید."); return; }
+      logger.info("login", `Guard success: ${profile.displayName}`);
+      onLogin(profile);
+    } catch (err: unknown) {
+      const msg = (err as Error).message ?? "";
+      const code = (err as { code?: string })?.code ?? "";
+      logger.warn("login", "Guard failed", code, msg);
+      if (msg.includes("کد دعوت")) setError(msg);
+      else if (msg.includes("کد نگهبان") || code === "auth/invalid-credential" || code === "auth/wrong-password") {
+        setError("کد نگهبان یا PIN اشتباه است.");
+      } else if (code === "auth/too-many-requests") {
+        setError("تعداد تلاش زیاد. چند دقیقه صبر کنید.");
+      } else if (code === "auth/network-request-failed") {
+        setError("خطای اتصال. اتصال اینترنت را بررسی کنید.");
+      } else {
+        setError("خطا در ورود: " + msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -79,7 +132,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           <p className="text-xs text-muted-foreground mt-1">سیستم هوشمند گشت امنیتی · پلتفرم SaaS</p>
         </div>
 
-        {/* ── Demo buttons (hidden in production when VITE_SHOW_DEMO=false) ── */}
+        {/* ── Demo buttons ── */}
         {SHOW_DEMO && (
           <div className="rounded-2xl border-2 border-sky-500/50 bg-sky-500/10 p-4">
             <p className="text-center text-sm font-bold text-sky-400 mb-1">ورود نمونه</p>
@@ -150,87 +203,199 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
         )}
 
         {/* ── Login form ── */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Shield className="w-4 h-4 text-primary" />
-            <span className="text-sm font-bold">ورود با حساب Firebase</span>
-            {!isFirebaseReady && (
-              <span className="mr-auto text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-                غیرفعال
-              </span>
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+
+          {/* Mode tab switcher */}
+          <div className="flex border-b border-border">
+            <button
+              type="button"
+              onClick={() => { setMode("manager"); setError(""); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold transition-colors ${
+                mode === "manager"
+                  ? "bg-primary/10 text-primary border-b-2 border-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              مدیر / ادمین
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode("guard"); setError(""); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold transition-colors ${
+                mode === "guard"
+                  ? "bg-primary/10 text-primary border-b-2 border-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              نگهبان
+            </button>
+          </div>
+
+          <div className="p-5">
+            {/* ── Manager form ── */}
+            {mode === "manager" && (
+              <form onSubmit={handleManagerLogin} className="space-y-3" noValidate>
+                <div>
+                  <label htmlFor="arc-email" className="text-xs text-muted-foreground block mb-1">ایمیل مدیر</label>
+                  <div className="relative">
+                    <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="arc-email"
+                      type="email"
+                      inputMode="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      placeholder="manager@company.com"
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      disabled={!isFirebaseReady}
+                      className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="arc-password" className="text-xs text-muted-foreground block mb-1">رمز عبور</label>
+                  <div className="relative">
+                    <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="arc-password"
+                      type={showPw ? "text" : "password"}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      disabled={!isFirebaseReady}
+                      className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    />
+                    <button type="button" onClick={() => setShowPw(v => !v)}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}>
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <button type="submit" disabled={loading || !isFirebaseReady}
+                  className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      در حال ورود...
+                    </span>
+                  ) : "ورود مدیر"}
+                </button>
+              </form>
+            )}
+
+            {/* ── Guard form ── */}
+            {mode === "guard" && (
+              <form onSubmit={handleGuardLogin} className="space-y-3" noValidate>
+                <div>
+                  <label htmlFor="arc-guard-code" className="text-xs text-muted-foreground block mb-1">کد نگهبان</label>
+                  <div className="relative">
+                    <Hash className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="arc-guard-code"
+                      type="text"
+                      value={guardCode}
+                      onChange={e => setGuardCode(e.target.value.toUpperCase())}
+                      placeholder="مثال: G001"
+                      autoComplete="username"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      disabled={!isFirebaseReady}
+                      className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors tracking-wider"
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">کد اختصاصی نگهبان (از مدیر دریافت کنید)</p>
+                </div>
+
+                <div>
+                  <label htmlFor="arc-invite" className="text-xs text-muted-foreground block mb-1">کد دعوت شرکت</label>
+                  <div className="relative">
+                    <Building2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="arc-invite"
+                      type="text"
+                      value={inviteCode}
+                      onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                      placeholder="مثال: ARC-X9F2"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      disabled={!isFirebaseReady}
+                      className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors tracking-widest"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="arc-pin" className="text-xs text-muted-foreground block mb-1">PIN / رمز عبور</label>
+                  <div className="relative">
+                    <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="arc-pin"
+                      type={showPw ? "text" : "password"}
+                      value={pin}
+                      onChange={e => setPin(e.target.value)}
+                      placeholder="••••••"
+                      autoComplete="current-password"
+                      disabled={!isFirebaseReady}
+                      className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    />
+                    <button type="button" onClick={() => setShowPw(v => !v)}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}>
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <button type="submit" disabled={loading || !isFirebaseReady}
+                  className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      در حال ورود...
+                    </span>
+                  ) : "ورود نگهبان"}
+                </button>
+
+                <p className="text-center text-[11px] text-muted-foreground pt-1">
+                  نگهبان جدید؟{" "}
+                  <button type="button" onClick={onRegister} className="text-primary hover:underline font-medium">
+                    ثبت‌نام با کد دعوت
+                  </button>
+                </p>
+              </form>
             )}
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-3" noValidate>
-            {/* Email */}
-            <div>
-              <label htmlFor="arc-email" className="text-xs text-muted-foreground block mb-1">ایمیل</label>
-              <div className="relative">
-                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input
-                  id="arc-email"
-                  type="email"
-                  inputMode="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="example@company.com"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  disabled={!isFirebaseReady}
-                  className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label htmlFor="arc-password" className="text-xs text-muted-foreground block mb-1">رمز عبور</label>
-              <div className="relative">
-                <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input
-                  id="arc-password"
-                  type={showPw ? "text" : "password"}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  disabled={!isFirebaseReady}
-                  className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                />
-                <button type="button" onClick={() => setShowPw(v => !v)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  tabIndex={-1} aria-label={showPw ? "مخفی کردن رمز" : "نمایش رمز"}>
-                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Submit */}
-            <button type="submit" disabled={loading || !isFirebaseReady}
-              className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                  </svg>
-                  در حال ورود...
-                </span>
-              ) : "ورود"}
-            </button>
-          </form>
-
           {/* Firebase status indicator */}
-          <div className="mt-4 pt-3 border-t border-border flex items-center justify-center gap-1.5">
+          <div className="px-5 pb-4 pt-0 flex items-center justify-center gap-1.5 border-t border-border pt-3">
             <div className={`w-1.5 h-1.5 rounded-full ${isFirebaseReady ? "bg-green-400 animate-pulse" : "bg-yellow-400"}`} />
             <span className="text-xs text-muted-foreground">
               {isFirebaseReady ? "Firebase ARC Guard متصل" : "حالت نمونه · Firebase متصل نیست"}
@@ -238,8 +403,8 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
         </div>
 
-        {/* Register link */}
-        {isFirebaseReady && (
+        {/* Register link — only for manager */}
+        {isFirebaseReady && mode === "manager" && (
           <div className="text-center">
             <p className="text-xs text-muted-foreground">
               شرکت ندارید؟{" "}

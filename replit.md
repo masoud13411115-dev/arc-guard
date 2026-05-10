@@ -67,6 +67,31 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **localStorage backup**: CheckpointManager keeps a live mirror in `arc_guard_v1:live_{companyId}_checkpoints`. On Firestore error, falls back to this cache so data isn't lost.
 - ARC Guard secrets: `VITE_ARC_GUARD_API_KEY`, `VITE_ARC_GUARD_AUTH_DOMAIN`, `VITE_ARC_GUARD_PROJECT_ID`, `VITE_ARC_GUARD_STORAGE_BUCKET`, `VITE_ARC_GUARD_MESSAGING_SENDER_ID`, `VITE_ARC_GUARD_APP_ID` (+ optional `VITE_ARC_GUARD_MEASUREMENT_ID`)
 
+## ARC Guard — QR Code Format
+
+- **v2 (current)**: `ARCG|{companyId}|{checkpointId}` — embeds both IDs so guard scanner validates company ownership.
+- **v1 (legacy)**: `ARC_GUARD_CP_{NAME}_{TIMESTAMP}` — guard falls back to matching by qrCode string.
+- QR is **auto-generated in the storage layer** (not the UI): `saveCheckpoint` in firestore.ts pre-generates doc ID via `doc(col(...))`, builds QR, uses `setDoc`. `addCheckpoint` in demo-store.ts does the same.
+- On checkpoint create: `qrCode = ARCG|${companyId}|${checkpointId}` — never edited on update.
+- `isValidQrFormat` in `scanProtection.ts` accepts both v1 and v2. `parseQrCode` returns `{companyId, checkpointId}` for v2, null for v1.
+
+## ARC Guard — Guard Authentication (No Email)
+
+- Guards do NOT need an email address. Firebase Auth is used internally with a **synthetic email**: `{guardCode}.{companyId}@arcg.internal`.
+- Guard registration: fullName + guardCode + inviteCode + PIN (min 6 chars). `registerGuardWithCode` in `auth.ts`.
+- Guard login: guardCode + inviteCode (to resolve companyId) + PIN. `signInWithGuardCode` in `auth.ts`.
+- Manager login: unchanged — email + password via `signIn`.
+- LoginPage has two tabs: Manager / Guard.
+- SetupPage guard form: no email field; uses guardCode + inviteCode + PIN + PIN confirm.
+
+## ARC Guard — Guard Scanner Logic
+
+- Scanner parses QR → calls `parseQrCode(text)`.
+- v2 QR: extracts `qrCompanyId` and `qrCheckpointId`. Cross-checks `qrCompanyId === guard.companyId` (security). Looks up checkpoint by `cp.id === qrCheckpointId`.
+- v1 QR: falls back to `checkpoints.find(cp => cp.qrCode === qrText)`.
+- If not found: shows exact reason (companyId mismatch, or checkpoint not in loaded list of N items).
+- DEV debug panel: after each scan shows qrCompanyId, qrCheckpointId, guardCompanyId, lookup path, error reason. Hidden in production (`import.meta.env.DEV`).
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

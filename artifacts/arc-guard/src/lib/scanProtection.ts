@@ -6,18 +6,41 @@ const STORAGE_KEY = "arc_guard_scan_times";
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per checkpoint
 
 // ── QR format validation ───────────────────────────────────────────────────────
-// All ARC Guard QR codes start with ARC_GUARD_CP_ and have a timestamp
-const QR_PREFIX = "ARC_GUARD_CP_";
-const MIN_QR_LEN = 20;
-const MAX_QR_LEN = 200;
+//
+// v2 (current):  ARCG|{companyId}|{checkpointId}
+//   - Contains companyId + checkpointId for cross-company security validation
+//   - Example: ARCG|abc123|xyz789
+//
+// v1 (legacy):   ARC_GUARD_CP_{NAME}_{TIMESTAMP}
+//   - Older checkpoints printed before the v2 migration
+
+const QR_V2_PREFIX = "ARCG|";
+const QR_V1_PREFIX = "ARC_GUARD_CP_";
 
 export function isValidQrFormat(qrText: string): boolean {
   if (!qrText || typeof qrText !== "string") return false;
-  if (qrText.length < MIN_QR_LEN || qrText.length > MAX_QR_LEN) return false;
-  if (!qrText.startsWith(QR_PREFIX)) return false;
-  // Must contain only URL-safe characters (no scripts, no injections)
-  if (!/^[A-Z0-9_]+$/.test(qrText)) return false;
-  return true;
+  if (qrText.length > 300) return false;
+
+  // v2 format: ARCG|{companyId}|{checkpointId}
+  if (qrText.startsWith(QR_V2_PREFIX)) {
+    const parts = qrText.split("|");
+    return parts.length === 3 && parts[1].length > 0 && parts[2].length > 0;
+  }
+
+  // v1 legacy format: ARC_GUARD_CP_{NAME}_{TIMESTAMP}
+  if (qrText.startsWith(QR_V1_PREFIX)) {
+    return qrText.length >= 20 && /^[A-Z0-9_]+$/.test(qrText);
+  }
+
+  return false;
+}
+
+/** Parse a v2 QR code → {companyId, checkpointId}, or null for v1/invalid */
+export function parseQrCode(qrText: string): { companyId: string; checkpointId: string } | null {
+  if (!qrText.startsWith(QR_V2_PREFIX)) return null;
+  const parts = qrText.split("|");
+  if (parts.length !== 3 || !parts[1] || !parts[2]) return null;
+  return { companyId: parts[1], checkpointId: parts[2] };
 }
 
 // ── Cooldown tracking ─────────────────────────────────────────────────────────

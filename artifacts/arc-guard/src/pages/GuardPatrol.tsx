@@ -14,7 +14,7 @@ import { addToQueue, getQueueCount } from "@/lib/offline";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue, saveAlert } from "@/lib/firestore";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import {
-  isValidQrFormat, canScan, recordScan,
+  isValidQrFormat, parseQrCode, canScan, recordScan,
   secondsUntilNextScan, formatCountdown
 } from "@/lib/scanProtection";
 import { db, isFirebaseReady } from "@/firebase";
@@ -86,6 +86,18 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
 
   const isDemo = !isFirebaseReady;
 
+  // Dev-only debug info for last QR scan attempt
+  type ScanDebug = {
+    qrText: string;
+    qrCompanyId: string | null;
+    qrCheckpointId: string | null;
+    guardCompanyId: string;
+    lookupPath: string;
+    totalCheckpoints: number;
+    reason: string;
+  };
+  const [lastScanDebug, setLastScanDebug] = useState<ScanDebug | null>(null);
+
   // ── Permissions ────────────────────────────────────────────────────────────
   const [perms, setPerms] = useState<PatrolPermissions | null>(null);
   const [requestingPerms, setRequestingPerms] = useState(false);
@@ -108,7 +120,11 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
     if (isDemo) {
       return demoStore.subscribeCheckpoints(setCheckpoints);
     }
-    return subscribeCheckpoints(companyId, setCheckpoints);
+    return subscribeCheckpoints(
+      companyId,
+      setCheckpoints,
+      (err) => console.error("[GuardPatrol] checkpoint subscription error:", (err as { code?: string }).code, err.message),
+    );
   }, [companyId, isDemo]);
 
   // ── Load all patrol logs (for countdown computation) ───────────────────────
@@ -257,6 +273,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
   // ── QR scan handler ────────────────────────────────────────────────────────
   const handleQrScan = async (qrText: string) => {
     await stopScanner();
+    setLastScanDebug(null);
 
     if (!isValidQrFormat(qrText)) {
       setScanResult({
@@ -269,13 +286,75 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
       return;
     }
 
-    const checkpoint = checkpoints.find((cp) => cp.qrCode === qrText) ?? null;
+    // ── Parse QR code ─────────────────────────────────────────────────────────
+    const parsed = parseQrCode(qrText); // v2: ARCG|{companyId}|{checkpointId}
+    let checkpoint: Checkpoint | null = null;
+    let debugReason = "";
+
+    if (parsed) {
+      // v2 format — validate companyId and lookup by checkpointId
+      const { companyId: qrCompanyId, checkpointId: qrCpId } = parsed;
+      const lookupPath = `companies/${companyId}/checkpoints/${qrCpId}`;
+
+      if (import.meta.env.DEV) {
+        setLastScanDebug({
+          qrText,
+          qrCompanyId,
+          qrCheckpointId: qrCpId,
+          guardCompanyId: companyId,
+          lookupPath,
+          totalCheckpoints: checkpoints.length,
+          reason: "در حال جستجو...",
+        });
+      }
+
+      if (qrCompanyId !== companyId) {
+        debugReason = `companyId مطابقت ندارد — QR: "${qrCompanyId}" | نگهبان: "${companyId}"`;
+        if (import.meta.env.DEV) setLastScanDebug((d) => d ? { ...d, reason: debugReason } : d);
+        setScanResult({
+          ok: false, status: "failed",
+          title: "ایستگاه شرکت دیگری",
+          msg: "این QR کد متعلق به شرکت دیگری است و توسط این حساب قابل اسکن نیست.",
+          sub: debugReason,
+        });
+        playFail();
+        return;
+      }
+
+      checkpoint = checkpoints.find((cp) => cp.id === qrCpId) ?? null;
+      if (!checkpoint) {
+        debugReason = `checkpointId="${qrCpId}" در لیست ${checkpoints.length} ایستگاه بارگذاری‌شده یافت نشد — مسیر: ${lookupPath}`;
+        if (import.meta.env.DEV) setLastScanDebug((d) => d ? { ...d, reason: debugReason } : d);
+      }
+    } else {
+      // v1 legacy format — match by qrCode string
+      const lookupPath = `companies/${companyId}/checkpoints (جستجو بر اساس qrCode)`;
+      checkpoint = checkpoints.find((cp) => cp.qrCode === qrText) ?? null;
+      debugReason = checkpoint
+        ? ""
+        : `هیچ ایستگاهی با qrCode="${qrText.slice(0, 30)}…" یافت نشد (${checkpoints.length} ایستگاه در لیست)`;
+
+      if (import.meta.env.DEV) {
+        setLastScanDebug({
+          qrText,
+          qrCompanyId: null,
+          qrCheckpointId: null,
+          guardCompanyId: companyId,
+          lookupPath,
+          totalCheckpoints: checkpoints.length,
+          reason: debugReason,
+        });
+      }
+    }
+
     if (!checkpoint) {
       setScanResult({
         ok: false, status: "failed",
         title: "ایستگاه ناشناس",
-        msg: "این کد QR در سیستم ثبت نشده است. با مدیر تماس بگیرید.",
-        sub: qrText,
+        msg: checkpoints.length === 0
+          ? "لیست ایستگاه‌ها خالی است. منتظر بمانید تا ایستگاه‌ها بارگذاری شوند یا با مدیر تماس بگیرید."
+          : `این QR در لیست ${checkpoints.length} ایستگاه شرکت یافت نشد. با مدیر تماس بگیرید.`,
+        sub: debugReason || qrText.slice(0, 60),
       });
       playFail();
       persistLog(buildLog(qrText, null, null, null, false, "failed"));
@@ -695,6 +774,37 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
                 <Camera className="w-3.5 h-3.5" />اسکن مجدد
               </button>
             )}
+          </div>
+        )}
+
+        {/* ═══ DEV DEBUG PANEL ═══ — only in development */}
+        {import.meta.env.DEV && lastScanDebug && (
+          <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 space-y-1.5 text-[11px] font-mono">
+            <p className="text-sky-400 font-bold text-xs flex items-center gap-1.5">
+              🔍 اطلاعات اسکن (فقط در توسعه)
+            </p>
+            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-muted-foreground">
+              <span className="text-sky-400/70">QR متن:</span>
+              <span className="break-all">{lastScanDebug.qrText.slice(0, 80)}</span>
+              <span className="text-sky-400/70">companyId در QR:</span>
+              <span className={lastScanDebug.qrCompanyId === lastScanDebug.guardCompanyId ? "text-green-400" : "text-red-400"}>
+                {lastScanDebug.qrCompanyId ?? "— (فرمت v1)"}
+              </span>
+              <span className="text-sky-400/70">checkpointId در QR:</span>
+              <span>{lastScanDebug.qrCheckpointId ?? "— (فرمت v1)"}</span>
+              <span className="text-sky-400/70">companyId نگهبان:</span>
+              <span className="text-yellow-400">{lastScanDebug.guardCompanyId}</span>
+              <span className="text-sky-400/70">مسیر جستجو:</span>
+              <span className="break-all">{lastScanDebug.lookupPath}</span>
+              <span className="text-sky-400/70">ایستگاه‌های لود:</span>
+              <span>{lastScanDebug.totalCheckpoints}</span>
+              {lastScanDebug.reason && lastScanDebug.reason !== "در حال جستجو..." && (
+                <>
+                  <span className="text-red-400/80">علت خطا:</span>
+                  <span className="text-red-300 break-all">{lastScanDebug.reason}</span>
+                </>
+              )}
+            </div>
           </div>
         )}
 

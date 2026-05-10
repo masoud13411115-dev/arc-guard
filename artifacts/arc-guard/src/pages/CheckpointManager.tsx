@@ -162,7 +162,8 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
     setSaving(true);
     setDebugInfo(null);
     try {
-      const payload = {
+      // qrCode is NOT included — each storage layer generates it using the checkpoint ID
+      const payload: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId' | 'qrCode'> = {
         name: form.name.trim(),
         location: form.location.trim(),
         lat,
@@ -170,9 +171,6 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         radiusMeters: parseInt(form.radiusMeters),
         patrolIntervalMinutes: toIntervalMinutes(form.intervalValue, form.intervalUnit),
         active: true,
-        qrCode: editId
-          ? (checkpoints.find((c) => c.id === editId)?.qrCode ?? demoStore.generateQrCode(form.name))
-          : demoStore.generateQrCode(form.name),
       };
 
       if (isDemo) {
@@ -181,7 +179,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           flash("ایستگاه ویرایش شد");
         } else {
           const newCp = demoStore.addCheckpoint(payload);
-          setDebugInfo({ id: newCp.id, path: `localStorage (demo) — companyId: demo-company` });
+          setDebugInfo({ id: newCp.id, path: `localStorage (demo) — companyId: demo-company | QR: ${newCp.qrCode}` });
           flash("ایستگاه اضافه شد");
         }
         closeForm();
@@ -195,10 +193,12 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         } else {
           const newId = await fbSaveCheckpoint(companyId, payload);
           const savedPath = `${fsPath}/${newId}`;
-          console.log(`[CheckpointManager] checkpoint saved — id=${newId} companyId=${companyId} path=${savedPath}`);
+          // QR code is ARCG|{companyId}|{checkpointId} — same formula used in firestore.ts
+          const qrCode = `ARCG|${companyId}|${newId}`;
+          console.log(`[CheckpointManager] checkpoint saved — id=${newId} companyId=${companyId} path=${savedPath} qr=${qrCode}`);
           // Optimistic: add to list immediately so QR appears without waiting for subscription
           const newCp: Checkpoint = {
-            ...payload, id: newId, companyId, createdAt: Date.now(),
+            ...payload, id: newId, companyId, qrCode, createdAt: Date.now(),
           };
           setCheckpoints((prev) => {
             const updated = [...prev, newCp];
@@ -207,7 +207,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           });
           setDebugInfo({
             id: newId,
-            path: `save: ${savedPath} | load: ${fsPath} (companyId: ${companyId})`,
+            path: `save: ${savedPath} | load: ${fsPath} (companyId: ${companyId}) | QR: ${qrCode}`,
           });
           setExpandedQr(newId); // auto-open QR for new checkpoint
           flash("ایستگاه ذخیره شد ✓");

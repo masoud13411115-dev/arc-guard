@@ -17,19 +17,26 @@ export function checkpointPath(companyId: string): string {
   return `companies/${companyId}/checkpoints`;
 }
 
+/**
+ * Creates a new checkpoint, pre-generating its Firestore doc ID so the QR code
+ * can embed it: `ARCG|{companyId}|{checkpointId}`.
+ * The qrCode field in `cp` is IGNORED — it is always generated here.
+ */
 export async function saveCheckpoint(
   companyId: string,
-  cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId'>,
+  cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId' | 'qrCode'>,
 ): Promise<string> {
   if (!db) throw new Error('Firebase پیکربندی نشده');
+  // Pre-generate document reference so we know the ID before writing
+  const newRef = doc(col(companyId, 'checkpoints'));
+  const checkpointId = newRef.id;
+  const qrCode = `ARCG|${companyId}|${checkpointId}`;
   const path = checkpointPath(companyId);
-  console.log(`[firestore] saveCheckpoint → ${path}`, { name: cp.name, companyId });
+  console.log(`[firestore] saveCheckpoint → ${path}/${checkpointId}`, { name: cp.name, companyId, qrCode });
   try {
-    const ref = await addDoc(col(companyId, 'checkpoints'), {
-      ...cp, companyId, createdAt: Date.now(),
-    });
-    console.log(`[firestore] saveCheckpoint ✓ id=${ref.id} path=${path}/${ref.id}`);
-    return ref.id;
+    await setDoc(newRef, { ...cp, qrCode, companyId, createdAt: Date.now() });
+    console.log(`[firestore] saveCheckpoint ✓ id=${checkpointId} path=${path}/${checkpointId}`);
+    return checkpointId;
   } catch (err) {
     console.error(`[firestore] saveCheckpoint ✗ path=${path}`, err);
     throw err;

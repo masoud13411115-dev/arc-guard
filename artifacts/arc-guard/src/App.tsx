@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -41,23 +41,23 @@ function AppContent() {
     return unsub;
   }, []);
 
-  const handleSplashComplete = () => setScreen("login");
+  const handleSplashComplete = useCallback(() => setScreen("login"), []);
 
-  const handleLogin = (p: UserProfile) => {
+  const handleLogin = useCallback((p: UserProfile) => {
     setProfile(p);
     setScreen(p.role === "manager" ? "manager-dashboard" : "guard-patrol");
-  };
+  }, []);
 
-  const handleSetupComplete = (p: UserProfile) => {
+  const handleSetupComplete = useCallback((p: UserProfile) => {
     setProfile(p);
     setScreen(p.role === "manager" ? "manager-dashboard" : "guard-patrol");
-  };
+  }, []);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await signOut();
     setProfile(null);
     setScreen("login");
-  };
+  }, []);
 
   if (screen === "splash") return <SplashScreen onComplete={handleSplashComplete} />;
   if (screen === "login") return <LoginPage onLogin={handleLogin} onRegister={() => setScreen("setup")} />;

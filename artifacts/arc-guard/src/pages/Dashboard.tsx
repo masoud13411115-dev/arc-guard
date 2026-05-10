@@ -2,25 +2,21 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing, RotateCcw, Database,
+  BellOff, BellRing,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
 import LiveMonitor from "./LiveMonitor";
 import CheckpointManager from "./CheckpointManager";
 import PatrolLogs from "./PatrolLogs";
-import DemoGuardManager from "./DemoGuardManager";
 import LiveMapView from "@/components/LiveMapView";
 import AlertPopup from "@/components/AlertPopup";
 import AlertHistory from "./AlertHistory";
 import CompanySettings from "./CompanySettings";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
-  subscribeCheckpoints, resolveAlert as fbResolveAlert,
+  subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
 } from "@/lib/firestore";
-import * as demoStore from "@/lib/demo-store";
-import { isFirebaseReady } from "@/firebase";
-import { DEMO_COMPANIES } from "@/lib/demo";
 import { PLANS } from "@/lib/plans";
 import {
   getPermissionStatus, requestPermission, markAlertsAsSeen, getSeenAlertIds,
@@ -114,52 +110,6 @@ function NotificationPermissionCard() {
   );
 }
 
-// ── Demo mode banner ──────────────────────────────────────────────────────────
-function DemoModeBanner({ onReset }: { onReset: () => void }) {
-  const [confirm, setConfirm] = useState(false);
-  return (
-    <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-4">
-      <div className="flex items-start gap-3">
-        <Database className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-        <div className="flex-1">
-          <p className="text-sm font-bold text-sky-400">حالت آزمایشی — Real Test Mode</p>
-          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-            تمام داده‌ها در مرورگر ذخیره می‌شوند. ایستگاه‌ها و نگهبانان واقعی اضافه کنید،
-            QR کد چاپ کنید، و اسکن واقعی انجام دهید — بدون نیاز به Firebase.
-          </p>
-        </div>
-      </div>
-      <div className="mt-3 pt-3 border-t border-sky-500/20 flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">داده‌ها بعد از بستن مرورگر باقی می‌مانند</span>
-        {!confirm ? (
-          <button
-            onClick={() => setConfirm(true)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" />بازنشانی
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-destructive">همه داده‌ها پاک می‌شوند!</span>
-            <button
-              onClick={() => { onReset(); setConfirm(false); }}
-              className="text-xs text-destructive border border-destructive/30 rounded px-2 py-0.5 hover:bg-destructive/10"
-            >
-              بله
-            </button>
-            <button
-              onClick={() => setConfirm(false)}
-              className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5 hover:bg-muted"
-            >
-              نه
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -169,37 +119,29 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenAlertIds());
+  const [currentPlanId, setCurrentPlanId] = useState<string>("basic");
 
-  const isDemo = !isFirebaseReady;
-
-  const demoCompany = isDemo ? DEMO_COMPANIES.find((c) => c.id === profile.companyId) ?? DEMO_COMPANIES[0] : null;
-  const currentPlanId = demoCompany?.plan ?? "basic";
-  const currentPlan = PLANS[currentPlanId];
+  const currentPlan = PLANS[currentPlanId as keyof typeof PLANS] ?? PLANS.basic;
   const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
 
   // ── Data loading ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (isDemo) {
-      const u1 = demoStore.subscribeCheckpoints(setCheckpoints);
-      const u2 = demoStore.subscribeLogs(setRecentLogs);
-      const u3 = demoStore.subscribeSessions(setSessions);
-      const u4 = demoStore.subscribeAlerts(setAlerts);
-      return () => { u1(); u2(); u3(); u4(); };
-    }
+    getCompany(profile.companyId).then((c) => {
+      if (c?.plan) setCurrentPlanId(c.plan);
+    }).catch(() => {});
+  }, [profile.companyId]);
+
+  useEffect(() => {
     const u1 = subscribePatrolLogs(profile.companyId, setRecentLogs, 100);
     const u2 = subscribeGuardSessions(profile.companyId, setSessions);
     const u3 = subscribeAlerts(profile.companyId, setAlerts);
     const u4 = subscribeCheckpoints(profile.companyId, setCheckpoints);
     return () => { u1(); u2(); u3(); u4(); };
-  }, [profile.companyId, isDemo]);
+  }, [profile.companyId]);
 
   const handleResolveAlert = useCallback(async (id: string) => {
-    if (isDemo) {
-      demoStore.resolveAlert(id);
-      return;
-    }
     await fbResolveAlert(profile.companyId, id);
-  }, [isDemo, profile.companyId]);
+  }, [profile.companyId]);
 
   const handleMarkSeen = useCallback((ids: string[]) => {
     markAlertsAsSeen(ids);
@@ -216,10 +158,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       }
     }
   }, [alerts]);
-
-  const handleResetDemo = useCallback(() => {
-    demoStore.resetDemoData();
-  }, []);
 
   const openAlerts = alerts.filter((a) => !a.resolved);
   const sosAlerts = openAlerts.filter((a) => a.kind === "sos");
@@ -274,13 +212,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         </button>
       </div>
 
-      {isDemo && (
-        <div className="mx-2 mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 flex items-center gap-2">
-          <Database className="w-3 h-3 text-sky-400 shrink-0" />
-          <p className="text-[10px] text-sky-400 font-bold">حالت آزمایشی فعال</p>
-        </div>
-      )}
-
       <nav className="flex-1 space-y-0.5">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => { handleTabChange(tab); setSidebarOpen(false); }}
@@ -320,7 +251,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
       <MobileHeader
         title="ARC Guard"
-        subtitle={isDemo ? "حالت آزمایشی" : (profile.companyName ?? "مدیریت")}
+        subtitle={profile.companyName ?? "مدیریت"}
         onMenuClick={() => setSidebarOpen(!sidebarOpen)}
         notificationCount={unseenOpenCount}
       />
@@ -371,24 +302,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 </p>
               </div>
 
-              {isDemo && (
-                <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 flex items-center gap-3">
-                  <Database className="w-4 h-4 text-sky-400 shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm font-bold text-sky-400">حالت آزمایشی فعال</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      ایستگاه‌ها و نگهبانان اضافه کنید → QR چاپ کنید → با نگهبان (دمو) اسکن کنید
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleTabChange("checkpoints")}
-                    className="shrink-0 text-xs text-primary hover:underline"
-                  >
-                    ایستگاه‌ها
-                  </button>
-                </div>
-              )}
-
               {sosAlerts.length > 0 && (
                 <div className="rounded-xl border-2 border-red-500 bg-red-950/40 p-4 flex items-center gap-3">
                   <Radio className="w-6 h-6 text-red-400 animate-ping shrink-0" />
@@ -431,7 +344,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 </div>
                 {recentLogs.length === 0 ? (
                   <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-                    {isDemo ? "یک ایستگاه بسازید، QR آن را اسکن کنید — اینجا نمایش داده می‌شود." : "هنوز هیچ اسکنی ثبت نشده است."}
+                    هنوز هیچ اسکنی ثبت نشده است.
                   </div>
                 ) : (
                   <div className="divide-y divide-border">
@@ -491,7 +404,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-primary">سیستم عملیاتی · پلن {currentPlan.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {profile.companyName ?? profile.companyId} · {isDemo ? "حالت آزمایشی (localStorage)" : "Firebase متصل"} · GPS فعال
+                    {profile.companyName ?? profile.companyId} · Firebase متصل · GPS فعال
                   </p>
                 </div>
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
@@ -505,7 +418,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <h2 className="text-lg font-bold text-foreground">نقشه زنده گشت</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">موقعیت نگهبانان، ایستگاه‌ها و مسیر گشت روی نقشه</p>
               </div>
-              <LiveMapView sessions={sessions} checkpoints={checkpoints} logs={recentLogs} isDemo={isDemo} />
+              <LiveMapView sessions={sessions} checkpoints={checkpoints} logs={recentLogs} />
             </div>
           )}
 
@@ -552,7 +465,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
               <div className="mb-4">
                 <h2 className="text-lg font-bold text-foreground">مدیریت ایستگاه‌ها</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {isDemo ? "ایستگاه واقعی بسازید، QR چاپ کنید، نگهبان اسکن کند" : "تعریف نقاط گشت با GPS و کد QR"}
+                  تعریف نقاط گشت با GPS و کد QR
                 </p>
               </div>
               <CheckpointManager companyId={profile.companyId} />
@@ -574,27 +487,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
               <div>
                 <h2 className="text-lg font-bold text-foreground">تنظیمات</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {isDemo ? "حالت آزمایشی — نگهبانان و تنظیمات" : "اطلاعات شرکت، پلن اشتراک، کد دعوت"}
+                  اطلاعات شرکت، پلن اشتراک، کد دعوت
                 </p>
               </div>
 
               {/* Notification permission */}
               <NotificationPermissionCard />
 
-              {/* Demo mode section */}
-              {isDemo ? (
-                <>
-                  {/* Demo mode banner + reset */}
-                  <DemoModeBanner onReset={handleResetDemo} />
-
-                  {/* Guard manager — only in demo */}
-                  <div className="rounded-xl border border-border bg-card p-5">
-                    <DemoGuardManager />
-                  </div>
-                </>
-              ) : (
-                <CompanySettings profile={profile} />
-              )}
+              <CompanySettings profile={profile} />
             </div>
           )}
 

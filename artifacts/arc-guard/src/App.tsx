@@ -8,9 +8,8 @@ import SetupPage from "@/pages/SetupPage";
 import Dashboard from "@/pages/Dashboard";
 import GuardPatrol from "@/pages/GuardPatrol";
 import SuperAdminPanel from "@/pages/SuperAdminPanel";
-import DemoGuardPicker from "@/pages/DemoGuardPicker";
 import InstallPrompt, { UpdateBanner } from "@/components/InstallPrompt";
-import { onAuthChange, getUserProfile, signOut, demoLogin } from "@/lib/auth";
+import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { initPWA, applyUpdate, isPWAInstalled } from "@/lib/pwa";
 import { syncOfflineQueue } from "@/lib/firestore";
@@ -28,7 +27,7 @@ const queryClient = new QueryClient({
   },
 });
 
-type Screen = "splash" | "login" | "setup" | "manager-dashboard" | "guard-patrol" | "super-admin" | "demo-guard-select";
+type Screen = "splash" | "login" | "setup" | "manager-dashboard" | "guard-patrol" | "super-admin";
 
 interface AppState {
   screen: Screen;
@@ -66,7 +65,6 @@ function AppContent() {
     initPWA(() => setUpdateAvailable(true));
     logger.info("app", "ARC Guard starting", { pwa: isPWAInstalled(), firebase: isFirebaseReady });
 
-    // Offline queue sync listener
     const unsub = listenForSyncTrigger(async () => {
       if (isFirebaseReady) {
         const synced = await syncOfflineQueue();
@@ -85,7 +83,6 @@ function AppContent() {
   useEffect(() => {
     return onNetworkChange((state) => {
       setNetworkState(state);
-      // When back online, attempt queue sync
       if (state === "online" && isFirebaseReady && getQueueCount() > 0) {
         syncOfflineQueue()
           .then((synced) => {
@@ -131,26 +128,7 @@ function AppContent() {
 
   const handleLogin = useCallback((p: UserProfile) => {
     logger.info("app", `Login: ${p.role} @ ${p.companyId}`);
-    // In demo mode, guards must pick their active guard first
-    if (!isFirebaseReady && p.role === "guard") {
-      setAppState({ screen: "demo-guard-select", profile: p });
-      return;
-    }
     setAppState({ screen: screenForRole(p.role), profile: p });
-  }, []);
-
-  const handleDemoGuardSelect = useCallback((guard: UserProfile) => {
-    logger.info("app", `Demo guard selected: ${guard.displayName}`);
-    setAppState({ screen: "guard-patrol", profile: guard });
-  }, []);
-
-  const handleSwitchGuard = useCallback(() => {
-    setAppState((s) => ({ ...s, screen: "demo-guard-select" }));
-  }, []);
-
-  const handleGoToManager = useCallback(() => {
-    const mp = demoLogin("manager");
-    setAppState({ screen: "manager-dashboard", profile: mp });
   }, []);
 
   const handleSetupComplete = useCallback((p: UserProfile) => {
@@ -168,10 +146,8 @@ function AppContent() {
 
   return (
     <>
-      {/* Network status banner */}
       <NetworkBanner state={networkState} />
 
-      {/* Offline queue indicator */}
       {offlineCount > 0 && networkState === "online" && (
         <div className="fixed top-0 left-0 right-0 z-[65] flex items-center justify-center gap-2 px-4 py-1.5 text-xs text-yellow-400"
           style={{ background: "rgba(234,179,8,0.12)", borderBottom: "1px solid rgba(234,179,8,0.25)" }}
@@ -181,7 +157,6 @@ function AppContent() {
         </div>
       )}
 
-      {/* Update banner */}
       {updateAvailable && (
         <UpdateBanner
           onUpdate={applyUpdate}
@@ -189,12 +164,10 @@ function AppContent() {
         />
       )}
 
-      {/* Install prompt — only show on non-standalone mode, post-login */}
       {!isStandalone && !["splash", "login", "setup"].includes(screen) && (
         <InstallPrompt />
       )}
 
-      {/* Screens */}
       <div className={topOffset}>
         {screen === "splash" && <SplashScreen onComplete={handleSplashComplete} />}
         {screen === "login" && (
@@ -209,24 +182,15 @@ function AppContent() {
         {screen === "manager-dashboard" && profile && (
           <Dashboard profile={profile} onLogout={handleLogout} />
         )}
-        {screen === "demo-guard-select" && (
-          <DemoGuardPicker
-            onSelect={handleDemoGuardSelect}
-            onBack={() => setAppState({ screen: "login", profile: null })}
-            onGoToManager={handleGoToManager}
-          />
-        )}
         {screen === "guard-patrol" && profile && (
           <GuardPatrol
             guardId={profile.uid}
             guardName={profile.displayName}
             companyId={profile.companyId}
             onLogout={handleLogout}
-            onSwitchGuard={!isFirebaseReady ? handleSwitchGuard : undefined}
           />
         )}
-        {/* Fallback */}
-        {!["splash","login","setup","super-admin","manager-dashboard","guard-patrol","demo-guard-select"].includes(screen) && (
+        {!["splash","login","setup","super-admin","manager-dashboard","guard-patrol"].includes(screen) && (
           <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />
         )}
       </div>

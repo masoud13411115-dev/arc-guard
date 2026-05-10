@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   QrCode, MapPin, Wifi, WifiOff, CheckCircle, AlertTriangle,
   Shield, LogOut, RefreshCw, Camera, XCircle, Clock,
-  Lock, Zap, Radio, Mic, ArrowLeftRight, Users,
+  Lock, Radio, Mic,
 } from "lucide-react";
 import {
   checkPatrolPermissions, requestPatrolPermissions, permissionsReady,
@@ -17,8 +17,7 @@ import {
   isValidQrFormat, parseQrCode, canScan, recordScan,
   secondsUntilNextScan, formatCountdown
 } from "@/lib/scanProtection";
-import { db, isFirebaseReady } from "@/firebase";
-import * as demoStore from "@/lib/demo-store";
+import { db } from "@/firebase";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 
 interface GuardPatrolProps {
@@ -26,7 +25,6 @@ interface GuardPatrolProps {
   guardName: string;
   companyId: string;
   onLogout: () => void;
-  onSwitchGuard?: () => void;
 }
 
 const STATUS_LABEL: Record<ScanStatus, string> = {
@@ -50,7 +48,7 @@ function formatPatrolInterval(mins: number): string {
   return `${Math.floor(mins / 60)}س${mins % 60}د`;
 }
 
-export default function GuardPatrol({ guardId, guardName, companyId, onLogout, onSwitchGuard }: GuardPatrolProps) {
+export default function GuardPatrol({ guardId, guardName, companyId, onLogout }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [scanning, setScanning] = useState(false);
   const [gps, setGps] = useState<GpsCoords | null>(null);
@@ -84,8 +82,6 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
   const scannerRef = useRef<any>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isDemo = !isFirebaseReady;
-
   // Dev-only debug info for last QR scan attempt
   type ScanDebug = {
     qrText: string;
@@ -117,24 +113,12 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
 
   // ── Load checkpoints ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (isDemo) {
-      return demoStore.subscribeCheckpoints(setCheckpoints);
-    }
     return subscribeCheckpoints(
       companyId,
       setCheckpoints,
       (err) => console.error("[GuardPatrol] checkpoint subscription error:", (err as { code?: string }).code, err.message),
     );
-  }, [companyId, isDemo]);
-
-  // ── Load all patrol logs (for countdown computation) ───────────────────────
-  useEffect(() => {
-    if (isDemo) {
-      return demoStore.subscribeLogs(setAllLogs);
-    }
-    // In Firebase mode, recentLogs session data is sufficient; allLogs stays empty
-    return undefined;
-  }, [isDemo]);
+  }, [companyId]);
 
   // ── Online sync ────────────────────────────────────────────────────────────
   const handleSync = useCallback(async () => {
@@ -223,9 +207,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
         lastGps: coords,
         status: "active" as const,
       };
-      if (isDemo) {
-        demoStore.upsertSession(sessionData);
-      } else if (db) {
+      if (db) {
         updateGuardSession(sessionData);
       }
     } catch {
@@ -444,10 +426,6 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
   });
 
   const persistLog = (log: PatrolLog) => {
-    if (isDemo) {
-      demoStore.addLog(log);
-      return;
-    }
     if (online && db) {
       savePatrolLog({ ...log, synced: true }).catch(() => {
         addToQueue(log);
@@ -500,9 +478,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
       message: "اضطراری توسط نگهبان فعال شد",
     };
 
-    if (isDemo) {
-      demoStore.addAlert(sosPayload);
-    } else if (db) {
+    if (db) {
       try { await saveAlert(sosPayload); } catch {}
     }
 
@@ -514,7 +490,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
   // ── Render ─────────────────────────────────────────────────────────────────
 
   // ── Permission gate (shown once before patrol starts) ──────────────────────
-  if (perms !== null && !permissionsReady(perms) && !isDemo) {
+  if (perms !== null && !permissionsReady(perms)) {
     const camDenied = perms.camera === "denied";
     const gpsDenied = perms.gps === "denied";
 
@@ -622,30 +598,17 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout, o
 
       <div className="flex-1 p-4 space-y-3 max-w-lg mx-auto w-full pb-8">
 
-        {/* Demo notice + active guard + switch */}
-        {isDemo && (
-          <div className="rounded-xl border border-sky-500/30 bg-sky-500/8 px-3 py-3">
+        {/* Active guard info */}
+        {true && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-3">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-primary font-bold text-sm shrink-0">
                 {guardName.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-foreground truncate">{guardName}</p>
-                <p className="text-[11px] text-sky-400">
-                  <span className="flex items-center gap-1">
-                    <Zap className="w-3 h-3" />حالت آزمایشی فعال
-                  </span>
-                </p>
+                <p className="text-[11px] text-primary/70">نگهبان فعال</p>
               </div>
-              {onSwitchGuard && (
-                <button
-                  onClick={onSwitchGuard}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-400 border border-sky-500/30 rounded-lg px-2.5 py-1.5 hover:bg-sky-500/15 active:scale-95 transition-all shrink-0"
-                >
-                  <ArrowLeftRight className="w-3 h-3" />
-                  <span>تغییر نگهبان</span>
-                </button>
-              )}
             </div>
           </div>
         )}

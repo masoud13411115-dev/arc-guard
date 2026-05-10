@@ -1,9 +1,7 @@
 import { useState, useEffect } from "react";
-import { CheckCircle, AlertTriangle, MapPin, Clock, Download, Search, Info } from "lucide-react";
+import { CheckCircle, AlertTriangle, MapPin, Clock, Download, Search } from "lucide-react";
 import { getPatrolLogs } from "@/lib/firestore";
 import { getQueue } from "@/lib/offline";
-import { isFirebaseReady } from "@/firebase";
-import * as demoStore from "@/lib/demo-store";
 import type { PatrolLog, ScanStatus } from "@/types";
 
 interface PatrolLogsProps {
@@ -20,23 +18,14 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | ScanStatus | "offline">("all");
-  const isDemo = !isFirebaseReady;
 
   useEffect(() => {
     const queue = getQueue();
     setOfflineLogs(queue.map((q) => q.payload));
 
-    if (isDemo) {
-      return demoStore.subscribeLogs((data) => {
-        setLogs(data);
-        setLoading(false);
-      });
-    }
-
     setLoading(true);
     getPatrolLogs(companyId).then((data) => { setLogs(data); setLoading(false); });
-    return undefined;
-  }, [companyId, isDemo]);
+  }, [companyId]);
 
   const allLogs: PatrolLog[] = [
     ...offlineLogs.map((l) => ({ ...l, offlineQueued: true })),
@@ -70,14 +59,6 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
 
   return (
     <div className="space-y-4" dir="rtl">
-      {isDemo && (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-3 flex items-start gap-2.5">
-          <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-muted-foreground">
-            <span className="font-semibold text-sky-400">حالت آزمایشی:</span> گزارش‌های اسکن در مرورگر ذخیره می‌شوند. با اسکن QR کدهای ایستگاه‌ها، اینجا ثبت می‌شوند.
-          </p>
-        </div>
-      )}
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">

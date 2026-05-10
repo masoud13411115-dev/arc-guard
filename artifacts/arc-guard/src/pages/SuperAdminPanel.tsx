@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import {
-  Building2, Users, Shield, LogOut, RefreshCw, ChevronDown,
-  CheckCircle, XCircle, TrendingUp, Crown, Zap, Star,
-  BarChart3, AlertTriangle, Search, MoreVertical, Settings
+  Building2, Users, Shield, LogOut, RefreshCw,
+  CheckCircle, XCircle, Crown, Star,
+  BarChart3, Search, MoreVertical,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import { getAllCompanies, setCompanyPlan, setCompanySuspended } from "@/lib/firestore";
-import { isFirebaseReady } from "@/firebase";
-import { DEMO_COMPANIES } from "@/lib/demo";
 import { PLANS, PLAN_ORDER, getLimitLabel } from "@/lib/plans";
 import type { CompanyRecord, UserProfile, PlanId } from "@/types";
 
@@ -37,26 +35,19 @@ function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString("fa-IR", { year: "numeric", month: "short", day: "numeric" });
 }
 
-export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelProps) {
+export default function SuperAdminPanel({ profile: _profile, onLogout }: SuperAdminPanelProps) {
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState<PlanId | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended">("all");
   const [actionMenu, setActionMenu] = useState<string | null>(null);
-  const [changingPlan, setChangingPlan] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
-
-  const isDemo = !isFirebaseReady;
 
   const load = async () => {
     setLoading(true);
-    if (isDemo) {
-      setCompanies(DEMO_COMPANIES);
-    } else {
-      const data = await getAllCompanies();
-      setCompanies(data);
-    }
+    const data = await getAllCompanies();
+    setCompanies(data);
     setLoading(false);
   };
 
@@ -79,28 +70,14 @@ export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelPr
   }, {} as Record<PlanId, number>);
 
   const handlePlanChange = async (companyId: string, plan: PlanId) => {
-    if (isDemo) {
-      setCompanies((prev) => prev.map((c) => c.id === companyId ? { ...c, plan } : c));
-      setChangingPlan(null);
-      setActionMenu(null);
-      return;
-    }
     setProcessing(true);
     await setCompanyPlan(companyId, plan);
     setProcessing(false);
-    setChangingPlan(null);
     setActionMenu(null);
     await load();
   };
 
   const handleToggleSuspend = async (company: CompanyRecord) => {
-    if (isDemo) {
-      setCompanies((prev) => prev.map((c) =>
-        c.id === company.id ? { ...c, suspended: !c.suspended, active: c.suspended } : c
-      ));
-      setActionMenu(null);
-      return;
-    }
     setProcessing(true);
     await setCompanySuspended(company.id, !company.suspended);
     setProcessing(false);
@@ -128,16 +105,6 @@ export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelPr
       </header>
 
       <main className="flex-1 p-4 md:p-6 space-y-5 max-w-5xl mx-auto w-full">
-
-        {/* Demo notice */}
-        {isDemo && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/8 px-3 py-2 flex items-center gap-2.5">
-            <Zap className="w-4 h-4 text-yellow-400 shrink-0" />
-            <p className="text-xs text-yellow-300/80">
-              <span className="font-bold text-yellow-400">حالت نمونه</span> — داده‌های نمونه چند شرکت نمایش داده می‌شوند. تغییرات ذخیره نمی‌شوند.
-            </p>
-          </div>
-        )}
 
         {/* ── Platform stats ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -218,19 +185,19 @@ export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelPr
           ) : filtered.length === 0 ? (
             <div className="p-10 flex flex-col items-center gap-2">
               <Building2 className="w-8 h-8 text-muted-foreground/20" />
-              <p className="text-sm text-muted-foreground">شرکتی با این فیلتر یافت نشد</p>
+              <p className="text-sm text-muted-foreground">
+                {companies.length === 0 ? "هنوز هیچ شرکتی ثبت نشده است" : "شرکتی با این فیلتر یافت نشد"}
+              </p>
             </div>
           ) : (
             <div className="divide-y divide-border">
               {filtered.map((company) => (
                 <div key={company.id} className={`px-4 py-3 hover:bg-accent/10 transition-colors ${company.suspended ? "opacity-60" : ""}`}>
                   <div className="flex items-start gap-3">
-                    {/* Avatar */}
                     <div className={`w-9 h-9 rounded-xl border flex items-center justify-center text-sm font-bold shrink-0 ${PLANS[company.plan].bg} ${PLANS[company.plan].border}`}>
                       <span className={PLANS[company.plan].color}>{company.name.charAt(0)}</span>
                     </div>
 
-                    {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-bold text-foreground">{company.name}</p>
@@ -261,7 +228,6 @@ export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelPr
                       </div>
                     </div>
 
-                    {/* Action menu */}
                     <div className="relative shrink-0">
                       <button
                         onClick={() => setActionMenu(actionMenu === company.id ? null : company.id)}
@@ -318,7 +284,7 @@ export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelPr
           <div className="flex-1">
             <p className="text-xs font-semibold text-primary">ARC Guard SaaS Platform</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              {companies.length} شرکت · {totalGuards} نگهبان · {isDemo ? "حالت نمونه" : "Firebase متصل"}
+              {companies.length} شرکت · {totalGuards} نگهبان · Firebase متصل
             </p>
           </div>
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
@@ -326,7 +292,6 @@ export default function SuperAdminPanel({ profile, onLogout }: SuperAdminPanelPr
 
       </main>
 
-      {/* Close action menu on outside click */}
       {actionMenu && (
         <div className="fixed inset-0 z-10" onClick={() => setActionMenu(null)} />
       )}

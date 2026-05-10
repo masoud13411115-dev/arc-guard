@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   Building2, Users, Shield, Copy, Check, RefreshCw,
-  Crown, Star, ChevronRight, UserX, UserCheck,
-  TrendingUp, Key, Info, Zap, Lock
+  Crown, Star, UserX, UserCheck,
+  TrendingUp, Key, Info, Lock
 } from "lucide-react";
 import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode } from "@/lib/firestore";
-import { isFirebaseReady } from "@/firebase";
-import { DEMO_COMPANIES, DEMO_GUARDS } from "@/lib/demo";
 import {
   PLANS, PLAN_ORDER, FEATURE_LABELS, getUsagePct, getLimitLabel
 } from "@/lib/plans";
@@ -52,22 +50,14 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
   const [regenerating, setRegenerating] = useState(false);
   const [togglingGuard, setTogglingGuard] = useState<string | null>(null);
 
-  const isDemo = !isFirebaseReady;
-
   const load = async () => {
     setLoading(true);
-    if (isDemo) {
-      const c = DEMO_COMPANIES.find((c) => c.id === profile.companyId) ?? DEMO_COMPANIES[0];
-      setCompany(c);
-      setGuards(DEMO_GUARDS);
-    } else {
-      const [c, gs] = await Promise.all([
-        getCompany(profile.companyId),
-        getCompanyGuards(profile.companyId),
-      ]);
-      setCompany(c);
-      setGuards(gs);
-    }
+    const [c, gs] = await Promise.all([
+      getCompany(profile.companyId),
+      getCompanyGuards(profile.companyId),
+    ]);
+    setCompany(c);
+    setGuards(gs);
     setLoading(false);
   };
 
@@ -81,7 +71,7 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
   };
 
   const handleRegenerateCode = async () => {
-    if (!company || isDemo) return;
+    if (!company) return;
     setRegenerating(true);
     const newCode = await regenerateInviteCode(company.id);
     setCompany((prev) => prev ? { ...prev, inviteCode: newCode } : prev);
@@ -89,10 +79,6 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
   };
 
   const handleToggleGuard = async (guard: UserProfile) => {
-    if (isDemo) {
-      setGuards((prev) => prev.map((g) => g.uid === guard.uid ? { ...g, active: !g.active } : g));
-      return;
-    }
     setTogglingGuard(guard.uid);
     await setGuardActive(guard.uid, !guard.active);
     setTogglingGuard(null);
@@ -124,14 +110,6 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
   return (
     <div className="space-y-4" dir="rtl">
 
-      {/* Demo notice */}
-      {isDemo && (
-        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/8 px-3 py-2 flex items-center gap-2">
-          <Zap className="w-4 h-4 text-yellow-400 shrink-0" />
-          <p className="text-xs text-yellow-300/80"><span className="font-bold text-yellow-400">حالت نمونه</span> — تغییرات ذخیره نمی‌شوند.</p>
-        </div>
-      )}
-
       {/* ── Current plan card ── */}
       <div className={`rounded-xl border-2 ${plan.border} ${plan.bg} p-4`}>
         <div className="flex items-center gap-3 mb-3">
@@ -151,7 +129,6 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
           </div>
         </div>
 
-        {/* Usage bars */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
@@ -255,16 +232,14 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? "کپی شد" : "کپی"}
           </button>
-          {!isDemo && (
-            <button
-              onClick={handleRegenerateCode}
-              disabled={regenerating}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg bg-muted border border-border text-muted-foreground text-xs hover:bg-accent transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${regenerating ? "animate-spin" : ""}`} />
-              جدید
-            </button>
-          )}
+          <button
+            onClick={handleRegenerateCode}
+            disabled={regenerating}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg bg-muted border border-border text-muted-foreground text-xs hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${regenerating ? "animate-spin" : ""}`} />
+            جدید
+          </button>
         </div>
         <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
           <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -294,7 +269,6 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{g.displayName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{g.email}</p>
                   {g.guardCode && (
                     <p className="text-[10px] font-mono text-primary/70">{g.guardCode}</p>
                   )}

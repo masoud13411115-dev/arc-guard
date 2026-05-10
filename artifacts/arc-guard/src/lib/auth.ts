@@ -10,17 +10,10 @@ import {
   doc, getDoc, setDoc, collection, addDoc, query, where, getDocs,
 } from 'firebase/firestore';
 import { auth, db, isFirebaseReady } from '@/firebase';
-import type { UserProfile, Company, CompanyRecord } from '@/types';
+import type { UserProfile, CompanyRecord } from '@/types';
 import { generateInviteCode } from '@/lib/plans';
-import { DEMO_MANAGER_PROFILE, DEMO_GUARD_PROFILE, DEMO_SUPER_ADMIN_PROFILE } from './demo';
 
 export type { User };
-
-// ── Demo login ────────────────────────────────────────────────────────────────
-export function demoLogin(role: 'manager' | 'guard' | 'super_admin'): UserProfile {
-  if (role === 'super_admin') return DEMO_SUPER_ADMIN_PROFILE;
-  return role === 'manager' ? DEMO_MANAGER_PROFILE : DEMO_GUARD_PROFILE;
-}
 
 // ── Auth state ────────────────────────────────────────────────────────────────
 export function onAuthChange(cb: (user: User | null) => void): () => void {
@@ -169,36 +162,6 @@ export async function registerGuardWithCode(
     companyId,
     companyName,
     guardCode: guardCode.trim().toUpperCase(),
-    active: true,
-    createdAt: Date.now(),
-  };
-
-  await setDoc(doc(db, 'users', uid), profile);
-  return { uid, ...profile };
-}
-
-/** @deprecated Use registerGuardWithCode instead */
-export async function registerGuard(
-  email: string,
-  password: string,
-  displayName: string,
-  companyId: string,
-  companyName: string,
-  guardCode: string,
-): Promise<UserProfile> {
-  if (!auth || !db) throw new Error('Firebase پیکربندی نشده است.');
-
-  const cred = await createUserWithEmailAndPassword(auth, email, password);
-  const uid = cred.user.uid;
-  await updateProfile(cred.user, { displayName });
-
-  const profile: Omit<UserProfile, 'uid'> = {
-    email,
-    displayName,
-    role: 'guard',
-    companyId,
-    companyName,
-    guardCode,
     active: true,
     createdAt: Date.now(),
   };

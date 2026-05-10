@@ -10,7 +10,6 @@ interface LiveMapViewProps {
   sessions: GuardSession[];
   checkpoints: Checkpoint[];
   logs: PatrolLog[];
-  isDemo: boolean;
 }
 
 type TimeFilter = "1h" | "6h" | "24h" | "all";
@@ -112,7 +111,7 @@ const PATH_COLORS = [
   "#22c55e","#0ea5e9","#a855f7","#f59e0b","#ef4444","#06b6d4","#f97316",
 ];
 
-export default function LiveMapView({ sessions, checkpoints, logs, isDemo }: LiveMapViewProps) {
+export default function LiveMapView({ sessions, checkpoints, logs }: LiveMapViewProps) {
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const guardLayerRef = useRef<LayerGroup | null>(null);
@@ -366,11 +365,6 @@ export default function LiveMapView({ sessions, checkpoints, logs, isDemo }: Liv
             />
             <span className="text-xs text-muted-foreground">ایستگاه‌ها</span>
           </label>
-          {isDemo && (
-            <span className="text-[10px] text-yellow-400/80 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-0.5">
-              داده نمونه
-            </span>
-          )}
         </div>
       </div>
 

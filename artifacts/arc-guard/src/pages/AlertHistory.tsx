@@ -1,11 +1,10 @@
 import { useState } from "react";
 import {
   AlertTriangle, CheckCheck, Radio, Clock, MapPin,
-  Filter, ChevronDown, ChevronUp, ShieldAlert, RotateCcw, Eye, EyeOff
+  Filter, ChevronDown, ChevronUp, ShieldAlert, RotateCcw, Eye
 } from "lucide-react";
 import type { Alert, AlertKind } from "@/types";
 import { resolveAlert } from "@/lib/firestore";
-import { isFirebaseReady } from "@/firebase";
 
 interface AlertHistoryProps {
   alerts: Alert[];
@@ -70,8 +69,6 @@ export default function AlertHistory({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
 
-  const isDemo = !isFirebaseReady;
-
   const filtered = alerts
     .filter((a) => {
       if (kindFilter !== "all" && a.kind !== kindFilter) return false;
@@ -86,7 +83,6 @@ export default function AlertHistory({
   const unseenCount = alerts.filter((a) => a.id && !seenIds.has(a.id) && !a.resolved).length;
 
   const handleResolve = async (id: string) => {
-    if (isDemo) { onAlertResolved(id); return; }
     setResolving(id);
     await resolveAlert(companyId, id);
     onAlertResolved(id);
@@ -139,7 +135,7 @@ export default function AlertHistory({
         ))}
       </div>
 
-      {/* ── Filters + Mark all seen ── */}
+      {/* ── Filters ── */}
       <div className="rounded-xl border border-border bg-card p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 flex-wrap flex-1">
@@ -206,7 +202,6 @@ export default function AlertHistory({
                     : `${meta.border} ${meta.bg}`
                 }`}
               >
-                {/* Main row */}
                 <div
                   className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                   onClick={() => {
@@ -225,7 +220,6 @@ export default function AlertHistory({
                       <span className={`text-xs font-bold ${a.resolved ? "text-muted-foreground" : meta.color}`}>
                         {meta.label}
                       </span>
-                      {/* "جدید" badge — unseen, unresolved */}
                       {!isSeen && (
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${meta.badgeBg} animate-pulse`}>
                           جدید
@@ -260,7 +254,6 @@ export default function AlertHistory({
                   </div>
                 </div>
 
-                {/* Expanded details */}
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-border/40 pt-3 space-y-3 animate-fade-in-up">
                     {a.message && (

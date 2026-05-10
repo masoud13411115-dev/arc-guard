@@ -6,7 +6,7 @@ import {
 import arcGuardLogo from "/arc-guard-logo.png";
 import {
   signIn, signInWithGuardCode, resolveCompanyByInviteCode,
-  getUserProfile, demoLogin,
+  getUserProfile,
 } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
@@ -16,8 +16,6 @@ interface Props {
   onLogin: (profile: UserProfile) => void;
   onRegister: () => void;
 }
-
-const SHOW_DEMO = import.meta.env.VITE_SHOW_DEMO !== "false";
 
 const FIREBASE_MANAGER_ERRORS: Record<string, string> = {
   "auth/user-not-found":         "ایمیل یا رمز عبور اشتباه است.",
@@ -39,9 +37,9 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const [password, setPassword] = useState("");
 
   // Guard fields
-  const [guardCode, setGuardCode]       = useState("");
-  const [inviteCode, setInviteCode]     = useState("");
-  const [pin, setPin]                   = useState("");
+  const [guardCode, setGuardCode]   = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [pin, setPin]               = useState("");
 
   const [showPw, setShowPw]   = useState(false);
   const [loading, setLoading] = useState(false);
@@ -52,7 +50,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const handleManagerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده. از دکمه‌های نمونه استفاده کنید."); return; }
+    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید."); return; }
     if (!email.trim()) { setError("ایمیل الزامی است."); return; }
     if (!password)     { setError("رمز عبور الزامی است."); return; }
 
@@ -78,16 +76,14 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const handleGuardLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده. از دکمه‌های نمونه استفاده کنید."); return; }
+    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید."); return; }
     if (!guardCode.trim()) { setError("کد نگهبان الزامی است."); return; }
     if (!inviteCode.trim()) { setError("کد دعوت شرکت الزامی است."); return; }
     if (!pin)               { setError("PIN الزامی است."); return; }
 
     setLoading(true);
     try {
-      // Resolve companyId from inviteCode
       const company = await resolveCompanyByInviteCode(inviteCode.trim().toUpperCase());
-      // Sign in with synthetic email derived from guardCode + companyId
       const user    = await signInWithGuardCode(guardCode.trim().toUpperCase(), company.id, pin);
       const profile = await getUserProfile(user.uid);
       if (!profile)        { setError("پروفایل نگهبان یافت نشد. ابتدا ثبت‌نام کنید."); return; }
@@ -132,37 +128,6 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           <p className="text-xs text-muted-foreground mt-1">سیستم هوشمند گشت امنیتی · پلتفرم SaaS</p>
         </div>
 
-        {/* ── Demo buttons ── */}
-        {SHOW_DEMO && (
-          <div className="rounded-2xl border-2 border-sky-500/50 bg-sky-500/10 p-4">
-            <p className="text-center text-sm font-bold text-sky-400 mb-1">ورود نمونه</p>
-            <p className="text-center text-[11px] text-sky-400/60 mb-3">بدون نیاز به Firebase — برای بررسی امکانات</p>
-            <div className="grid grid-cols-3 gap-2">
-              {([
-                { role: "manager"    as const, label: "مدیر",   sub: "Manager",    emoji: "👔", bg: "rgba(14,165,233,0.25)", border: "rgba(14,165,233,0.7)", color: "#38bdf8", tap: "rgba(14,165,233,0.4)" },
-                { role: "guard"      as const, label: "نگهبان", sub: "Guard",      emoji: "🛡️", bg: "rgba(255,255,255,0.07)", border: "rgba(255,255,255,0.2)", color: "#e2e8f0", tap: "rgba(255,255,255,0.15)" },
-                { role: "super_admin"as const, label: "ادمین",  sub: "Super Admin",emoji: "👑", bg: "rgba(234,179,8,0.15)", border: "rgba(234,179,8,0.5)", color: "#facc15", tap: "rgba(234,179,8,0.3)" },
-              ]).map(({ role, label, sub, emoji, bg, border, color, tap }) => (
-                <button key={role} type="button" onClick={() => onLogin(demoLogin(role))}
-                  style={{
-                    minHeight: 76, background: bg, border: `2px solid ${border}`, borderRadius: 12,
-                    color, fontWeight: 700, fontSize: 13, cursor: "pointer",
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-                    WebkitTapHighlightColor: tap, userSelect: "none", transition: "opacity 0.15s",
-                  }}
-                  onPointerDown={(e) => (e.currentTarget.style.opacity = "0.75")}
-                  onPointerUp={(e) => (e.currentTarget.style.opacity = "1")}
-                  onPointerLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                >
-                  <span style={{ fontSize: 22 }}>{emoji}</span>
-                  <span>{label}</span>
-                  <span style={{ fontSize: 10, opacity: 0.65, fontWeight: 400 }}>{sub}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* ── Firebase not configured warning ── */}
         {!isFirebaseReady && (
           <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/[0.06]">
@@ -171,7 +136,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
               <div>
                 <p className="text-xs font-bold text-yellow-400">Firebase پیکربندی نشده</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  برای حالت واقعی، کلیدهای{" "}
+                  برای ورود، کلیدهای{" "}
                   <span className="font-mono text-yellow-400/80">VITE_ARC_GUARD_*</span>{" "}
                   را در Secrets اضافه کنید.
                 </p>
@@ -398,7 +363,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           <div className="px-5 pb-4 pt-0 flex items-center justify-center gap-1.5 border-t border-border pt-3">
             <div className={`w-1.5 h-1.5 rounded-full ${isFirebaseReady ? "bg-green-400 animate-pulse" : "bg-yellow-400"}`} />
             <span className="text-xs text-muted-foreground">
-              {isFirebaseReady ? "Firebase ARC Guard متصل" : "حالت نمونه · Firebase متصل نیست"}
+              {isFirebaseReady ? "Firebase ARC Guard متصل" : "Firebase متصل نیست"}
             </span>
           </div>
         </div>

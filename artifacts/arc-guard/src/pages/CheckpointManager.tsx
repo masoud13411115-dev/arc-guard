@@ -12,9 +12,7 @@ import {
   subscribeCheckpoints as fbSubscribeCheckpoints,
   checkpointPath,
 } from "@/lib/firestore";
-import * as demoStore from "@/lib/demo-store";
 import { getCurrentPosition } from "@/lib/gps";
-import { isFirebaseReady } from "@/firebase";
 import type { Checkpoint } from "@/types";
 
 // ── LocalStorage backup (live mode) ──────────────────────────────────────────
@@ -70,14 +68,10 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const qrRefs = useRef<Record<string, SVGSVGElement | null>>({});
 
-  const isDemo = !isFirebaseReady;
   const fsPath = checkpointPath(companyId); // same path for both save and load
 
   // ── Subscribe to checkpoints ────────────────────────────────────────────────
   useEffect(() => {
-    if (isDemo) {
-      return demoStore.subscribeCheckpoints(setCheckpoints);
-    }
     console.log(`[CheckpointManager] subscribing companyId=${companyId} path=${fsPath}`);
     setLoadError(null);
     return fbSubscribeCheckpoints(
@@ -97,7 +91,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         }
       },
     );
-  }, [companyId, isDemo, fsPath]);
+  }, [companyId, fsPath]);
 
   const setF = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const flash = (msg: string) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(""), 3000); };
@@ -173,46 +167,31 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         active: true,
       };
 
-      if (isDemo) {
-        if (editId) {
-          demoStore.updateCheckpoint(editId, payload);
-          flash("ایستگاه ویرایش شد");
-        } else {
-          const newCp = demoStore.addCheckpoint(payload);
-          setDebugInfo({ id: newCp.id, path: `localStorage (demo) — companyId: demo-company | QR: ${newCp.qrCode}` });
-          flash("ایستگاه اضافه شد");
-        }
+      if (editId) {
+        await fbUpdateCheckpoint(companyId, editId, payload);
+        setCheckpoints((prev) => prev.map((c) => c.id === editId ? { ...c, ...payload } : c));
+        flash("ایستگاه ویرایش شد");
         closeForm();
       } else {
-        if (editId) {
-          await fbUpdateCheckpoint(companyId, editId, payload);
-          // Optimistic: update list immediately (subscription will confirm later)
-          setCheckpoints((prev) => prev.map((c) => c.id === editId ? { ...c, ...payload } : c));
-          flash("ایستگاه ویرایش شد");
-          closeForm();
-        } else {
-          const newId = await fbSaveCheckpoint(companyId, payload);
-          const savedPath = `${fsPath}/${newId}`;
-          // QR code is ARCG|{companyId}|{checkpointId} — same formula used in firestore.ts
-          const qrCode = `ARCG|${companyId}|${newId}`;
-          console.log(`[CheckpointManager] checkpoint saved — id=${newId} companyId=${companyId} path=${savedPath} qr=${qrCode}`);
-          // Optimistic: add to list immediately so QR appears without waiting for subscription
-          const newCp: Checkpoint = {
-            ...payload, id: newId, companyId, qrCode, createdAt: Date.now(),
-          };
-          setCheckpoints((prev) => {
-            const updated = [...prev, newCp];
-            lsBackupSave(companyId, updated); // keep backup in sync
-            return updated;
-          });
-          setDebugInfo({
-            id: newId,
-            path: `save: ${savedPath} | load: ${fsPath} (companyId: ${companyId}) | QR: ${qrCode}`,
-          });
-          setExpandedQr(newId); // auto-open QR for new checkpoint
-          flash("ایستگاه ذخیره شد ✓");
-          closeForm();
-        }
+        const newId = await fbSaveCheckpoint(companyId, payload);
+        const savedPath = `${fsPath}/${newId}`;
+        const qrCode = `ARCG|${companyId}|${newId}`;
+        console.log(`[CheckpointManager] checkpoint saved — id=${newId} companyId=${companyId} path=${savedPath} qr=${qrCode}`);
+        const newCp: Checkpoint = {
+          ...payload, id: newId, companyId, qrCode, createdAt: Date.now(),
+        };
+        setCheckpoints((prev) => {
+          const updated = [...prev, newCp];
+          lsBackupSave(companyId, updated);
+          return updated;
+        });
+        setDebugInfo({
+          id: newId,
+          path: `save: ${savedPath} | load: ${fsPath} (companyId: ${companyId}) | QR: ${qrCode}`,
+        });
+        setExpandedQr(newId);
+        flash("ایستگاه ذخیره شد ✓");
+        closeForm();
       }
     } catch (err) {
       console.error("[CheckpointManager] save error:", err);
@@ -226,11 +205,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   const handleDelete = async (id: string) => {
     if (deleteConfirm !== id) { setDeleteConfirm(id); return; }
     try {
-      if (isDemo) {
-        demoStore.deleteCheckpoint(id);
-      } else {
-        await fbDeleteCheckpoint(companyId, id);
-      }
+      await fbDeleteCheckpoint(companyId, id);
       flash("ایستگاه حذف شد");
     } catch (err) {
       alert("خطا: " + err);
@@ -336,23 +311,13 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
 
   return (
     <div className="space-y-4" dir="rtl">
-      {/* Demo mode banner */}
-      {isDemo && (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-3 flex items-start gap-2.5">
-          <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-muted-foreground">
-            <span className="font-semibold text-sky-400">حالت آزمایشی:</span>{" "}
-            ایستگاه‌ها در مرورگر ذخیره می‌شوند. QR کدهای تولید شده توسط نگهبان (دمو) قابل اسکن هستند.
-          </div>
-        </div>
-      )}
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-bold text-foreground">مدیریت ایستگاه‌ها</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {checkpoints.length} ایستگاه{isDemo ? " (آزمایشی — در مرورگر)" : " فعال"}
+            {checkpoints.length} ایستگاه فعال
           </p>
         </div>
         <button
@@ -370,11 +335,9 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-red-400">خطا در بارگذاری ایستگاه‌ها از Firebase:</p>
             <p className="text-xs text-muted-foreground mt-0.5 break-words">{loadError}</p>
-            {!isDemo && (
-              <p className="text-[11px] text-muted-foreground mt-1 font-mono">
-                مسیر: {fsPath}
-              </p>
-            )}
+            <p className="text-[11px] text-muted-foreground mt-1 font-mono">
+              مسیر: {fsPath}
+            </p>
           </div>
         </div>
       )}

@@ -31,6 +31,17 @@ export function subscribeCheckpoints(cb: (cps: Checkpoint[]) => void): () => voi
   );
 }
 
+export async function updateCheckpoint(id: string, data: Partial<Checkpoint>): Promise<void> {
+  if (!db) throw new Error('Firebase not configured');
+  await updateDoc(doc(db, 'arc_checkpoints', id), data);
+}
+
+export async function deleteCheckpoint(id: string): Promise<void> {
+  if (!db) throw new Error('Firebase not configured');
+  const { deleteDoc } = await import('firebase/firestore');
+  await deleteDoc(doc(db, 'arc_checkpoints', id));
+}
+
 // ── Patrol Logs ─────────────────────────────────────────────────────────────
 export async function savePatrolLog(log: PatrolLog): Promise<string> {
   if (!db) throw new Error('Firebase not configured');

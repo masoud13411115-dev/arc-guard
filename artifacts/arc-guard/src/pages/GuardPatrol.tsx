@@ -2,8 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   QrCode, MapPin, Wifi, WifiOff, CheckCircle, AlertTriangle,
   Shield, LogOut, RefreshCw, Camera, XCircle, Clock,
-  Lock, Zap, Radio
+  Lock, Zap, Radio, Mic
 } from "lucide-react";
+import {
+  checkPatrolPermissions, requestPatrolPermissions, permissionsReady,
+  type PatrolPermissions,
+} from "@/lib/permissions";
 import MobileHeader from "@/components/MobileHeader";
 import { getCurrentPosition, haversineDistance, formatCoords } from "@/lib/gps";
 import { addToQueue, getQueueCount } from "@/lib/offline";
@@ -65,6 +69,23 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isDemo = !isFirebaseReady;
+
+  // ── Permissions ────────────────────────────────────────────────────────────
+  const [perms, setPerms] = useState<PatrolPermissions | null>(null);
+  const [requestingPerms, setRequestingPerms] = useState(false);
+
+  useEffect(() => {
+    checkPatrolPermissions().then((p) => {
+      setPerms(p);
+    });
+  }, []);
+
+  const handleRequestPerms = async () => {
+    setRequestingPerms(true);
+    const p = await requestPatrolPermissions();
+    setPerms(p);
+    setRequestingPerms(false);
+  };
 
   // ── Load checkpoints ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -345,6 +366,110 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  // ── Permission gate (shown once before patrol starts) ──────────────────────
+  if (perms !== null && !permissionsReady(perms) && !isDemo) {
+    const camDenied = perms.camera === "denied";
+    const gpsDenied = perms.gps === "denied";
+
+    return (
+      <div className="min-h-screen bg-background arc-grid-bg flex flex-col" dir="rtl">
+        <MobileHeader title="ARC Guard" subtitle={guardName} />
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-sm space-y-5">
+
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 rounded-2xl bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center mx-auto">
+                <Shield className="w-8 h-8 text-yellow-400" />
+              </div>
+              <h2 className="text-lg font-bold text-foreground">دسترسی‌های لازم</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                برای شروع گشت امنیتی، ARC Guard به دوربین و موقعیت GPS نیاز دارد.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                {
+                  icon: Camera,
+                  label: "دوربین",
+                  desc: "اسکن کد QR ایستگاه‌ها",
+                  state: perms.camera,
+                  denied: camDenied,
+                },
+                {
+                  icon: MapPin,
+                  label: "موقعیت مکانی",
+                  desc: "تأیید حضور در محل ایستگاه",
+                  state: perms.gps,
+                  denied: gpsDenied,
+                },
+              ].map(({ icon: Icon, label, desc, state, denied }) => (
+                <div key={label} className={`rounded-xl border p-4 flex items-center gap-3 ${
+                  state === "granted"
+                    ? "border-green-500/30 bg-green-500/8"
+                    : denied
+                    ? "border-red-500/30 bg-red-500/8"
+                    : "border-yellow-500/30 bg-yellow-500/8"
+                }`}>
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    state === "granted" ? "bg-green-500/20" : denied ? "bg-red-500/20" : "bg-yellow-500/20"
+                  }`}>
+                    <Icon className={`w-5 h-5 ${
+                      state === "granted" ? "text-green-400" : denied ? "text-red-400" : "text-yellow-400"
+                    }`} />
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-sm font-bold ${
+                      state === "granted" ? "text-green-400" : denied ? "text-red-400" : "text-yellow-400"
+                    }`}>{label}</p>
+                    <p className="text-xs text-muted-foreground">{desc}</p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
+                    state === "granted"
+                      ? "bg-green-500/20 text-green-400"
+                      : denied
+                      ? "bg-red-500/20 text-red-400"
+                      : "bg-yellow-500/20 text-yellow-400"
+                  }`}>
+                    {state === "granted" ? "✓ داده شد" : denied ? "رد شد" : "در انتظار"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {(camDenied || gpsDenied) && (
+              <div className="rounded-xl border border-border bg-card/60 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">چطور دسترسی بدهم؟</p>
+                <p>۱. در مرورگر روی آیکون قفل 🔒 در نوار آدرس بزنید</p>
+                <p>۲. دوربین و موقعیت مکانی را روی «مجاز» تنظیم کنید</p>
+                <p>۳. صفحه را رفرش کنید</p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={onLogout}
+                className="px-4 py-3 rounded-xl border border-border text-sm text-muted-foreground hover:bg-accent transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleRequestPerms}
+                disabled={requestingPerms}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-60 transition-all active:scale-[0.98]"
+              >
+                {requestingPerms
+                  ? <><RefreshCw className="w-4 h-4 animate-spin" />در حال درخواست...</>
+                  : <><Shield className="w-4 h-4" />اجازه دسترسی</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col">
       <MobileHeader title="ARC Guard" subtitle={guardName} notificationCount={queueCount} />

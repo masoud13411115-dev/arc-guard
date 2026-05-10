@@ -19,7 +19,7 @@ clientsClaim();
 
 setCacheNameDetails({ prefix: 'arc-guard', suffix: 'v1' });
 
-// Precache all Vite-built assets
+// Precache all Vite-built assets (includes index.html + offline.html)
 precacheAndRoute(self.__WB_MANIFEST ?? []);
 cleanupOutdatedCaches();
 
@@ -43,13 +43,13 @@ registerRoute(
   new CacheFirst({
     cacheName: 'arc-guard-images',
     plugins: [
-      new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 }),
+      new ExpirationPlugin({ maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 }),
       new CacheableResponsePlugin({ statuses: [0, 200] }),
     ],
   }),
 );
 
-// ── Cache: Firebase/Google APIs ───────────────────────────────────────────────
+// ── Cache: Firebase / Google APIs ─────────────────────────────────────────────
 registerRoute(
   ({ url }) =>
     url.hostname.includes('firebaseapp.com') ||
@@ -63,11 +63,28 @@ registerRoute(
   }),
 );
 
-// ── SPA Navigation: all routes → index.html ──────────────────────────────────
+// ── Offline fallback ──────────────────────────────────────────────────────────
+// For navigation requests: serve index.html (SPA) if cached, else offline.html
+const offlineFallback = async (request) => {
+  try {
+    const cached = await caches.match(request) ?? await caches.match('index.html');
+    if (cached) return cached;
+  } catch {}
+  const offlinePage = await caches.match('offline.html');
+  return offlinePage ?? new Response('<h1>آفلاین</h1>', { headers: { 'Content-Type': 'text/html' } });
+};
+
 registerRoute(
-  new NavigationRoute(createHandlerBoundToURL('index.html'), {
-    denylist: [/^\/api\//, /^\/_\//],
-  }),
+  new NavigationRoute(
+    async ({ request }) => {
+      try {
+        return await fetch(request);
+      } catch {
+        return offlineFallback(request);
+      }
+    },
+    { denylist: [/^\/api\//, /^\/_\//] },
+  ),
 );
 
 // ── Push Notifications ────────────────────────────────────────────────────────
@@ -104,7 +121,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// ── Background Sync tag handler ───────────────────────────────────────────────
+// ── Background Sync ───────────────────────────────────────────────────────────
 self.addEventListener('sync', (event) => {
   if (event.tag === 'arc-patrol-sync') {
     event.waitUntil(
@@ -115,7 +132,7 @@ self.addEventListener('sync', (event) => {
   }
 });
 
-// ── Message from app ─────────────────────────────────────────────────────────
+// ── Messages from app ─────────────────────────────────────────────────────────
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });

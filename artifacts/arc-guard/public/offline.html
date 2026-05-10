@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ARC Guard — آفلاین</title>
+  <meta name="theme-color" content="#0c1829" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      font-family: Vazirmatn, system-ui, sans-serif;
+      background: #0c1829;
+      color: #e2e8f0;
+      direction: rtl;
+    }
+    @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap');
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 2rem 1.5rem;
+      padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+      text-align: center;
+      gap: 1.5rem;
+    }
+    .icon-wrap {
+      width: 96px;
+      height: 96px;
+      border-radius: 24px;
+      background: rgba(14,165,233,0.1);
+      border: 1px solid rgba(14,165,233,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(14,165,233,0.3); }
+      50% { box-shadow: 0 0 0 16px rgba(14,165,233,0); }
+    }
+    .icon-wrap svg {
+      width: 48px;
+      height: 48px;
+      color: #0ea5e9;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    p {
+      font-size: 0.9rem;
+      color: #94a3b8;
+      line-height: 1.7;
+      max-width: 280px;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: #f59e0b;
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.25);
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #f59e0b;
+      animation: blink 1.5s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.2; }
+    }
+    .btn {
+      padding: 0.75rem 2rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: #0ea5e9;
+      color: #fff;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { opacity: 0.7; }
+    .features {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+      width: 100%;
+      max-width: 300px;
+    }
+    .feature {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 0.75rem;
+      padding: 0.75rem;
+      text-align: center;
+    }
+    .feature .emoji { font-size: 1.5rem; display: block; margin-bottom: 0.25rem; }
+    .feature span { font-size: 0.7rem; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+    </div>
+
+    <div>
+      <h1>ARC Guard</h1>
+      <p style="margin-top:.5rem;font-size:.8rem;color:#64748b">سیستم هوشمند گشت امنیتی</p>
+    </div>
+
+    <div class="status-row">
+      <div class="dot"></div>
+      <span>اتصال اینترنت در دسترس نیست</span>
+    </div>
+
+    <p>
+      ARC Guard در حالت آفلاین است.<br/>
+      اسکن‌های گشت ذخیره می‌شوند و پس از اتصال مجدد همگام‌سازی خواهند شد.
+    </p>
+
+    <div class="features">
+      <div class="feature">
+        <span class="emoji">📡</span>
+        <span>اسکن آفلاین</span>
+      </div>
+      <div class="feature">
+        <span class="emoji">🔄</span>
+        <span>همگام خودکار</span>
+      </div>
+      <div class="feature">
+        <span class="emoji">📍</span>
+        <span>GPS فعال</span>
+      </div>
+      <div class="feature">
+        <span class="emoji">🔒</span>
+        <span>داده ایمن</span>
+      </div>
+    </div>
+
+    <button class="btn" onclick="tryReconnect()">تلاش مجدد</button>
+  </div>
+
+  <script>
+    function tryReconnect() {
+      if (navigator.onLine) {
+        window.location.href = '/arc-guard/';
+      } else {
+        const btn = document.querySelector('.btn');
+        btn.textContent = 'هنوز آفلاین...';
+        setTimeout(() => { btn.textContent = 'تلاش مجدد'; }, 2000);
+      }
+    }
+    window.addEventListener('online', () => {
+      window.location.href = '/arc-guard/';
+    });
+  </script>
+</body>
+</html>

@@ -1,60 +1,80 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
-  <head>
-    <meta charset="UTF-8" />
+<head>
+  <meta charset="UTF-8" />
 
-    <!-- ── Viewport ── -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <!-- ── Viewport ── -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 
-    <!-- ── Primary meta ── -->
-    <title>ARC Guard — سیستم گشت امنیتی</title>
-    <meta name="description" content="ARC Guard — سیستم هوشمند گشت و نگهبانی با QR Code و GPS" />
-    <meta name="robots" content="index, follow" />
+  <!-- ── Primary meta ── -->
+  <title>ARC Guard — سیستم گشت امنیتی</title>
+  <meta name="description" content="ARC Guard — سیستم هوشمند گشت و نگهبانی با QR Code و GPS" />
+  <meta name="robots" content="index, follow" />
 
-    <!-- ── PWA theme ── -->
-    <meta name="theme-color" content="#0c1829" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#0c1829" />
+  <!-- ── PWA theme ── -->
+  <meta name="theme-color" content="#0c1829" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#0c1829" />
 
-    <!-- ── iOS Safari PWA ── -->
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="ARC Guard" />
-    <meta name="mobile-web-app-capable" content="yes" />
+  <!-- ── iOS Safari PWA ── -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ARC Guard" />
+  <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- ── iOS touch icons ── -->
-    <link rel="apple-touch-icon" href="/arc-guard/icon-192.png" />
-    <link rel="apple-touch-icon" sizes="152x152" href="/arc-guard/icon-152.png" />
-    <link rel="apple-touch-icon" sizes="144x144" href="/arc-guard/icon-144.png" />
-    <link rel="apple-touch-icon" sizes="128x128" href="/arc-guard/icon-128.png" />
+  <!-- ── iOS touch icons ── -->
+  <link rel="apple-touch-icon" href="/arc-guard/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/arc-guard/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="/arc-guard/icon-144.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/arc-guard/icon-128.png" />
 
-    <!-- ── iOS Splash screens ── -->
-    <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone12.png"
-      media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+  <!-- ── iOS Splash screens (all major devices) ── -->
+  <!-- iPhone SE (750×1334 @2x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-se.png"
+    media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+  <!-- iPhone XR (828×1792 @2x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-xr.png"
+    media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
+  <!-- iPhone 12 / 13 / 14 (1170×2532 @3x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-12.png"
+    media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+  <!-- iPhone 14 Pro (1179×2556 @3x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-14pro.png"
+    media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+  <!-- iPhone 14 Pro Max (1284×2778 @3x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-14promax.png"
+    media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
+  <!-- iPad (1536×2048 @2x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-ipad.png"
+    media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" />
+  <!-- iPad Pro 12.9" (2048×2732 @2x) -->
+  <link rel="apple-touch-startup-image" href="/arc-guard/splash-ipad-pro-13.png"
+    media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
 
-    <!-- ── Android ── -->
-    <link rel="manifest" href="/arc-guard/manifest.webmanifest" />
+  <!-- ── Android / PWA manifest ── -->
+  <link rel="manifest" href="/arc-guard/manifest.webmanifest" />
 
-    <!-- ── Standard favicon ── -->
-    <link rel="icon" type="image/svg+xml" href="/arc-guard/favicon.svg" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/arc-guard/icon-192.png" />
+  <!-- ── Standard favicon ── -->
+  <link rel="icon" type="image/svg+xml" href="/arc-guard/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/arc-guard/icon-192.png" />
 
-    <!-- ── OpenGraph ── -->
-    <meta property="og:title" content="ARC Guard" />
-    <meta property="og:description" content="سیستم هوشمند گشت امنیتی" />
-    <meta property="og:type" content="website" />
-    <meta property="og:image" content="/arc-guard/opengraph.jpg" />
+  <!-- ── OpenGraph ── -->
+  <meta property="og:title" content="ARC Guard" />
+  <meta property="og:description" content="سیستم هوشمند گشت امنیتی" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/arc-guard/opengraph.jpg" />
 
-    <!-- ── Microsoft ── -->
-    <meta name="msapplication-TileImage" content="/arc-guard/icon-144.png" />
-    <meta name="msapplication-TileColor" content="#0c1829" />
+  <!-- ── Microsoft Tiles ── -->
+  <meta name="msapplication-TileImage" content="/arc-guard/icon-144.png" />
+  <meta name="msapplication-TileColor" content="#0c1829" />
+  <meta name="msapplication-config" content="none" />
 
-    <!-- ── Fonts ── -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+  <!-- ── Fonts ── -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
 </html>

@@ -1,0 +1,36 @@
+{
+  "_comment": "Bubblewrap TWA config — run: npx @bubblewrap/cli init --manifest https://YOUR_DOMAIN/arc-guard/manifest.webmanifest",
+  "packageId": "com.arcguard.security",
+  "host": "YOUR_REPLIT_APP_DOMAIN",
+  "name": "ARC Guard",
+  "launcherName": "ARC Guard",
+  "display": "standalone",
+  "themeColor": "#0c1829",
+  "navigationColor": "#0c1829",
+  "backgroundColor": "#0c1829",
+  "enableNotifications": true,
+  "startUrl": "/arc-guard/",
+  "iconUrl": "https://YOUR_REPLIT_APP_DOMAIN/arc-guard/icon-512.png",
+  "maskableIconUrl": "https://YOUR_REPLIT_APP_DOMAIN/arc-guard/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android-signing-key.ks",
+    "alias": "arcguard"
+  },
+  "appVersionCode": 1,
+  "appVersionName": "3.0.0",
+  "orientation": "portrait",
+  "fullScopeUrl": "https://YOUR_REPLIT_APP_DOMAIN/arc-guard/",
+  "minSdkVersion": 21,
+  "targetSdkVersion": 34,
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://YOUR_REPLIT_APP_DOMAIN/arc-guard/manifest.webmanifest",
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "playBilling": { "enabled": false },
+  "features": {
+    "locationDelegation": { "enabled": true },
+    "playBilling": { "enabled": false }
+  },
+  "alphaDependencies": { "enabled": false }
+}

@@ -31,39 +31,77 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
       },
       devOptions: {
-        enabled: false, // disable SW in dev to avoid cache confusion
+        enabled: false,
       },
+
       manifest: {
         name: "ARC Guard — سیستم گشت امنیتی",
         short_name: "ARC Guard",
-        description: "سیستم هوشمند گشت و نگهبانی با QR Code و GPS",
+        description: "سیستم هوشمند گشت و نگهبانی با QR Code و GPS — پلتفرم SaaS امنیتی",
         theme_color: "#0c1829",
         background_color: "#0c1829",
         display: "standalone",
+        display_override: ["window-controls-overlay", "standalone", "minimal-ui"],
         orientation: "portrait-primary",
         scope: basePath,
-        start_url: basePath,
+        start_url: basePath + "?source=pwa",
+        id: basePath,
         lang: "fa",
         dir: "rtl",
         categories: ["security", "business", "productivity"],
+        prefer_related_applications: false,
+
         icons: [
-          { src: "icon-72.png",  sizes: "72x72",   type: "image/png" },
-          { src: "icon-96.png",  sizes: "96x96",   type: "image/png" },
-          { src: "icon-128.png", sizes: "128x128", type: "image/png" },
-          { src: "icon-144.png", sizes: "144x144", type: "image/png" },
-          { src: "icon-152.png", sizes: "152x152", type: "image/png" },
-          { src: "icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "icon-384.png", sizes: "384x384", type: "image/png" },
-          { src: "icon-512.png", sizes: "512x512", type: "image/png" },
-          { src: "icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "icon-72.png",          sizes: "72x72",   type: "image/png" },
+          { src: "icon-96.png",          sizes: "96x96",   type: "image/png" },
+          { src: "icon-128.png",         sizes: "128x128", type: "image/png" },
+          { src: "icon-144.png",         sizes: "144x144", type: "image/png" },
+          { src: "icon-152.png",         sizes: "152x152", type: "image/png" },
+          { src: "icon-192.png",         sizes: "192x192", type: "image/png" },
+          { src: "icon-384.png",         sizes: "384x384", type: "image/png" },
+          { src: "icon-512.png",         sizes: "512x512", type: "image/png" },
+          {
+            src: "icon-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
         ],
+
         shortcuts: [
           {
             name: "داشبورد مدیر",
             short_name: "داشبورد",
-            description: "ورود به داشبورد مدیریت",
-            url: basePath,
+            description: "ورود به داشبورد مدیریت و مانیتور نگهبانان",
+            url: basePath + "?role=manager",
             icons: [{ src: "icon-96.png", sizes: "96x96" }],
+          },
+          {
+            name: "شروع گشت",
+            short_name: "گشت",
+            description: "ورود نگهبان و شروع گشت امنیتی",
+            url: basePath + "?role=guard",
+            icons: [{ src: "icon-96.png", sizes: "96x96" }],
+          },
+        ],
+
+        // App screenshots for enhanced install prompt (Android Chrome 103+)
+        screenshots: [
+          {
+            src: "icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            form_factor: "narrow",
+            label: "ARC Guard داشبورد امنیتی",
+          },
+        ],
+
+        // Related Android app (TWA)
+        related_applications: [
+          {
+            platform: "play",
+            url: "https://play.google.com/store/apps/details?id=com.arcguard.security",
+            id: "com.arcguard.security",
           },
         ],
       },

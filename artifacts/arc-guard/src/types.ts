@@ -4,6 +4,8 @@ export interface GpsCoords {
   accuracy: number;
 }
 
+export type PlanId = 'basic' | 'professional' | 'enterprise';
+
 export interface Company {
   id: string;
   name: string;
@@ -12,11 +14,27 @@ export interface Company {
   createdAt: number;
 }
 
+export interface CompanyRecord {
+  id: string;
+  name: string;
+  adminUid: string;
+  adminEmail: string;
+  plan: PlanId;
+  active: boolean;
+  suspended: boolean;
+  inviteCode: string;
+  guardCount: number;
+  checkpointCount: number;
+  createdAt: number;
+  trialEndsAt?: number;
+  notes?: string;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: 'manager' | 'guard';
+  role: 'manager' | 'guard' | 'super_admin';
   companyId: string;
   companyName?: string;
   guardCode?: string;

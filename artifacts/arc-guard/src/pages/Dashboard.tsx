@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
-  Monitor, FileText, Map, MapPin, Radio, Bell
+  Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
@@ -11,12 +11,14 @@ import PatrolLogs from "./PatrolLogs";
 import LiveMapView from "@/components/LiveMapView";
 import AlertPopup from "@/components/AlertPopup";
 import AlertHistory from "./AlertHistory";
+import CompanySettings from "./CompanySettings";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert,
 } from "@/lib/firestore";
 import { db, isFirebaseReady } from "@/firebase";
-import { DEMO_SESSIONS, DEMO_CHECKPOINTS, DEMO_LOGS, DEMO_ALERTS } from "@/lib/demo";
+import { DEMO_SESSIONS, DEMO_CHECKPOINTS, DEMO_LOGS, DEMO_ALERTS, DEMO_COMPANIES } from "@/lib/demo";
+import { PLANS } from "@/lib/plans";
 import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
 
 interface DashboardProps {
@@ -24,7 +26,13 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-type Tab = "overview" | "map" | "monitor" | "checkpoints" | "logs" | "alerts";
+type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings";
+
+const PLAN_ICON: Record<string, React.ElementType> = {
+  basic: Shield,
+  professional: Star,
+  enterprise: Crown,
+};
 
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -35,6 +43,12 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
 
   const isDemo = !isFirebaseReady;
+
+  // Find company record for plan info (demo only)
+  const demoCompany = isDemo ? DEMO_COMPANIES.find(c => c.id === profile.companyId) ?? DEMO_COMPANIES[0] : null;
+  const currentPlanId = demoCompany?.plan ?? "basic";
+  const currentPlan = PLANS[currentPlanId];
+  const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
 
   useEffect(() => {
     if (isDemo) {
@@ -61,12 +75,10 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
   const openAlerts = alerts.filter((a) => !a.resolved);
   const sosAlerts = openAlerts.filter((a) => a.kind === "sos");
-
   const activeGuards = sessions.filter((s) => s.status === "active").length;
   const scansToday = recentLogs.filter((l) => {
     const today = new Date();
-    const logDate = new Date(l.scanTime ?? l.scannedAt);
-    return logDate.toDateString() === today.toDateString();
+    return new Date(l.scanTime ?? l.scannedAt).toDateString() === today.toDateString();
   }).length;
 
   const stats = [
@@ -83,19 +95,34 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     { tab: "alerts",      label: "هشدارها",        icon: Bell, badge: openAlerts.length },
     { tab: "checkpoints", label: "ایستگاه‌ها",     icon: MapPin },
     { tab: "logs",        label: "گزارش گشت",      icon: FileText },
+    { tab: "settings",    label: "تنظیمات",        icon: Settings },
   ];
 
   const SidebarContent = () => (
     <>
-      <div className="flex items-center gap-3 px-2 mb-6 mt-2">
+      <div className="flex items-center gap-3 px-2 mb-4 mt-2">
         <img src={arcGuardLogo} alt="ARC Guard" className="w-9 h-9 object-contain"
           style={{ filter: "drop-shadow(0 0 10px rgba(14,165,233,0.4))" }} />
         <div>
           <p className="text-xs font-bold text-primary tracking-wider">ARC Guard</p>
-          <p className="text-[10px] text-muted-foreground tracking-widest truncate max-w-28">{profile.companyName ?? "مدیریت"}</p>
+          <p className="text-[10px] text-muted-foreground truncate max-w-28">{profile.companyName ?? "مدیریت"}</p>
         </div>
       </div>
-      <nav className="flex-1 space-y-1">
+
+      {/* Plan badge */}
+      <div className={`mx-2 mb-4 rounded-lg border ${currentPlan.border} ${currentPlan.bg} px-3 py-2 flex items-center gap-2`}>
+        <PlanIcon className={`w-3.5 h-3.5 ${currentPlan.color} shrink-0`} />
+        <div className="flex-1 min-w-0">
+          <p className={`text-[10px] font-bold ${currentPlan.color}`}>پلن {currentPlan.name}</p>
+          <p className="text-[9px] text-muted-foreground">{currentPlan.price}</p>
+        </div>
+        <button onClick={() => { setActiveTab("settings"); setSidebarOpen(false); }}
+          className="text-[9px] text-primary hover:underline shrink-0">
+          مشاهده
+        </button>
+      </div>
+
+      <nav className="flex-1 space-y-0.5">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => { setActiveTab(tab); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
@@ -107,18 +134,16 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             <span className="flex-1 text-right">{label}</span>
             {badge != null && badge > 0 && (
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                tab === "alerts" && sosAlerts.length > 0
-                  ? "bg-red-500 text-white animate-pulse"
-                  : "bg-yellow-500/20 text-yellow-400"
+                tab === "alerts" && sosAlerts.length > 0 ? "bg-red-500 text-white animate-pulse" : "bg-yellow-500/20 text-yellow-400"
               }`}>{badge}</span>
             )}
           </button>
         ))}
       </nav>
-      <div className="pt-4 border-t border-border mt-2">
-        <div className="px-2 mb-3">
-          <p className="text-[10px] text-muted-foreground">وارد شده با:</p>
-          <p className="text-xs font-medium text-foreground truncate">{profile.email}</p>
+
+      <div className="pt-3 border-t border-border mt-2">
+        <div className="px-2 mb-2">
+          <p className="text-[10px] text-muted-foreground truncate">{profile.email}</p>
         </div>
         <button onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors">
@@ -130,7 +155,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
   return (
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col">
-      {/* ── Alert Popup Overlay ── */}
       <AlertPopup alerts={openAlerts} onResolve={handleResolveAlert} />
 
       <MobileHeader
@@ -153,13 +177,13 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       <div className="md:hidden flex overflow-x-auto border-b border-border bg-card/80 backdrop-blur shrink-0 scrollbar-none">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`relative flex flex-col items-center gap-0.5 px-3 py-2.5 shrink-0 text-[9px] font-medium transition-colors border-b-2 ${
+            className={`relative flex flex-col items-center gap-0.5 px-3 py-2 shrink-0 text-[9px] font-medium transition-colors border-b-2 ${
               activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground"
             }`}>
             <Icon className="w-4 h-4" />
             {label}
             {badge != null && badge > 0 && (
-              <span className={`absolute top-1 right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold rounded-full ${
+              <span className={`absolute top-1 right-1 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold rounded-full ${
                 tab === "alerts" && sosAlerts.length > 0 ? "bg-red-500 text-white animate-pulse" : "bg-yellow-500 text-black"
               }`}>{badge > 9 ? "9+" : badge}</span>
             )}
@@ -184,22 +208,15 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 </p>
               </div>
 
-              {/* Active SOS banner */}
               {sosAlerts.length > 0 && (
-                <div className="rounded-xl border-2 border-red-500 bg-red-950/40 p-4 flex items-center gap-3 animate-pulse-ring">
+                <div className="rounded-xl border-2 border-red-500 bg-red-950/40 p-4 flex items-center gap-3">
                   <Radio className="w-6 h-6 text-red-400 animate-ping shrink-0" />
                   <div className="flex-1">
                     <p className="text-sm font-bold text-red-400">🚨 {sosAlerts.length} هشدار SOS فعال</p>
-                    <p className="text-xs text-red-300/70 mt-0.5">
-                      {sosAlerts.map((a) => a.guardName).join("، ")} — نیاز به توجه فوری
-                    </p>
+                    <p className="text-xs text-red-300/70 mt-0.5">{sosAlerts.map(a => a.guardName).join("، ")} — نیاز به توجه فوری</p>
                   </div>
-                  <button
-                    onClick={() => setActiveTab("alerts")}
-                    className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0"
-                  >
-                    مشاهده
-                  </button>
+                  <button onClick={() => setActiveTab("alerts")}
+                    className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0">مشاهده</button>
                 </div>
               )}
 
@@ -217,7 +234,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 ))}
               </div>
 
-              {/* Recent logs */}
               <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <div className="flex items-center gap-2">
@@ -241,16 +257,12 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                               <span className="text-muted-foreground"> ← </span>
                               <span className="text-primary">{log.checkpointName}</span>
                             </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {log.scannedAtText}{log.distanceMeters !== null && ` · ${log.distanceMeters} متر`}
-                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{log.scannedAtText}{log.distanceMeters !== null && ` · ${log.distanceMeters} متر`}</p>
                           </div>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
                             s === "valid" ? "bg-green-400/10 text-green-400" :
                             s === "outside" ? "bg-yellow-400/10 text-yellow-400" : "bg-destructive/10 text-destructive"
-                          }`}>
-                            {s === "valid" ? "معتبر" : s === "outside" ? "خارج" : "ناموفق"}
-                          </span>
+                          }`}>{s === "valid" ? "معتبر" : s === "outside" ? "خارج" : "ناموفق"}</span>
                         </div>
                       );
                     })}
@@ -258,14 +270,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 )}
               </div>
 
-              {/* Quick actions */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { label: "نقشه زنده",    tab: "map"      as Tab, icon: Map,      color: "text-green-400",   bg: "bg-green-400/10 border-green-500/20" },
-                  { label: "هشدارها",       tab: "alerts"   as Tab, icon: Bell,     color: "text-red-400",     bg: "bg-red-400/10 border-red-500/20" },
-                  { label: "مانیتور زنده", tab: "monitor"  as Tab, icon: Monitor,  color: "text-primary",     bg: "bg-primary/10 border-primary/20" },
-                  { label: "ایستگاه‌ها",   tab: "checkpoints" as Tab, icon: MapPin, color: "text-sky-400",   bg: "bg-sky-400/10 border-sky-500/20" },
-                  { label: "گزارش گشت",    tab: "logs"     as Tab, icon: FileText, color: "text-purple-400",  bg: "bg-purple-400/10 border-purple-500/20" },
+                  { label: "نقشه زنده", tab: "map" as Tab, icon: Map, color: "text-green-400", bg: "bg-green-400/10 border-green-500/20" },
+                  { label: "هشدارها", tab: "alerts" as Tab, icon: Bell, color: "text-red-400", bg: "bg-red-400/10 border-red-500/20" },
+                  { label: "مانیتور زنده", tab: "monitor" as Tab, icon: Monitor, color: "text-primary", bg: "bg-primary/10 border-primary/20" },
+                  { label: "ایستگاه‌ها", tab: "checkpoints" as Tab, icon: MapPin, color: "text-sky-400", bg: "bg-sky-400/10 border-sky-500/20" },
+                  { label: "گزارش گشت", tab: "logs" as Tab, icon: FileText, color: "text-purple-400", bg: "bg-purple-400/10 border-purple-500/20" },
+                  { label: "تنظیمات", tab: "settings" as Tab, icon: Settings, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
                 ].map(({ label, tab, icon: Icon, color, bg }) => (
                   <button key={tab} onClick={() => setActiveTab(tab)}
                     className={`rounded-xl border ${bg} p-4 flex flex-col items-center gap-2 hover:opacity-80 transition-opacity`}>
@@ -280,9 +292,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                   <Shield className="w-5 h-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-primary">سیستم عملیاتی</p>
+                  <p className="text-sm font-semibold text-primary">سیستم عملیاتی · پلن {currentPlan.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    شرکت: {profile.companyName ?? profile.companyId} · {isDemo ? "حالت نمونه" : "Firebase متصل"} · GPS فعال
+                    {profile.companyName ?? profile.companyId} · {isDemo ? "حالت نمونه" : "Firebase متصل"} · GPS فعال
                   </p>
                 </div>
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
@@ -290,7 +302,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </div>
           )}
 
-          {/* ── Live Map ── */}
           {activeTab === "map" && (
             <div className="animate-fade-in-up">
               <div className="mb-4">
@@ -301,7 +312,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </div>
           )}
 
-          {/* ── Monitor ── */}
           {activeTab === "monitor" && (
             <div className="max-w-3xl animate-fade-in-up">
               <div className="mb-4">
@@ -312,7 +322,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </div>
           )}
 
-          {/* ── Alerts ── */}
           {activeTab === "alerts" && (
             <div className="max-w-2xl animate-fade-in-up">
               <div className="mb-4">
@@ -330,7 +339,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </div>
           )}
 
-          {/* ── Checkpoints ── */}
           {activeTab === "checkpoints" && (
             <div className="max-w-2xl animate-fade-in-up">
               <div className="mb-4">
@@ -341,7 +349,6 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </div>
           )}
 
-          {/* ── Logs ── */}
           {activeTab === "logs" && (
             <div className="max-w-3xl animate-fade-in-up">
               <div className="mb-4">
@@ -349,6 +356,16 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <p className="text-xs text-muted-foreground mt-0.5">تمام اسکن‌های نگهبانان با تأیید GPS</p>
               </div>
               <PatrolLogs companyId={profile.companyId} />
+            </div>
+          )}
+
+          {activeTab === "settings" && (
+            <div className="max-w-2xl animate-fade-in-up">
+              <div className="mb-4">
+                <h2 className="text-lg font-bold text-foreground">تنظیمات شرکت</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">اطلاعات شرکت، پلن اشتراک، کد دعوت و مدیریت نگهبانان</p>
+              </div>
+              <CompanySettings profile={profile} />
             </div>
           )}
 

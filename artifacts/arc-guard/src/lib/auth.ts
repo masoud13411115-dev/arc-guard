@@ -10,13 +10,15 @@ import {
   doc, getDoc, setDoc, collection, addDoc,
 } from 'firebase/firestore';
 import { auth, db, isFirebaseReady } from '@/firebase';
-import type { UserProfile, Company } from '@/types';
-import { DEMO_MANAGER_PROFILE, DEMO_GUARD_PROFILE } from './demo';
+import type { UserProfile, Company, CompanyRecord } from '@/types';
+import { generateInviteCode } from '@/lib/plans';
+import { DEMO_MANAGER_PROFILE, DEMO_GUARD_PROFILE, DEMO_SUPER_ADMIN_PROFILE } from './demo';
 
 export type { User };
 
-// ── Demo login (no Firebase needed) ──────────────────────────────────────────
-export function demoLogin(role: 'manager' | 'guard'): UserProfile {
+// ── Demo login ────────────────────────────────────────────────────────────────
+export function demoLogin(role: 'manager' | 'guard' | 'super_admin'): UserProfile {
+  if (role === 'super_admin') return DEMO_SUPER_ADMIN_PROFILE;
   return role === 'manager' ? DEMO_MANAGER_PROFILE : DEMO_GUARD_PROFILE;
 }
 
@@ -60,12 +62,23 @@ export async function registerManager(
   const uid = cred.user.uid;
   await updateProfile(cred.user, { displayName });
 
-  const companyRef = await addDoc(collection(db, 'companies'), {
+  const inviteCode = generateInviteCode();
+
+  const companyData: Omit<CompanyRecord, 'id'> = {
     name: companyName,
     adminUid: uid,
     adminEmail: email,
+    plan: 'basic',
+    active: true,
+    suspended: false,
+    inviteCode,
+    guardCount: 0,
+    checkpointCount: 0,
     createdAt: Date.now(),
-  } satisfies Omit<Company, 'id'>);
+    trialEndsAt: Date.now() + 30 * 24 * 3600 * 1000, // 30 day trial
+  };
+
+  const companyRef = await addDoc(collection(db, 'companies'), companyData);
 
   const profile: Omit<UserProfile, 'uid'> = {
     email,
@@ -103,6 +116,32 @@ export async function registerGuard(
     companyId,
     companyName,
     guardCode,
+    active: true,
+    createdAt: Date.now(),
+  };
+
+  await setDoc(doc(db, 'users', uid), profile);
+  return { uid, ...profile };
+}
+
+// ── Register super admin ──────────────────────────────────────────────────────
+export async function registerSuperAdmin(
+  email: string,
+  password: string,
+  displayName: string,
+): Promise<UserProfile> {
+  if (!auth || !db) throw new Error('Firebase پیکربندی نشده است.');
+
+  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  const uid = cred.user.uid;
+  await updateProfile(cred.user, { displayName });
+
+  const profile: Omit<UserProfile, 'uid'> = {
+    email,
+    displayName,
+    role: 'super_admin',
+    companyId: 'platform',
+    companyName: 'ARC Guard Platform',
     active: true,
     createdAt: Date.now(),
   };

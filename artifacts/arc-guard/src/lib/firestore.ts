@@ -1,16 +1,16 @@
 import {
   collection, addDoc, getDocs, onSnapshot, query,
-  orderBy, where, doc, setDoc, updateDoc, limit, deleteDoc,
+  orderBy, where, doc, setDoc, updateDoc, limit, deleteDoc, getDoc,
 } from 'firebase/firestore';
 import { db } from '@/firebase';
-import type { Checkpoint, PatrolLog, Alert, GuardSession } from '@/types';
+import type { Checkpoint, PatrolLog, Alert, GuardSession, CompanyRecord, UserProfile, PlanId } from '@/types';
 import { getQueue, removeFromQueue } from './offline';
 
-// ── Company-scoped collection helpers ────────────────────────────────────────
+// ── Company-scoped collection helpers ─────────────────────────────────────────
 const col = (companyId: string, name: string) =>
   collection(db!, 'companies', companyId, name);
 
-// ── Checkpoints ──────────────────────────────────────────────────────────────
+// ── Checkpoints ───────────────────────────────────────────────────────────────
 export async function saveCheckpoint(
   companyId: string,
   cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId'>,
@@ -49,13 +49,11 @@ export function subscribeCheckpoints(
 
 export async function getCheckpoints(companyId: string): Promise<Checkpoint[]> {
   if (!db) return [];
-  const snap = await getDocs(
-    query(col(companyId, 'checkpoints'), where('active', '==', true)),
-  );
+  const snap = await getDocs(query(col(companyId, 'checkpoints'), where('active', '==', true)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint));
 }
 
-// ── Patrol Logs ──────────────────────────────────────────────────────────────
+// ── Patrol Logs ───────────────────────────────────────────────────────────────
 export async function savePatrolLog(log: PatrolLog): Promise<string> {
   if (!db) throw new Error('Firebase پیکربندی نشده');
   const ref = await addDoc(col(log.companyId, 'patrolLogs'), { ...log, synced: true });
@@ -83,7 +81,7 @@ export async function getPatrolLogs(companyId: string, guardId?: string): Promis
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PatrolLog));
 }
 
-// ── Guard Sessions ────────────────────────────────────────────────────────────
+// ── Guard Sessions ─────────────────────────────────────────────────────────────
 export async function updateGuardSession(session: GuardSession): Promise<void> {
   if (!db) return;
   await setDoc(
@@ -104,14 +102,14 @@ export function subscribeGuardSessions(
   );
 }
 
-// ── Alerts (SOS, Missed, Outside) ─────────────────────────────────────────────
+// ── Alerts ─────────────────────────────────────────────────────────────────────
 export async function saveAlert(alert: Omit<Alert, 'id'>): Promise<string> {
   if (!db) throw new Error('Firebase پیکربندی نشده');
   const ref = await addDoc(col(alert.companyId, 'alerts'), alert);
   return ref.id;
 }
 
-/** @deprecated use saveAlert with kind:'missed' */
+/** @deprecated use saveAlert with kind */
 export async function saveMissedAlert(alert: Omit<Alert, 'id'>): Promise<void> {
   await saveAlert({ ...alert, kind: alert.kind ?? 'missed' });
 }
@@ -146,7 +144,64 @@ export async function resolveAlert(companyId: string, id: string): Promise<void>
   });
 }
 
-// ── Offline Sync ──────────────────────────────────────────────────────────────
+// ── Company management (admin) ─────────────────────────────────────────────────
+export async function getCompany(companyId: string): Promise<CompanyRecord | null> {
+  if (!db) return null;
+  const snap = await getDoc(doc(db, 'companies', companyId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() } as CompanyRecord;
+}
+
+export async function updateCompany(companyId: string, data: Partial<CompanyRecord>): Promise<void> {
+  if (!db) return;
+  await updateDoc(doc(db, 'companies', companyId), data);
+}
+
+export async function regenerateInviteCode(companyId: string): Promise<string> {
+  const { generateInviteCode } = await import('./plans');
+  const code = generateInviteCode();
+  await updateCompany(companyId, { inviteCode: code });
+  return code;
+}
+
+// ── Super admin: all companies ─────────────────────────────────────────────────
+export async function getAllCompanies(): Promise<CompanyRecord[]> {
+  if (!db) return [];
+  const snap = await getDocs(query(collection(db, 'companies'), orderBy('createdAt', 'desc')));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as CompanyRecord));
+}
+
+export function subscribeAllCompanies(cb: (companies: CompanyRecord[]) => void): () => void {
+  if (!db) return () => {};
+  return onSnapshot(
+    query(collection(db, 'companies'), orderBy('createdAt', 'desc')),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CompanyRecord))),
+  );
+}
+
+export async function setCompanyPlan(companyId: string, plan: PlanId): Promise<void> {
+  await updateCompany(companyId, { plan });
+}
+
+export async function setCompanySuspended(companyId: string, suspended: boolean): Promise<void> {
+  await updateCompany(companyId, { suspended, active: !suspended });
+}
+
+// ── Company guards ─────────────────────────────────────────────────────────────
+export async function getCompanyGuards(companyId: string): Promise<UserProfile[]> {
+  if (!db) return [];
+  const snap = await getDocs(
+    query(collection(db, 'users'), where('companyId', '==', companyId), where('role', '==', 'guard')),
+  );
+  return snap.docs.map((d) => ({ uid: d.id, ...d.data() } as UserProfile));
+}
+
+export async function setGuardActive(uid: string, active: boolean): Promise<void> {
+  if (!db) return;
+  await updateDoc(doc(db, 'users', uid), { active });
+}
+
+// ── Offline Sync ───────────────────────────────────────────────────────────────
 export async function syncOfflineQueue(): Promise<number> {
   if (!db || !navigator.onLine) return 0;
   const queue = getQueue();
@@ -159,7 +214,7 @@ export async function syncOfflineQueue(): Promise<number> {
         synced++;
       }
     } catch {
-      // Retry on next sync
+      // retry on next sync
     }
   }
   return synced;

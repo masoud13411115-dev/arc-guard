@@ -8,15 +8,16 @@ import { getCurrentPosition, haversineDistance, formatCoords } from "@/lib/gps";
 import { addToQueue, getQueueCount } from "@/lib/offline";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue } from "@/lib/firestore";
 import { db } from "@/firebase";
-import type { Checkpoint, PatrolLog, GpsCoords } from "@/types";
+import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 
 interface GuardPatrolProps {
   guardId: string;
   guardName: string;
+  companyId: string;
   onLogout: () => void;
 }
 
-export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatrolProps) {
+export default function GuardPatrol({ guardId, guardName, companyId, onLogout }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [scanning, setScanning] = useState(false);
   const [gps, setGps] = useState<GpsCoords | null>(null);
@@ -25,38 +26,14 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
   const [online, setOnline] = useState(navigator.onLine);
   const [queueCount, setQueueCount] = useState(getQueueCount());
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
-  const [scanResult, setScanResult] = useState<{ ok: boolean; title: string; msg: string } | null>(null);
+  const [scanResult, setScanResult] = useState<{ ok: boolean; title: string; msg: string; status: ScanStatus } | null>(null);
   const [syncing, setSyncing] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
 
-  useEffect(() => {
-    const onOnline = () => { setOnline(true); handleSync(); };
-    const onOffline = () => setOnline(false);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
-  }, []);
-
-  useEffect(() => {
-    if (!db) return;
-    return subscribeCheckpoints(setCheckpoints);
-  }, []);
-
-  useEffect(() => { fetchGps(); }, []);
-
-  const fetchGps = async () => {
-    setGpsLoading(true);
-    setGpsError("");
-    try {
-      const coords = await getCurrentPosition();
-      setGps(coords);
-      if (db) updateGuardSession({ guardId, guardName, lastSeen: Date.now(), lastCheckpoint: recentLogs[0]?.checkpointName ?? "—", lastGps: coords, status: "active" });
-    } catch {
-      setGpsError("GPS در دسترس نیست");
-    } finally {
-      setGpsLoading(false);
-    }
+  const statusLabel: Record<ScanStatus, string> = {
+    valid: "✓ معتبر",
+    outside: "⚠ خارج از محدوده",
+    failed: "✗ ناموفق",
   };
 
   const handleSync = useCallback(async () => {
@@ -66,6 +43,42 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
     setQueueCount(getQueueCount());
     setSyncing(false);
   }, [online]);
+
+  useEffect(() => {
+    const onOnline = () => { setOnline(true); handleSync(); };
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
+  }, [handleSync]);
+
+  useEffect(() => {
+    if (!db) return;
+    return subscribeCheckpoints(companyId, setCheckpoints);
+  }, [companyId]);
+
+  useEffect(() => { fetchGps(); }, []);
+
+  const fetchGps = async () => {
+    setGpsLoading(true);
+    setGpsError("");
+    try {
+      const coords = await getCurrentPosition();
+      setGps(coords);
+      if (db) {
+        updateGuardSession({
+          guardId, guardName, companyId,
+          lastSeen: Date.now(),
+          lastCheckpoint: recentLogs[0]?.checkpointName ?? "—",
+          lastGps: coords, status: "active",
+        });
+      }
+    } catch {
+      setGpsError("GPS در دسترس نیست");
+    } finally {
+      setGpsLoading(false);
+    }
+  };
 
   const startScanner = async () => {
     setScanning(true);
@@ -81,7 +94,7 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
         () => {}
       );
     } catch {
-      setScanResult({ ok: false, title: "دسترسی به دوربین رد شد", msg: "لطفاً دسترسی دوربین را در تنظیمات مرورگر فعال کنید." });
+      setScanResult({ ok: false, title: "دسترسی به دوربین رد شد", msg: "لطفاً دسترسی دوربین را در تنظیمات مرورگر فعال کنید.", status: "failed" });
       setScanning(false);
     }
   };
@@ -99,69 +112,80 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
   const handleQrScan = async (qrText: string) => {
     await stopScanner();
 
-    const checkpoint = checkpoints.find((cp) => cp.qrCode === qrText) ?? null;
     const now = Date.now();
     const nowText = new Date(now).toLocaleString("fa-IR");
+    const checkpoint = checkpoints.find((cp) => cp.qrCode === qrText) ?? null;
 
-    // GPS check
-    if (!gps) {
-      setScanResult({ ok: false, title: "موقعیت GPS دریافت نشد", msg: "لطفاً GPS دستگاه را فعال کنید و دوباره تلاش نمایید." });
+    // QR not found
+    if (!checkpoint) {
+      setScanResult({
+        ok: false, status: "failed",
+        title: "کد QR ناشناس",
+        msg: `این کد در سیستم ثبت نشده: ${qrText.slice(0, 40)}`,
+      });
+      const log: PatrolLog = {
+        guardId, guardName, companyId,
+        checkpointId: "unknown", checkpointName: "ناشناس",
+        qrScanned: qrText, gps, distanceMeters: null,
+        withinRadius: false, status: "failed",
+        scanTime: now, scannedAt: now, scannedAtText: nowText, synced: false,
+      };
+      persistLog(log);
       return;
     }
 
-    if (!checkpoint) {
-      setScanResult({ ok: false, title: "کد QR ناشناس", msg: `این کد در سیستم ثبت نشده است: ${qrText.slice(0, 30)}...` });
+    // GPS required
+    if (!gps) {
+      setScanResult({ ok: false, status: "failed", title: "موقعیت GPS دریافت نشد", msg: "GPS دستگاه را فعال کنید و دوباره تلاش نمایید." });
       return;
     }
 
     const distance = Math.round(haversineDistance(gps.lat, gps.lng, checkpoint.lat, checkpoint.lng));
     const withinRadius = distance <= checkpoint.radiusMeters;
+    const status: ScanStatus = withinRadius ? "valid" : "outside";
 
     const log: PatrolLog = {
-      guardId, guardName,
+      guardId, guardName, companyId,
       checkpointId: checkpoint.id,
       checkpointName: checkpoint.name,
-      qrScanned: qrText,
-      gps,
+      qrScanned: qrText, gps,
       distanceMeters: distance,
-      withinRadius,
-      scannedAt: now,
-      scannedAtText: nowText,
+      withinRadius, status,
+      scanTime: now, scannedAt: now, scannedAtText: nowText,
       synced: false,
     };
 
     setRecentLogs((prev) => [log, ...prev.slice(0, 9)]);
 
-    if (!withinRadius) {
+    if (withinRadius) {
       setScanResult({
-        ok: false,
-        title: "خارج از محدوده مجاز",
-        msg: `شما ${distance} متر از ایستگاه فاصله دارید. حداکثر مجاز: ${checkpoint.radiusMeters} متر.`,
-      });
-      // Still log the failed attempt
-    } else {
-      setScanResult({
-        ok: true,
+        ok: true, status: "valid",
         title: `ایستگاه "${checkpoint.name}" تأیید شد`,
         msg: `فاصله: ${distance} متر · دقت GPS: ±${Math.round(gps.accuracy)} متر`,
       });
+      if (db) updateGuardSession({ guardId, guardName, companyId, lastSeen: now, lastCheckpoint: checkpoint.name, lastGps: gps, status: "active" });
+    } else {
+      setScanResult({
+        ok: false, status: "outside",
+        title: "خارج از محدوده مجاز",
+        msg: `فاصله شما ${distance} متر است. حداکثر مجاز: ${checkpoint.radiusMeters} متر.`,
+      });
     }
 
-    // Save or queue
+    persistLog(log);
+    fetchGps();
+  };
+
+  const persistLog = (log: PatrolLog) => {
     if (online && db) {
-      try {
-        await savePatrolLog({ ...log, synced: true });
-        updateGuardSession({ guardId, guardName, lastSeen: now, lastCheckpoint: checkpoint.name, lastGps: gps, status: "active" });
-      } catch {
+      savePatrolLog({ ...log, synced: true }).catch(() => {
         addToQueue(log);
         setQueueCount(getQueueCount());
-      }
+      });
     } else {
       addToQueue(log);
       setQueueCount(getQueueCount());
     }
-
-    fetchGps();
   };
 
   return (
@@ -178,7 +202,7 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
           </div>
           <div className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium ${gps ? "border-primary/30 bg-primary/10 text-primary" : "border-muted-foreground/20 bg-muted text-muted-foreground"}`}>
             <MapPin className="w-3.5 h-3.5" />
-            {gpsLoading ? "در حال جستجو..." : gps ? `±${Math.round(gps.accuracy)} متر` : gpsError || "بدون GPS"}
+            {gpsLoading ? "جستجو..." : gps ? `±${Math.round(gps.accuracy)} متر` : gpsError || "بدون GPS"}
           </div>
           {queueCount > 0 && (
             <button onClick={handleSync}
@@ -196,10 +220,9 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground">{guardName}</p>
-            <p className="text-xs text-muted-foreground">شناسه: {guardId.slice(-8)}</p>
             {gps && <p className="text-xs text-primary/70 mt-0.5 font-mono">{formatCoords(gps)}</p>}
           </div>
-          <button onClick={onLogout} className="flex items-center gap-1 text-xs text-destructive/80 hover:text-destructive transition-colors">
+          <button onClick={onLogout} className="flex items-center gap-1 text-xs text-destructive/80 hover:text-destructive transition-colors p-2">
             <LogOut className="w-4 h-4" />
           </button>
         </div>
@@ -215,7 +238,7 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
           </div>
         )}
 
-        {/* Scanner button / camera */}
+        {/* Scanner */}
         {!scanning ? (
           <button onClick={startScanner}
             className="w-full rounded-xl border-2 border-dashed border-primary/40 hover:border-primary/70 bg-primary/5 hover:bg-primary/10 transition-all p-7 flex flex-col items-center gap-3">
@@ -224,7 +247,7 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
             </div>
             <div className="text-center">
               <p className="text-sm font-bold text-primary">اسکن ایستگاه</p>
-              <p className="text-xs text-muted-foreground mt-1">برای باز شدن دوربین اینجا ضربه بزنید</p>
+              <p className="text-xs text-muted-foreground mt-1">برای باز شدن دوربین ضربه بزنید</p>
             </div>
           </button>
         ) : (
@@ -244,14 +267,28 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
 
         {/* Scan result */}
         {scanResult && (
-          <div className={`rounded-xl border p-4 flex items-start gap-3 animate-fade-in-up ${scanResult.ok ? "border-green-500/30 bg-green-500/10" : "border-destructive/30 bg-destructive/10"}`}>
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${scanResult.ok ? "bg-green-500/20" : "bg-destructive/20"}`}>
-              {scanResult.ok ? <CheckCircle className="w-5 h-5 text-green-400" /> : <AlertTriangle className="w-5 h-5 text-destructive" />}
+          <div className={`rounded-xl border p-4 flex items-start gap-3 animate-fade-in-up ${
+            scanResult.status === "valid" ? "border-green-500/30 bg-green-500/10" :
+            scanResult.status === "outside" ? "border-yellow-500/30 bg-yellow-500/10" :
+            "border-destructive/30 bg-destructive/10"
+          }`}>
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+              scanResult.status === "valid" ? "bg-green-500/20" :
+              scanResult.status === "outside" ? "bg-yellow-500/20" :
+              "bg-destructive/20"
+            }`}>
+              {scanResult.status === "valid"
+                ? <CheckCircle className="w-5 h-5 text-green-400" />
+                : <AlertTriangle className={`w-5 h-5 ${scanResult.status === "outside" ? "text-yellow-400" : "text-destructive"}`} />}
             </div>
             <div className="flex-1">
-              <p className={`text-sm font-bold ${scanResult.ok ? "text-green-400" : "text-destructive"}`}>{scanResult.title}</p>
+              <p className={`text-sm font-bold ${
+                scanResult.status === "valid" ? "text-green-400" :
+                scanResult.status === "outside" ? "text-yellow-400" :
+                "text-destructive"
+              }`}>{scanResult.title}</p>
               <p className="text-xs text-muted-foreground mt-1">{scanResult.msg}</p>
-              {!online && <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1"><WifiOff className="w-3 h-3" />آفلاین ذخیره شد — با اتصال اینترنت همگام‌سازی می‌شود</p>}
+              {!online && <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1"><WifiOff className="w-3 h-3" />آفلاین ذخیره شد</p>}
             </div>
           </div>
         )}
@@ -263,34 +300,40 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
             <span className="text-sm font-bold text-foreground">ایستگاه‌های گشت ({checkpoints.length})</span>
           </div>
           {checkpoints.length === 0 ? (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              ایستگاهی توسط مدیر تنظیم نشده است.
-            </div>
+            <div className="px-4 py-8 text-center text-muted-foreground text-sm">ایستگاهی توسط مدیر تنظیم نشده است.</div>
           ) : (
             <div className="divide-y divide-border">
               {checkpoints.map((cp) => {
-                const visited = recentLogs.some((l) => l.checkpointId === cp.id && l.withinRadius);
-                const failed = recentLogs.some((l) => l.checkpointId === cp.id && !l.withinRadius);
+                const log = recentLogs.find((l) => l.checkpointId === cp.id);
+                const s = log?.status;
                 return (
                   <div key={cp.id} className="flex items-center gap-3 px-4 py-3">
                     <div className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 ${
-                      visited ? "bg-green-500/15 border-green-500/40" :
-                      failed ? "bg-destructive/15 border-destructive/40" :
+                      s === "valid" ? "bg-green-500/15 border-green-500/40" :
+                      s === "outside" ? "bg-yellow-500/15 border-yellow-500/40" :
+                      s === "failed" ? "bg-destructive/15 border-destructive/40" :
                       "bg-muted border-border"
                     }`}>
-                      {visited ? <CheckCircle className="w-4 h-4 text-green-400" /> :
-                       failed ? <AlertTriangle className="w-4 h-4 text-destructive" /> :
+                      {s === "valid" ? <CheckCircle className="w-4 h-4 text-green-400" /> :
+                       s === "outside" ? <AlertTriangle className="w-4 h-4 text-yellow-400" /> :
+                       s === "failed" ? <AlertTriangle className="w-4 h-4 text-destructive" /> :
                        <MapPin className="w-4 h-4 text-muted-foreground" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-semibold ${visited ? "text-green-400" : failed ? "text-destructive" : "text-foreground"}`}>{cp.name}</p>
+                      <p className={`text-sm font-semibold ${
+                        s === "valid" ? "text-green-400" :
+                        s === "outside" ? "text-yellow-400" :
+                        s === "failed" ? "text-destructive" : "text-foreground"
+                      }`}>{cp.name}</p>
                       {cp.location && <p className="text-xs text-muted-foreground truncate">{cp.location}</p>}
                     </div>
-                    <div className="text-left shrink-0 space-y-0.5">
-                      <p className={`text-xs font-semibold ${visited ? "text-green-400" : failed ? "text-destructive" : "text-muted-foreground"}`}>
-                        {visited ? "✓ انجام شد" : failed ? "✗ ناموفق" : "در انتظار"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{cp.radiusMeters} م</p>
+                    <div className="shrink-0 text-left">
+                      <p className={`text-xs font-semibold ${
+                        s === "valid" ? "text-green-400" :
+                        s === "outside" ? "text-yellow-400" :
+                        s === "failed" ? "text-destructive" : "text-muted-foreground"
+                      }`}>{s ? statusLabel[s] : "در انتظار"}</p>
+                      <p className="text-xs text-muted-foreground">{cp.radiusMeters} متر</p>
                     </div>
                   </div>
                 );
@@ -309,13 +352,13 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
             <div className="divide-y divide-border">
               {recentLogs.slice(0, 5).map((log, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${log.withinRadius ? "bg-green-400" : "bg-destructive"}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${log.status === "valid" ? "bg-green-400" : log.status === "outside" ? "bg-yellow-400" : "bg-destructive"}`} />
                   <p className="text-xs text-muted-foreground flex-1 truncate">
                     <span className="text-foreground font-medium">{log.checkpointName}</span>
                     {log.distanceMeters !== null && <span> · {log.distanceMeters} متر</span>}
                   </p>
-                  <span className={`text-xs font-medium ${log.withinRadius ? "text-green-400" : "text-destructive"}`}>
-                    {log.withinRadius ? "موفق" : "ناموفق"}
+                  <span className={`text-xs font-medium ${log.status === "valid" ? "text-green-400" : log.status === "outside" ? "text-yellow-400" : "text-destructive"}`}>
+                    {statusLabel[log.status]}
                   </span>
                 </div>
               ))}
@@ -323,18 +366,11 @@ export default function GuardPatrol({ guardId, guardName, onLogout }: GuardPatro
           </div>
         )}
 
-        {/* Refresh GPS */}
         <button onClick={fetchGps} disabled={gpsLoading}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent transition-colors">
           <RefreshCw className={`w-3.5 h-3.5 ${gpsLoading ? "animate-spin" : ""}`} />
           {gpsLoading ? "در حال دریافت موقعیت..." : "بروزرسانی موقعیت GPS"}
         </button>
-
-        {!db && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-xs text-yellow-400">
-            Firebase پیکربندی نشده — اسکن‌ها فقط بصورت محلی ذخیره می‌شوند.
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,107 +1,132 @@
 import {
   collection, addDoc, getDocs, onSnapshot, query,
-  orderBy, where, doc, setDoc, serverTimestamp, Timestamp,
-  limit, updateDoc,
+  orderBy, where, doc, setDoc, updateDoc, limit, deleteDoc,
 } from 'firebase/firestore';
 import { db } from '@/firebase';
 import type { Checkpoint, PatrolLog, MissedAlert, GuardSession } from '@/types';
 import { getQueue, removeFromQueue } from './offline';
 
-// ── Collections ─────────────────────────────────────────────────────────────
-const col = (name: string) => collection(db!, name);
+// ── Company-scoped collection helpers ────────────────────────────────────────
+const col = (companyId: string, name: string) =>
+  collection(db!, 'companies', companyId, name);
 
-// ── Checkpoints ─────────────────────────────────────────────────────────────
-export async function saveCheckpoint(cp: Omit<Checkpoint, 'id' | 'createdAt'>): Promise<string> {
-  if (!db) throw new Error('Firebase not configured');
-  const ref = await addDoc(col('arc_checkpoints'), { ...cp, createdAt: Date.now() });
+// ── Checkpoints ──────────────────────────────────────────────────────────────
+export async function saveCheckpoint(
+  companyId: string,
+  cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId'>,
+): Promise<string> {
+  if (!db) throw new Error('Firebase پیکربندی نشده');
+  const ref = await addDoc(col(companyId, 'checkpoints'), {
+    ...cp, companyId, createdAt: Date.now(),
+  });
   return ref.id;
 }
 
-export async function getCheckpoints(): Promise<Checkpoint[]> {
-  if (!db) return [];
-  const snap = await getDocs(query(col('arc_checkpoints'), where('active', '==', true)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint));
+export async function updateCheckpoint(
+  companyId: string,
+  id: string,
+  data: Partial<Checkpoint>,
+): Promise<void> {
+  if (!db) throw new Error('Firebase پیکربندی نشده');
+  await updateDoc(doc(db, 'companies', companyId, 'checkpoints', id), data);
 }
 
-export function subscribeCheckpoints(cb: (cps: Checkpoint[]) => void): () => void {
+export async function deleteCheckpoint(companyId: string, id: string): Promise<void> {
+  if (!db) throw new Error('Firebase پیکربندی نشده');
+  await deleteDoc(doc(db, 'companies', companyId, 'checkpoints', id));
+}
+
+export function subscribeCheckpoints(
+  companyId: string,
+  cb: (cps: Checkpoint[]) => void,
+): () => void {
   if (!db) return () => {};
   return onSnapshot(
-    query(col('arc_checkpoints'), where('active', '==', true), orderBy('createdAt', 'asc')),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint)))
+    query(col(companyId, 'checkpoints'), where('active', '==', true), orderBy('createdAt', 'asc')),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint))),
   );
 }
 
-export async function updateCheckpoint(id: string, data: Partial<Checkpoint>): Promise<void> {
-  if (!db) throw new Error('Firebase not configured');
-  await updateDoc(doc(db, 'arc_checkpoints', id), data);
+export async function getCheckpoints(companyId: string): Promise<Checkpoint[]> {
+  if (!db) return [];
+  const snap = await getDocs(
+    query(col(companyId, 'checkpoints'), where('active', '==', true)),
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint));
 }
 
-export async function deleteCheckpoint(id: string): Promise<void> {
-  if (!db) throw new Error('Firebase not configured');
-  const { deleteDoc } = await import('firebase/firestore');
-  await deleteDoc(doc(db, 'arc_checkpoints', id));
-}
-
-// ── Patrol Logs ─────────────────────────────────────────────────────────────
+// ── Patrol Logs ──────────────────────────────────────────────────────────────
 export async function savePatrolLog(log: PatrolLog): Promise<string> {
-  if (!db) throw new Error('Firebase not configured');
-  const ref = await addDoc(col('arc_patrol_logs'), { ...log, synced: true });
+  if (!db) throw new Error('Firebase پیکربندی نشده');
+  const ref = await addDoc(col(log.companyId, 'patrolLogs'), { ...log, synced: true });
   return ref.id;
 }
 
 export function subscribePatrolLogs(
+  companyId: string,
   cb: (logs: PatrolLog[]) => void,
-  limitCount = 50
+  limitCount = 50,
 ): () => void {
   if (!db) return () => {};
   return onSnapshot(
-    query(col('arc_patrol_logs'), orderBy('scannedAt', 'desc'), limit(limitCount)),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PatrolLog)))
+    query(col(companyId, 'patrolLogs'), orderBy('scanTime', 'desc'), limit(limitCount)),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PatrolLog))),
   );
 }
 
-export async function getPatrolLogs(guardId?: string): Promise<PatrolLog[]> {
+export async function getPatrolLogs(companyId: string, guardId?: string): Promise<PatrolLog[]> {
   if (!db) return [];
   const q = guardId
-    ? query(col('arc_patrol_logs'), where('guardId', '==', guardId), orderBy('scannedAt', 'desc'), limit(100))
-    : query(col('arc_patrol_logs'), orderBy('scannedAt', 'desc'), limit(100));
+    ? query(col(companyId, 'patrolLogs'), where('guardId', '==', guardId), orderBy('scanTime', 'desc'), limit(100))
+    : query(col(companyId, 'patrolLogs'), orderBy('scanTime', 'desc'), limit(100));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PatrolLog));
 }
 
-// ── Guard Sessions ───────────────────────────────────────────────────────────
+// ── Guard Sessions ────────────────────────────────────────────────────────────
 export async function updateGuardSession(session: GuardSession): Promise<void> {
   if (!db) return;
-  await setDoc(doc(db, 'arc_guard_sessions', session.guardId), session, { merge: true });
-}
-
-export function subscribeGuardSessions(cb: (sessions: GuardSession[]) => void): () => void {
-  if (!db) return () => {};
-  return onSnapshot(col('arc_guard_sessions'), (snap) =>
-    cb(snap.docs.map((d) => d.data() as GuardSession))
+  await setDoc(
+    doc(db, 'companies', session.companyId, 'guardSessions', session.guardId),
+    session,
+    { merge: true },
   );
 }
 
-// ── Missed Alerts ────────────────────────────────────────────────────────────
-export async function saveMissedAlert(alert: Omit<MissedAlert, 'id'>): Promise<void> {
-  if (!db) return;
-  await addDoc(col('arc_missed_alerts'), alert);
-}
-
-export function subscribeMissedAlerts(cb: (alerts: MissedAlert[]) => void): () => void {
+export function subscribeGuardSessions(
+  companyId: string,
+  cb: (sessions: GuardSession[]) => void,
+): () => void {
   if (!db) return () => {};
   return onSnapshot(
-    query(col('arc_missed_alerts'), where('resolved', '==', false), orderBy('alertedAt', 'desc'), limit(20)),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as MissedAlert)))
+    col(companyId, 'guardSessions'),
+    (snap) => cb(snap.docs.map((d) => d.data() as GuardSession)),
   );
 }
 
-export async function resolveAlert(id: string): Promise<void> {
+// ── Alerts ────────────────────────────────────────────────────────────────────
+export async function saveMissedAlert(alert: Omit<MissedAlert, 'id'>): Promise<void> {
   if (!db) return;
-  await updateDoc(doc(db, 'arc_missed_alerts', id), { resolved: true });
+  await addDoc(col(alert.companyId, 'alerts'), alert);
 }
 
-// ── Offline Sync ─────────────────────────────────────────────────────────────
+export function subscribeMissedAlerts(
+  companyId: string,
+  cb: (alerts: MissedAlert[]) => void,
+): () => void {
+  if (!db) return () => {};
+  return onSnapshot(
+    query(col(companyId, 'alerts'), where('resolved', '==', false), orderBy('alertedAt', 'desc'), limit(20)),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as MissedAlert))),
+  );
+}
+
+export async function resolveAlert(companyId: string, id: string): Promise<void> {
+  if (!db) return;
+  await updateDoc(doc(db, 'companies', companyId, 'alerts', id), { resolved: true });
+}
+
+// ── Offline Sync ──────────────────────────────────────────────────────────────
 export async function syncOfflineQueue(): Promise<number> {
   if (!db || !navigator.onLine) return 0;
   const queue = getQueue();
@@ -114,7 +139,7 @@ export async function syncOfflineQueue(): Promise<number> {
         synced++;
       }
     } catch {
-      // Will retry next time
+      // Retry on next sync
     }
   }
   return synced;

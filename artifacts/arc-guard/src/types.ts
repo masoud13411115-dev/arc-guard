@@ -4,6 +4,26 @@ export interface GpsCoords {
   accuracy: number;
 }
 
+export interface Company {
+  id: string;
+  name: string;
+  adminUid: string;
+  adminEmail: string;
+  createdAt: number;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: 'manager' | 'guard';
+  companyId: string;
+  companyName?: string;
+  guardCode?: string;
+  active: boolean;
+  createdAt: number;
+}
+
 export interface Checkpoint {
   id: string;
   name: string;
@@ -12,10 +32,13 @@ export interface Checkpoint {
   lat: number;
   lng: number;
   radiusMeters: number;
-  scheduledMinutes: number[]; // minutes past midnight each visit is due
+  scheduledMinutes: number[];
   active: boolean;
+  companyId: string;
   createdAt: number;
 }
+
+export type ScanStatus = 'valid' | 'outside' | 'failed';
 
 export interface PatrolLog {
   id?: string;
@@ -27,8 +50,11 @@ export interface PatrolLog {
   gps: GpsCoords | null;
   distanceMeters: number | null;
   withinRadius: boolean;
+  status: ScanStatus;
+  scanTime: number;
   scannedAt: number;
   scannedAtText: string;
+  companyId: string;
   synced: boolean;
   offlineQueued?: boolean;
 }
@@ -41,6 +67,7 @@ export interface MissedAlert {
   checkpointName: string;
   scheduledAt: number;
   alertedAt: number;
+  companyId: string;
   resolved: boolean;
 }
 
@@ -51,6 +78,7 @@ export interface GuardSession {
   lastCheckpoint: string;
   lastGps: GpsCoords | null;
   status: 'active' | 'idle' | 'offline';
+  companyId: string;
 }
 
 export interface OfflineQueueItem {

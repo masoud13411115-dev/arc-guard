@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   AlertTriangle, CheckCheck, Radio, Clock, MapPin,
-  Filter, ChevronDown, ChevronUp, ShieldAlert, RotateCcw
+  Filter, ChevronDown, ChevronUp, ShieldAlert, RotateCcw, Eye, EyeOff
 } from "lucide-react";
 import type { Alert, AlertKind } from "@/types";
 import { resolveAlert } from "@/lib/firestore";
@@ -11,17 +11,23 @@ interface AlertHistoryProps {
   alerts: Alert[];
   companyId: string;
   onAlertResolved: (id: string) => void;
+  seenIds?: Set<string>;
+  onMarkSeen?: (ids: string[]) => void;
 }
 
 type KindFilter = "all" | AlertKind;
 type StatusFilter = "all" | "open" | "resolved";
 
-const KIND_META: Record<AlertKind, { label: string; color: string; bg: string; border: string; icon: React.ElementType }> = {
+const KIND_META: Record<AlertKind, {
+  label: string; color: string; bg: string; border: string;
+  icon: React.ElementType; badgeBg: string;
+}> = {
   sos: {
     label: "SOS اضطراری",
     color: "text-red-400",
     bg: "bg-red-500/10",
     border: "border-red-500/30",
+    badgeBg: "bg-red-500/20 text-red-400 border-red-500/40",
     icon: Radio,
   },
   missed: {
@@ -29,6 +35,7 @@ const KIND_META: Record<AlertKind, { label: string; color: string; bg: string; b
     color: "text-yellow-400",
     bg: "bg-yellow-500/10",
     border: "border-yellow-500/30",
+    badgeBg: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
     icon: Clock,
   },
   outside: {
@@ -36,6 +43,7 @@ const KIND_META: Record<AlertKind, { label: string; color: string; bg: string; b
     color: "text-orange-400",
     bg: "bg-orange-500/10",
     border: "border-orange-500/30",
+    badgeBg: "bg-orange-500/20 text-orange-400 border-orange-500/40",
     icon: MapPin,
   },
 };
@@ -50,7 +58,13 @@ function formatRelative(ts: number): string {
   return Math.round(h / 24) + " روز پیش";
 }
 
-export default function AlertHistory({ alerts, companyId, onAlertResolved }: AlertHistoryProps) {
+export default function AlertHistory({
+  alerts,
+  companyId,
+  onAlertResolved,
+  seenIds = new Set(),
+  onMarkSeen,
+}: AlertHistoryProps) {
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -58,15 +72,18 @@ export default function AlertHistory({ alerts, companyId, onAlertResolved }: Ale
 
   const isDemo = !isFirebaseReady;
 
-  const filtered = alerts.filter((a) => {
-    if (kindFilter !== "all" && a.kind !== kindFilter) return false;
-    if (statusFilter === "open" && a.resolved) return false;
-    if (statusFilter === "resolved" && !a.resolved) return false;
-    return true;
-  }).sort((a, b) => b.alertedAt - a.alertedAt);
+  const filtered = alerts
+    .filter((a) => {
+      if (kindFilter !== "all" && a.kind !== kindFilter) return false;
+      if (statusFilter === "open" && a.resolved) return false;
+      if (statusFilter === "resolved" && !a.resolved) return false;
+      return true;
+    })
+    .sort((a, b) => b.alertedAt - a.alertedAt);
 
   const openCount = alerts.filter((a) => !a.resolved).length;
   const sosCount = alerts.filter((a) => a.kind === "sos" && !a.resolved).length;
+  const unseenCount = alerts.filter((a) => a.id && !seenIds.has(a.id) && !a.resolved).length;
 
   const handleResolve = async (id: string) => {
     if (isDemo) { onAlertResolved(id); return; }
@@ -76,43 +93,82 @@ export default function AlertHistory({ alerts, companyId, onAlertResolved }: Ale
     setResolving(null);
   };
 
+  const handleMarkAllSeen = () => {
+    const ids = alerts
+      .filter((a) => a.id && !seenIds.has(a.id))
+      .map((a) => a.id!);
+    if (ids.length > 0) onMarkSeen?.(ids);
+  };
+
+  const handleMarkOneSeen = (id: string) => {
+    if (!seenIds.has(id)) onMarkSeen?.([id]);
+  };
+
   return (
     <div className="space-y-4" dir="rtl">
 
       {/* ── Summary bar ── */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "SOS باز", value: sosCount, color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
-          { label: "هشدار باز", value: openCount, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
-          { label: "کل هشدارها", value: alerts.length, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
-        ].map(({ label, value, color, bg }) => (
+          {
+            label: "SOS باز",
+            value: sosCount,
+            color: "text-red-400",
+            bg: "bg-red-500/10 border-red-500/20",
+            animate: sosCount > 0,
+          },
+          {
+            label: "هشدار باز",
+            value: openCount,
+            color: openCount > 0 ? "text-yellow-400" : "text-muted-foreground",
+            bg: openCount > 0 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-muted/20 border-border",
+            animate: false,
+          },
+          {
+            label: "ندیده",
+            value: unseenCount,
+            color: unseenCount > 0 ? "text-primary" : "text-muted-foreground",
+            bg: unseenCount > 0 ? "bg-primary/10 border-primary/20" : "bg-muted/20 border-border",
+            animate: false,
+          },
+        ].map(({ label, value, color, bg, animate }) => (
           <div key={label} className={`rounded-xl border ${bg} p-3 flex flex-col items-center gap-1`}>
-            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+            <p className={`text-2xl font-bold ${color} ${animate ? "animate-pulse" : ""}`}>{value}</p>
             <p className="text-[10px] text-muted-foreground text-center">{label}</p>
           </div>
         ))}
       </div>
 
-      {/* ── Filters ── */}
+      {/* ── Filters + Mark all seen ── */}
       <div className="rounded-xl border border-border bg-card p-3 space-y-2.5">
-        {/* Kind filter */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          {(["all", "sos", "missed", "outside"] as KindFilter[]).map((k) => (
-            <button key={k} onClick={() => setKindFilter(k)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                kindFilter === k
-                  ? k === "sos" ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                  : k === "missed" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                  : k === "outside" ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
-                  : "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-accent"
-              }`}>
-              {k === "all" ? "همه" : KIND_META[k].label}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap flex-1">
+            <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            {(["all", "sos", "missed", "outside"] as KindFilter[]).map((k) => (
+              <button key={k} onClick={() => setKindFilter(k)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  kindFilter === k
+                    ? k === "sos" ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                    : k === "missed" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                    : k === "outside" ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                    : "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-accent"
+                }`}>
+                {k === "all" ? "همه" : KIND_META[k].label}
+              </button>
+            ))}
+          </div>
+          {unseenCount > 0 && (
+            <button
+              onClick={handleMarkAllSeen}
+              className="flex items-center gap-1 text-[10px] text-primary hover:underline shrink-0"
+            >
+              <Eye className="w-3 h-3" />
+              همه دیده شد
             </button>
-          ))}
+          )}
         </div>
-        {/* Status filter */}
+
         <div className="flex items-center gap-1.5">
           {(["all", "open", "resolved"] as StatusFilter[]).map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
@@ -140,14 +196,27 @@ export default function AlertHistory({ alerts, companyId, onAlertResolved }: Ale
             const Icon = meta.icon;
             const isExpanded = expanded === a.id;
             const ago = formatRelative(a.alertedAt);
+            const isSeen = !a.id || seenIds.has(a.id) || a.resolved;
 
             return (
               <div key={a.id}
-                className={`rounded-xl border ${a.resolved ? "border-border bg-card/40 opacity-70" : `${meta.border} ${meta.bg}`} overflow-hidden transition-all`}
+                className={`rounded-xl border overflow-hidden transition-all ${
+                  a.resolved
+                    ? "border-border bg-card/40 opacity-60"
+                    : `${meta.border} ${meta.bg}`
+                }`}
               >
                 {/* Main row */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${a.resolved ? "bg-muted" : meta.bg}`}>
+                <div
+                  className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                  onClick={() => {
+                    setExpanded(isExpanded ? null : a.id ?? null);
+                    if (a.id) handleMarkOneSeen(a.id);
+                  }}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    a.resolved ? "bg-muted" : meta.bg
+                  }`}>
                     <Icon className={`w-4 h-4 ${a.resolved ? "text-muted-foreground" : meta.color}`} />
                   </div>
 
@@ -156,6 +225,12 @@ export default function AlertHistory({ alerts, companyId, onAlertResolved }: Ale
                       <span className={`text-xs font-bold ${a.resolved ? "text-muted-foreground" : meta.color}`}>
                         {meta.label}
                       </span>
+                      {/* "جدید" badge — unseen, unresolved */}
+                      {!isSeen && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${meta.badgeBg} animate-pulse`}>
+                          جدید
+                        </span>
+                      )}
                       {a.kind === "sos" && !a.resolved && (
                         <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
                       )}
@@ -177,36 +252,50 @@ export default function AlertHistory({ alerts, companyId, onAlertResolved }: Ale
                     )}
                   </div>
 
-                  <button onClick={() => setExpanded(isExpanded ? null : a.id ?? null)}
-                    className="p-1 text-muted-foreground hover:text-foreground transition-colors shrink-0">
-                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
+                  <div className="text-muted-foreground shrink-0 mr-1" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => setExpanded(isExpanded ? null : a.id ?? null)}
+                      className="p-1 hover:text-foreground transition-colors">
+                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Expanded details */}
                 {isExpanded && (
-                  <div className="px-4 pb-3 border-t border-border/40 pt-3 space-y-2 animate-fade-in-up">
+                  <div className="px-4 pb-4 border-t border-border/40 pt-3 space-y-3 animate-fade-in-up">
                     {a.message && (
                       <p className="text-xs text-muted-foreground leading-relaxed">{a.message}</p>
                     )}
-                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>زمان هشدار: {new Date(a.alertedAt).toLocaleString("fa-IR")}</span>
                       {a.gps && <span>دقت GPS: ±{Math.round(a.gps.accuracy)} متر</span>}
                       {a.distanceMeters != null && <span>فاصله: {a.distanceMeters} متر</span>}
                       {a.resolvedAt && <span>بسته شد: {new Date(a.resolvedAt).toLocaleString("fa-IR")}</span>}
                     </div>
-                    {!a.resolved && a.id && (
-                      <button
-                        onClick={() => handleResolve(a.id!)}
-                        disabled={resolving === a.id}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/15 border border-green-500/30 text-green-400 text-xs font-medium hover:bg-green-500/25 transition-colors disabled:opacity-50"
-                      >
-                        {resolving === a.id
-                          ? <RotateCcw className="w-3.5 h-3.5 animate-spin" />
-                          : <CheckCheck className="w-3.5 h-3.5" />}
-                        {resolving === a.id ? "در حال بستن..." : "تأیید و بستن هشدار"}
-                      </button>
-                    )}
+
+                    <div className="flex items-center gap-2">
+                      {!a.resolved && a.id && (
+                        <button
+                          onClick={() => handleResolve(a.id!)}
+                          disabled={resolving === a.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/15 border border-green-500/30 text-green-400 text-xs font-medium hover:bg-green-500/25 transition-colors disabled:opacity-50"
+                        >
+                          {resolving === a.id
+                            ? <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                            : <CheckCheck className="w-3.5 h-3.5" />}
+                          {resolving === a.id ? "در حال بستن..." : "تأیید و بستن هشدار"}
+                        </button>
+                      )}
+                      {a.id && !seenIds.has(a.id) && !a.resolved && (
+                        <button
+                          onClick={() => handleMarkOneSeen(a.id!)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted border border-border text-muted-foreground text-xs hover:bg-accent transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          علامت‌گذاری دیده شد
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

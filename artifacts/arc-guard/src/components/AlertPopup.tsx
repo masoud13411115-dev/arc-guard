@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { X, AlertTriangle, Clock, MapPin, Radio, CheckCheck } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { useState } from "react";
+import { X, Clock, MapPin, Radio, CheckCheck } from "lucide-react";
 import { playEmergency, playMissed, playOutside } from "@/lib/audioFeedback";
+import { showAlertNotification, vibrateForAlert } from "@/lib/notifications";
 import type { Alert, AlertKind } from "@/types";
 
 interface AlertPopupProps {
@@ -37,18 +39,24 @@ export default function AlertPopup({ alerts, onResolve }: AlertPopupProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const seenRef = useRef<Set<string>>(new Set());
 
-  const visible = alerts.filter(
-    (a) => a.id && !dismissed.has(a.id)
-  );
+  const visible = alerts.filter((a) => a.id && !dismissed.has(a.id));
 
-  // Play sound when new alert arrives
+  // Play sound + vibrate + show browser notification when new alert arrives
   useEffect(() => {
     for (const alert of alerts) {
       if (!alert.id || seenRef.current.has(alert.id)) continue;
       seenRef.current.add(alert.id);
+
+      // Sound
       if (alert.kind === "sos") playEmergency();
       else if (alert.kind === "missed") playMissed();
       else if (alert.kind === "outside") playOutside();
+
+      // Vibration (independent of sound)
+      vibrateForAlert(alert.kind);
+
+      // Browser notification (if permission granted)
+      showAlertNotification(alert);
     }
   }, [alerts]);
 
@@ -81,7 +89,6 @@ export default function AlertPopup({ alerts, onResolve }: AlertPopupProps) {
         className={`pointer-events-auto w-full max-w-sm rounded-xl border-2 ${meta.border} ${meta.bg} backdrop-blur-md shadow-2xl animate-fade-in-up overflow-hidden`}
         dir="rtl"
       >
-        {/* Header */}
         <div className={`flex items-center gap-2 px-4 py-3 border-b ${meta.border}/40`}>
           <div className={`w-2.5 h-2.5 rounded-full ${meta.pulse} ${top.kind === "sos" ? "animate-ping" : "animate-pulse"} shrink-0`} />
           <span className={`text-sm font-bold flex-1 ${meta.color}`}>{meta.label}</span>
@@ -93,7 +100,6 @@ export default function AlertPopup({ alerts, onResolve }: AlertPopupProps) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="px-4 py-3 space-y-2">
           <div className="flex items-center gap-2">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${meta.color} bg-current/10`}>
@@ -127,7 +133,6 @@ export default function AlertPopup({ alerts, onResolve }: AlertPopupProps) {
             )}
           </div>
 
-          {/* Actions */}
           {top.id && (
             <div className="flex gap-2 pt-1">
               <button
@@ -147,7 +152,6 @@ export default function AlertPopup({ alerts, onResolve }: AlertPopupProps) {
           )}
         </div>
 
-        {/* SOS pulsing bottom bar */}
         {top.kind === "sos" && (
           <div className="h-1 bg-red-500 animate-pulse" />
         )}

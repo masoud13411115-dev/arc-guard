@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
-  Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star
+  Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
+  BellOff, BellRing
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
@@ -19,6 +20,10 @@ import {
 import { db, isFirebaseReady } from "@/firebase";
 import { DEMO_SESSIONS, DEMO_CHECKPOINTS, DEMO_LOGS, DEMO_ALERTS, DEMO_COMPANIES } from "@/lib/demo";
 import { PLANS } from "@/lib/plans";
+import {
+  getPermissionStatus, requestPermission, markAlertsAsSeen, getSeenAlertIds,
+  type NotifPermission,
+} from "@/lib/notifications";
 import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
 
 interface DashboardProps {
@@ -34,6 +39,85 @@ const PLAN_ICON: Record<string, React.ElementType> = {
   enterprise: Crown,
 };
 
+// ── Notification permission card ──────────────────────────────────────────────
+function NotificationPermissionCard() {
+  const [status, setStatus] = useState<NotifPermission>(() => getPermissionStatus());
+  const [requesting, setRequesting] = useState(false);
+
+  const handleRequest = async () => {
+    setRequesting(true);
+    const result = await requestPermission();
+    setStatus(result);
+    setRequesting(false);
+  };
+
+  if (status === "unsupported") return null;
+
+  return (
+    <div className={`rounded-xl border p-4 space-y-3 ${
+      status === "granted"
+        ? "border-green-500/20 bg-green-500/5"
+        : status === "denied"
+        ? "border-red-500/20 bg-red-500/5"
+        : "border-yellow-500/30 bg-yellow-500/8"
+    }`}>
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+          status === "granted" ? "bg-green-500/15" : status === "denied" ? "bg-red-500/15" : "bg-yellow-500/15"
+        }`}>
+          {status === "granted"
+            ? <BellRing className="w-4 h-4 text-green-400" />
+            : status === "denied"
+            ? <BellOff className="w-4 h-4 text-red-400" />
+            : <Bell className="w-4 h-4 text-yellow-400" />}
+        </div>
+        <div className="flex-1">
+          <p className={`text-sm font-bold ${
+            status === "granted" ? "text-green-400" : status === "denied" ? "text-red-400" : "text-yellow-400"
+          }`}>
+            {status === "granted" ? "اعلان‌ها فعال است ✓"
+              : status === "denied" ? "اعلان‌ها مسدود شده"
+              : "اعلان‌های مرورگر"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {status === "granted"
+              ? "هشدارهای SOS حتی وقتی برنامه در پس‌زمینه است نمایش داده می‌شوند"
+              : status === "denied"
+              ? "برای فعال‌سازی، از تنظیمات مرورگر اجازه دسترسی بدهید"
+              : "با فعال کردن اعلان‌ها، هشدارهای اضطراری را فوری دریافت کنید"}
+          </p>
+        </div>
+        {status === "default" && (
+          <button
+            onClick={handleRequest}
+            disabled={requesting}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold hover:bg-yellow-500/30 transition-colors disabled:opacity-60"
+          >
+            {requesting ? "..." : "فعال کن"}
+          </button>
+        )}
+      </div>
+
+      {status === "granted" && (
+        <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+          {[
+            { icon: "🚨", label: "SOS اضطراری", sub: "فوری + لرزش" },
+            { icon: "⏰", label: "ایستگاه از دست", sub: "لرزش متوسط" },
+            { icon: "📍", label: "خارج از محدوده", sub: "لرزش کوتاه" },
+          ].map(({ icon, label, sub }) => (
+            <div key={label} className="rounded-lg bg-muted/30 p-1.5">
+              <div className="text-base">{icon}</div>
+              <p className="text-muted-foreground font-medium">{label}</p>
+              <p className="text-muted-foreground/60">{sub}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -41,10 +125,11 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [sessions, setSessions] = useState<GuardSession[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  // Seen alert IDs — persisted in localStorage via notifications.ts
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenAlertIds());
 
   const isDemo = !isFirebaseReady;
 
-  // Find company record for plan info (demo only)
   const demoCompany = isDemo ? DEMO_COMPANIES.find(c => c.id === profile.companyId) ?? DEMO_COMPANIES[0] : null;
   const currentPlanId = demoCompany?.plan ?? "basic";
   const currentPlan = PLANS[currentPlanId];
@@ -73,8 +158,31 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     await resolveAlert(profile.companyId, id);
   }, [isDemo, profile.companyId]);
 
+  // Mark alerts as seen (persisted in localStorage)
+  const handleMarkSeen = useCallback((ids: string[]) => {
+    markAlertsAsSeen(ids);
+    setSeenIds(getSeenAlertIds());
+  }, []);
+
+  // When switching TO the alerts tab → mark all open alerts as seen
+  const handleTabChange = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    if (tab === "alerts") {
+      const openIds = alerts
+        .filter((a) => a.id && !a.resolved)
+        .map((a) => a.id!);
+      if (openIds.length > 0) {
+        markAlertsAsSeen(openIds);
+        setSeenIds(getSeenAlertIds());
+      }
+    }
+  }, [alerts]);
+
   const openAlerts = alerts.filter((a) => !a.resolved);
   const sosAlerts = openAlerts.filter((a) => a.kind === "sos");
+  // Badge = unseen open alerts
+  const unseenOpenCount = openAlerts.filter((a) => a.id && !seenIds.has(a.id)).length;
+
   const activeGuards = sessions.filter((s) => s.status === "active").length;
   const scansToday = recentLogs.filter((l) => {
     const today = new Date();
@@ -89,13 +197,13 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   ];
 
   const navItems: { tab: Tab; label: string; icon: React.ElementType; badge?: number }[] = [
-    { tab: "overview",    label: "داشبورد",       icon: Activity },
-    { tab: "map",         label: "نقشه زنده",      icon: Map },
-    { tab: "monitor",     label: "مانیتور زنده",   icon: Monitor },
-    { tab: "alerts",      label: "هشدارها",        icon: Bell, badge: openAlerts.length },
-    { tab: "checkpoints", label: "ایستگاه‌ها",     icon: MapPin },
-    { tab: "logs",        label: "گزارش گشت",      icon: FileText },
-    { tab: "settings",    label: "تنظیمات",        icon: Settings },
+    { tab: "overview",    label: "داشبورد",      icon: Activity },
+    { tab: "map",         label: "نقشه زنده",     icon: Map },
+    { tab: "monitor",     label: "مانیتور زنده",  icon: Monitor },
+    { tab: "alerts",      label: "هشدارها",       icon: Bell, badge: unseenOpenCount },
+    { tab: "checkpoints", label: "ایستگاه‌ها",    icon: MapPin },
+    { tab: "logs",        label: "گزارش گشت",     icon: FileText },
+    { tab: "settings",    label: "تنظیمات",       icon: Settings },
   ];
 
   const SidebarContent = () => (
@@ -116,7 +224,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           <p className={`text-[10px] font-bold ${currentPlan.color}`}>پلن {currentPlan.name}</p>
           <p className="text-[9px] text-muted-foreground">{currentPlan.price}</p>
         </div>
-        <button onClick={() => { setActiveTab("settings"); setSidebarOpen(false); }}
+        <button onClick={() => { handleTabChange("settings"); setSidebarOpen(false); }}
           className="text-[9px] text-primary hover:underline shrink-0">
           مشاهده
         </button>
@@ -124,7 +232,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
       <nav className="flex-1 space-y-0.5">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
-          <button key={tab} onClick={() => { setActiveTab(tab); setSidebarOpen(false); }}
+          <button key={tab} onClick={() => { handleTabChange(tab); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
               activeTab === tab
                 ? "bg-primary/15 text-primary border border-primary/20"
@@ -161,7 +269,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         title="ARC Guard"
         subtitle={profile.companyName ?? "مدیریت"}
         onMenuClick={() => setSidebarOpen(!sidebarOpen)}
-        notificationCount={openAlerts.length}
+        notificationCount={unseenOpenCount}
       />
 
       {sidebarOpen && (
@@ -176,7 +284,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       {/* Mobile tab bar */}
       <div className="md:hidden flex overflow-x-auto border-b border-border bg-card/80 backdrop-blur shrink-0 scrollbar-none">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => handleTabChange(tab)}
             className={`relative flex flex-col items-center gap-0.5 px-3 py-2 shrink-0 text-[9px] font-medium transition-colors border-b-2 ${
               activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground"
             }`}>
@@ -215,7 +323,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                     <p className="text-sm font-bold text-red-400">🚨 {sosAlerts.length} هشدار SOS فعال</p>
                     <p className="text-xs text-red-300/70 mt-0.5">{sosAlerts.map(a => a.guardName).join("، ")} — نیاز به توجه فوری</p>
                   </div>
-                  <button onClick={() => setActiveTab("alerts")}
+                  <button onClick={() => handleTabChange("alerts")}
                     className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0">مشاهده</button>
                 </div>
               )}
@@ -240,7 +348,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                     <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                     <span className="text-sm font-semibold text-foreground">آخرین اسکن‌های گشت</span>
                   </div>
-                  <button onClick={() => setActiveTab("logs")} className="text-xs text-primary hover:underline">همه</button>
+                  <button onClick={() => handleTabChange("logs")} className="text-xs text-primary hover:underline">همه</button>
                 </div>
                 {recentLogs.length === 0 ? (
                   <div className="px-4 py-8 text-center text-muted-foreground text-sm">هنوز هیچ اسکنی ثبت نشده است.</div>
@@ -279,7 +387,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                   { label: "گزارش گشت", tab: "logs" as Tab, icon: FileText, color: "text-purple-400", bg: "bg-purple-400/10 border-purple-500/20" },
                   { label: "تنظیمات", tab: "settings" as Tab, icon: Settings, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
                 ].map(({ label, tab, icon: Icon, color, bg }) => (
-                  <button key={tab} onClick={() => setActiveTab(tab)}
+                  <button key={tab} onClick={() => handleTabChange(tab)}
                     className={`rounded-xl border ${bg} p-4 flex flex-col items-center gap-2 hover:opacity-80 transition-opacity`}>
                     <Icon className={`w-6 h-6 ${color}`} />
                     <span className="text-xs font-medium text-foreground">{label}</span>
@@ -332,10 +440,21 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                       sosAlerts.length > 0 ? "bg-red-500/20 text-red-400 animate-pulse" : "bg-yellow-500/20 text-yellow-400"
                     }`}>{openAlerts.length} باز</span>
                   )}
+                  {unseenOpenCount > 0 && (
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                      {unseenOpenCount} جدید
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">SOS نگهبانان، ایستگاه‌های از دست رفته، تخلفات GPS</p>
               </div>
-              <AlertHistory alerts={alerts} companyId={profile.companyId} onAlertResolved={handleResolveAlert} />
+              <AlertHistory
+                alerts={alerts}
+                companyId={profile.companyId}
+                onAlertResolved={handleResolveAlert}
+                seenIds={seenIds}
+                onMarkSeen={handleMarkSeen}
+              />
             </div>
           )}
 
@@ -365,6 +484,12 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <h2 className="text-lg font-bold text-foreground">تنظیمات شرکت</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">اطلاعات شرکت، پلن اشتراک، کد دعوت و مدیریت نگهبانان</p>
               </div>
+
+              {/* Notification permission card — always at top of settings */}
+              <div className="mb-4">
+                <NotificationPermissionCard />
+              </div>
+
               <CompanySettings profile={profile} />
             </div>
           )}

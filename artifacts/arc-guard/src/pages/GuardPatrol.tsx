@@ -18,7 +18,7 @@ import {
   secondsUntilNextScan, formatCountdown
 } from "@/lib/scanProtection";
 import { db, isFirebaseReady } from "@/firebase";
-import { DEMO_CHECKPOINTS } from "@/lib/demo";
+import * as demoStore from "@/lib/demo-store";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 
 interface GuardPatrolProps {
@@ -90,8 +90,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   // ── Load checkpoints ───────────────────────────────────────────────────────
   useEffect(() => {
     if (isDemo) {
-      setCheckpoints(DEMO_CHECKPOINTS);
-      return;
+      return demoStore.subscribeCheckpoints(setCheckpoints);
     }
     return subscribeCheckpoints(companyId, setCheckpoints);
   }, [companyId, isDemo]);
@@ -141,14 +140,17 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     try {
       const coords = await getCurrentPosition();
       setGps(coords);
-      if (db) {
-        updateGuardSession({
-          guardId, guardName, companyId,
-          lastSeen: Date.now(),
-          lastCheckpoint: recentLogs[0]?.checkpointName ?? "—",
-          lastGps: coords,
-          status: "active",
-        });
+      const sessionData = {
+        guardId, guardName, companyId,
+        lastSeen: Date.now(),
+        lastCheckpoint: recentLogs[0]?.checkpointName ?? "—",
+        lastGps: coords,
+        status: "active" as const,
+      };
+      if (isDemo) {
+        demoStore.upsertSession(sessionData);
+      } else if (db) {
+        updateGuardSession(sessionData);
       }
     } catch {
       setGpsError("GPS در دسترس نیست");
@@ -303,16 +305,18 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   });
 
   const persistLog = (log: PatrolLog) => {
-    if (!isDemo) {
-      if (online && db) {
-        savePatrolLog({ ...log, synced: true }).catch(() => {
-          addToQueue(log);
-          setQueueCount(getQueueCount());
-        });
-      } else {
+    if (isDemo) {
+      demoStore.addLog(log);
+      return;
+    }
+    if (online && db) {
+      savePatrolLog({ ...log, synced: true }).catch(() => {
         addToQueue(log);
         setQueueCount(getQueueCount());
-      }
+      });
+    } else {
+      addToQueue(log);
+      setQueueCount(getQueueCount());
     }
   };
 
@@ -346,20 +350,23 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     playEmergency();
 
     const currentGps = gps;
-    if (db && !isDemo) {
-      try {
-        await saveAlert({
-          kind: "sos",
-          guardId,
-          guardName,
-          gps: currentGps,
-          alertedAt: Date.now(),
-          companyId,
-          resolved: false,
-          message: "اضطراری توسط نگهبان فعال شد",
-        });
-      } catch {}
+    const sosPayload = {
+      kind: "sos" as const,
+      guardId,
+      guardName,
+      gps: currentGps,
+      alertedAt: Date.now(),
+      companyId,
+      resolved: false,
+      message: "اضطراری توسط نگهبان فعال شد",
+    };
+
+    if (isDemo) {
+      demoStore.addAlert(sosPayload);
+    } else if (db) {
+      try { await saveAlert(sosPayload); } catch {}
     }
+
     setSosSending(false);
     setSosSent(true);
     setTimeout(() => setSosSent(false), 15000);

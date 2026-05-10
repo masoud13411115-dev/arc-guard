@@ -2,23 +2,25 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing
+  BellOff, BellRing, RotateCcw, Database,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
 import LiveMonitor from "./LiveMonitor";
 import CheckpointManager from "./CheckpointManager";
 import PatrolLogs from "./PatrolLogs";
+import DemoGuardManager from "./DemoGuardManager";
 import LiveMapView from "@/components/LiveMapView";
 import AlertPopup from "@/components/AlertPopup";
 import AlertHistory from "./AlertHistory";
 import CompanySettings from "./CompanySettings";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
-  subscribeCheckpoints, resolveAlert,
+  subscribeCheckpoints, resolveAlert as fbResolveAlert,
 } from "@/lib/firestore";
-import { db, isFirebaseReady } from "@/firebase";
-import { DEMO_SESSIONS, DEMO_CHECKPOINTS, DEMO_LOGS, DEMO_ALERTS, DEMO_COMPANIES } from "@/lib/demo";
+import * as demoStore from "@/lib/demo-store";
+import { isFirebaseReady } from "@/firebase";
+import { DEMO_COMPANIES } from "@/lib/demo";
 import { PLANS } from "@/lib/plans";
 import {
   getPermissionStatus, requestPermission, markAlertsAsSeen, getSeenAlertIds,
@@ -55,29 +57,25 @@ function NotificationPermissionCard() {
 
   return (
     <div className={`rounded-xl border p-4 space-y-3 ${
-      status === "granted"
-        ? "border-green-500/20 bg-green-500/5"
-        : status === "denied"
-        ? "border-red-500/20 bg-red-500/5"
-        : "border-yellow-500/30 bg-yellow-500/8"
+      status === "granted" ? "border-green-500/20 bg-green-500/5"
+      : status === "denied"  ? "border-red-500/20 bg-red-500/5"
+      : "border-yellow-500/30 bg-yellow-500/8"
     }`}>
       <div className="flex items-center gap-3">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
           status === "granted" ? "bg-green-500/15" : status === "denied" ? "bg-red-500/15" : "bg-yellow-500/15"
         }`}>
-          {status === "granted"
-            ? <BellRing className="w-4 h-4 text-green-400" />
-            : status === "denied"
-            ? <BellOff className="w-4 h-4 text-red-400" />
-            : <Bell className="w-4 h-4 text-yellow-400" />}
+          {status === "granted" ? <BellRing className="w-4 h-4 text-green-400" />
+           : status === "denied" ? <BellOff className="w-4 h-4 text-red-400" />
+           : <Bell className="w-4 h-4 text-yellow-400" />}
         </div>
         <div className="flex-1">
           <p className={`text-sm font-bold ${
             status === "granted" ? "text-green-400" : status === "denied" ? "text-red-400" : "text-yellow-400"
           }`}>
             {status === "granted" ? "اعلان‌ها فعال است ✓"
-              : status === "denied" ? "اعلان‌ها مسدود شده"
-              : "اعلان‌های مرورگر"}
+             : status === "denied" ? "اعلان‌ها مسدود شده"
+             : "اعلان‌های مرورگر"}
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {status === "granted"
@@ -97,7 +95,6 @@ function NotificationPermissionCard() {
           </button>
         )}
       </div>
-
       {status === "granted" && (
         <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
           {[
@@ -117,7 +114,53 @@ function NotificationPermissionCard() {
   );
 }
 
-// ── Main Dashboard ─────────────────────────────────────────────────────────────
+// ── Demo mode banner ──────────────────────────────────────────────────────────
+function DemoModeBanner({ onReset }: { onReset: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-4">
+      <div className="flex items-start gap-3">
+        <Database className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm font-bold text-sky-400">حالت آزمایشی — Real Test Mode</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            تمام داده‌ها در مرورگر ذخیره می‌شوند. ایستگاه‌ها و نگهبانان واقعی اضافه کنید،
+            QR کد چاپ کنید، و اسکن واقعی انجام دهید — بدون نیاز به Firebase.
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 pt-3 border-t border-sky-500/20 flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">داده‌ها بعد از بستن مرورگر باقی می‌مانند</span>
+        {!confirm ? (
+          <button
+            onClick={() => setConfirm(true)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" />بازنشانی
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-destructive">همه داده‌ها پاک می‌شوند!</span>
+            <button
+              onClick={() => { onReset(); setConfirm(false); }}
+              className="text-xs text-destructive border border-destructive/30 rounded px-2 py-0.5 hover:bg-destructive/10"
+            >
+              بله
+            </button>
+            <button
+              onClick={() => setConfirm(false)}
+              className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5 hover:bg-muted"
+            >
+              نه
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -125,23 +168,23 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [sessions, setSessions] = useState<GuardSession[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
-  // Seen alert IDs — persisted in localStorage via notifications.ts
   const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenAlertIds());
 
   const isDemo = !isFirebaseReady;
 
-  const demoCompany = isDemo ? DEMO_COMPANIES.find(c => c.id === profile.companyId) ?? DEMO_COMPANIES[0] : null;
+  const demoCompany = isDemo ? DEMO_COMPANIES.find((c) => c.id === profile.companyId) ?? DEMO_COMPANIES[0] : null;
   const currentPlanId = demoCompany?.plan ?? "basic";
   const currentPlan = PLANS[currentPlanId];
   const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
 
+  // ── Data loading ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isDemo) {
-      setSessions(DEMO_SESSIONS);
-      setCheckpoints(DEMO_CHECKPOINTS);
-      setRecentLogs(DEMO_LOGS);
-      setAlerts(DEMO_ALERTS);
-      return;
+      const u1 = demoStore.subscribeCheckpoints(setCheckpoints);
+      const u2 = demoStore.subscribeLogs(setRecentLogs);
+      const u3 = demoStore.subscribeSessions(setSessions);
+      const u4 = demoStore.subscribeAlerts(setAlerts);
+      return () => { u1(); u2(); u3(); u4(); };
     }
     const u1 = subscribePatrolLogs(profile.companyId, setRecentLogs, 100);
     const u2 = subscribeGuardSessions(profile.companyId, setSessions);
@@ -152,25 +195,21 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
   const handleResolveAlert = useCallback(async (id: string) => {
     if (isDemo) {
-      setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, resolved: true, resolvedAt: Date.now() } : a));
+      demoStore.resolveAlert(id);
       return;
     }
-    await resolveAlert(profile.companyId, id);
+    await fbResolveAlert(profile.companyId, id);
   }, [isDemo, profile.companyId]);
 
-  // Mark alerts as seen (persisted in localStorage)
   const handleMarkSeen = useCallback((ids: string[]) => {
     markAlertsAsSeen(ids);
     setSeenIds(getSeenAlertIds());
   }, []);
 
-  // When switching TO the alerts tab → mark all open alerts as seen
   const handleTabChange = useCallback((tab: Tab) => {
     setActiveTab(tab);
     if (tab === "alerts") {
-      const openIds = alerts
-        .filter((a) => a.id && !a.resolved)
-        .map((a) => a.id!);
+      const openIds = alerts.filter((a) => a.id && !a.resolved).map((a) => a.id!);
       if (openIds.length > 0) {
         markAlertsAsSeen(openIds);
         setSeenIds(getSeenAlertIds());
@@ -178,9 +217,12 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     }
   }, [alerts]);
 
+  const handleResetDemo = useCallback(() => {
+    demoStore.resetDemoData();
+  }, []);
+
   const openAlerts = alerts.filter((a) => !a.resolved);
   const sosAlerts = openAlerts.filter((a) => a.kind === "sos");
-  // Badge = unseen open alerts
   const unseenOpenCount = openAlerts.filter((a) => a.id && !seenIds.has(a.id)).length;
 
   const activeGuards = sessions.filter((s) => s.status === "active").length;
@@ -224,11 +266,20 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           <p className={`text-[10px] font-bold ${currentPlan.color}`}>پلن {currentPlan.name}</p>
           <p className="text-[9px] text-muted-foreground">{currentPlan.price}</p>
         </div>
-        <button onClick={() => { handleTabChange("settings"); setSidebarOpen(false); }}
-          className="text-[9px] text-primary hover:underline shrink-0">
+        <button
+          onClick={() => { handleTabChange("settings"); setSidebarOpen(false); }}
+          className="text-[9px] text-primary hover:underline shrink-0"
+        >
           مشاهده
         </button>
       </div>
+
+      {isDemo && (
+        <div className="mx-2 mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 flex items-center gap-2">
+          <Database className="w-3 h-3 text-sky-400 shrink-0" />
+          <p className="text-[10px] text-sky-400 font-bold">حالت آزمایشی فعال</p>
+        </div>
+      )}
 
       <nav className="flex-1 space-y-0.5">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
@@ -242,7 +293,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             <span className="flex-1 text-right">{label}</span>
             {badge != null && badge > 0 && (
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                tab === "alerts" && sosAlerts.length > 0 ? "bg-red-500 text-white animate-pulse" : "bg-yellow-500/20 text-yellow-400"
+                tab === "alerts" && sosAlerts.length > 0
+                  ? "bg-red-500 text-white animate-pulse"
+                  : "bg-yellow-500/20 text-yellow-400"
               }`}>{badge}</span>
             )}
           </button>
@@ -262,20 +315,22 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   );
 
   return (
-    <div className="min-h-screen bg-background arc-grid-bg flex flex-col">
+    <div className="min-h-screen bg-background arc-grid-bg flex flex-col" dir="rtl">
       <AlertPopup alerts={openAlerts} onResolve={handleResolveAlert} />
 
       <MobileHeader
         title="ARC Guard"
-        subtitle={profile.companyName ?? "مدیریت"}
+        subtitle={isDemo ? "حالت آزمایشی" : (profile.companyName ?? "مدیریت")}
         onMenuClick={() => setSidebarOpen(!sidebarOpen)}
         notificationCount={unseenOpenCount}
       />
 
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)}>
-          <div className="absolute left-0 top-0 h-full w-60 bg-card border-r border-border p-4 flex flex-col"
-            onClick={(e) => e.stopPropagation()}>
+          <div
+            className="absolute left-0 top-0 h-full w-60 bg-card border-r border-border p-4 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <SidebarContent />
           </div>
         </div>
@@ -316,21 +371,44 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 </p>
               </div>
 
+              {isDemo && (
+                <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 flex items-center gap-3">
+                  <Database className="w-4 h-4 text-sky-400 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-sky-400">حالت آزمایشی فعال</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      ایستگاه‌ها و نگهبانان اضافه کنید → QR چاپ کنید → با نگهبان (دمو) اسکن کنید
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleTabChange("checkpoints")}
+                    className="shrink-0 text-xs text-primary hover:underline"
+                  >
+                    ایستگاه‌ها
+                  </button>
+                </div>
+              )}
+
               {sosAlerts.length > 0 && (
                 <div className="rounded-xl border-2 border-red-500 bg-red-950/40 p-4 flex items-center gap-3">
                   <Radio className="w-6 h-6 text-red-400 animate-ping shrink-0" />
                   <div className="flex-1">
                     <p className="text-sm font-bold text-red-400">🚨 {sosAlerts.length} هشدار SOS فعال</p>
-                    <p className="text-xs text-red-300/70 mt-0.5">{sosAlerts.map(a => a.guardName).join("، ")} — نیاز به توجه فوری</p>
+                    <p className="text-xs text-red-300/70 mt-0.5">{sosAlerts.map((a) => a.guardName).join("، ")} — نیاز به توجه فوری</p>
                   </div>
-                  <button onClick={() => handleTabChange("alerts")}
-                    className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0">مشاهده</button>
+                  <button
+                    onClick={() => handleTabChange("alerts")}
+                    className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0"
+                  >
+                    مشاهده
+                  </button>
                 </div>
               )}
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {stats.map(({ label, value, icon: Icon, color, bg }) => (
-                  <div key={label} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+                  <div key={label}
+                    className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 hover:border-primary/30 transition-colors">
                     <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
                       <Icon className={`w-4 h-4 ${color}`} />
                     </div>
@@ -342,6 +420,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 ))}
               </div>
 
+              {/* Recent scans */}
               <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <div className="flex items-center gap-2">
@@ -351,26 +430,36 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                   <button onClick={() => handleTabChange("logs")} className="text-xs text-primary hover:underline">همه</button>
                 </div>
                 {recentLogs.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-muted-foreground text-sm">هنوز هیچ اسکنی ثبت نشده است.</div>
+                  <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                    {isDemo ? "یک ایستگاه بسازید، QR آن را اسکن کنید — اینجا نمایش داده می‌شود." : "هنوز هیچ اسکنی ثبت نشده است."}
+                  </div>
                 ) : (
                   <div className="divide-y divide-border">
                     {recentLogs.slice(0, 5).map((log, i) => {
                       const s = log.status ?? (log.withinRadius ? "valid" : "outside");
                       return (
-                        <div key={log.id ?? i} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/20 transition-colors">
-                          <div className={`w-2 h-2 rounded-full shrink-0 ${s === "valid" ? "bg-green-400" : s === "outside" ? "bg-yellow-400" : "bg-destructive"}`} />
+                        <div key={log.id ?? i}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-accent/20 transition-colors">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${
+                            s === "valid" ? "bg-green-400" : s === "outside" ? "bg-yellow-400" : "bg-destructive"
+                          }`} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-foreground truncate">
                               <span className="font-medium">{log.guardName}</span>
                               <span className="text-muted-foreground"> ← </span>
                               <span className="text-primary">{log.checkpointName}</span>
                             </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{log.scannedAtText}{log.distanceMeters !== null && ` · ${log.distanceMeters} متر`}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {log.scannedAtText}{log.distanceMeters !== null && ` · ${log.distanceMeters} متر`}
+                            </p>
                           </div>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                            s === "valid" ? "bg-green-400/10 text-green-400" :
-                            s === "outside" ? "bg-yellow-400/10 text-yellow-400" : "bg-destructive/10 text-destructive"
-                          }`}>{s === "valid" ? "معتبر" : s === "outside" ? "خارج" : "ناموفق"}</span>
+                            s === "valid" ? "bg-green-400/10 text-green-400"
+                            : s === "outside" ? "bg-yellow-400/10 text-yellow-400"
+                            : "bg-destructive/10 text-destructive"
+                          }`}>
+                            {s === "valid" ? "معتبر" : s === "outside" ? "خارج" : "ناموفق"}
+                          </span>
                         </div>
                       );
                     })}
@@ -380,12 +469,12 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { label: "نقشه زنده", tab: "map" as Tab, icon: Map, color: "text-green-400", bg: "bg-green-400/10 border-green-500/20" },
-                  { label: "هشدارها", tab: "alerts" as Tab, icon: Bell, color: "text-red-400", bg: "bg-red-400/10 border-red-500/20" },
-                  { label: "مانیتور زنده", tab: "monitor" as Tab, icon: Monitor, color: "text-primary", bg: "bg-primary/10 border-primary/20" },
-                  { label: "ایستگاه‌ها", tab: "checkpoints" as Tab, icon: MapPin, color: "text-sky-400", bg: "bg-sky-400/10 border-sky-500/20" },
-                  { label: "گزارش گشت", tab: "logs" as Tab, icon: FileText, color: "text-purple-400", bg: "bg-purple-400/10 border-purple-500/20" },
-                  { label: "تنظیمات", tab: "settings" as Tab, icon: Settings, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
+                  { label: "نقشه زنده",    tab: "map" as Tab,         icon: Map,      color: "text-green-400",   bg: "bg-green-400/10 border-green-500/20" },
+                  { label: "هشدارها",      tab: "alerts" as Tab,      icon: Bell,     color: "text-red-400",     bg: "bg-red-400/10 border-red-500/20" },
+                  { label: "مانیتور زنده", tab: "monitor" as Tab,     icon: Monitor,  color: "text-primary",     bg: "bg-primary/10 border-primary/20" },
+                  { label: "ایستگاه‌ها",   tab: "checkpoints" as Tab, icon: MapPin,   color: "text-sky-400",     bg: "bg-sky-400/10 border-sky-500/20" },
+                  { label: "گزارش گشت",   tab: "logs" as Tab,        icon: FileText, color: "text-purple-400",  bg: "bg-purple-400/10 border-purple-500/20" },
+                  { label: "تنظیمات",     tab: "settings" as Tab,    icon: Settings, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
                 ].map(({ label, tab, icon: Icon, color, bg }) => (
                   <button key={tab} onClick={() => handleTabChange(tab)}
                     className={`rounded-xl border ${bg} p-4 flex flex-col items-center gap-2 hover:opacity-80 transition-opacity`}>
@@ -402,7 +491,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-primary">سیستم عملیاتی · پلن {currentPlan.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {profile.companyName ?? profile.companyId} · {isDemo ? "حالت نمونه" : "Firebase متصل"} · GPS فعال
+                    {profile.companyName ?? profile.companyId} · {isDemo ? "حالت آزمایشی (localStorage)" : "Firebase متصل"} · GPS فعال
                   </p>
                 </div>
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
@@ -462,7 +551,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             <div className="max-w-2xl animate-fade-in-up">
               <div className="mb-4">
                 <h2 className="text-lg font-bold text-foreground">مدیریت ایستگاه‌ها</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">تعریف نقاط گشت با GPS و کد QR</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {isDemo ? "ایستگاه واقعی بسازید، QR چاپ کنید، نگهبان اسکن کند" : "تعریف نقاط گشت با GPS و کد QR"}
+                </p>
               </div>
               <CheckpointManager companyId={profile.companyId} />
             </div>
@@ -479,18 +570,31 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           )}
 
           {activeTab === "settings" && (
-            <div className="max-w-2xl animate-fade-in-up">
-              <div className="mb-4">
-                <h2 className="text-lg font-bold text-foreground">تنظیمات شرکت</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">اطلاعات شرکت، پلن اشتراک، کد دعوت و مدیریت نگهبانان</p>
+            <div className="max-w-2xl animate-fade-in-up space-y-5">
+              <div>
+                <h2 className="text-lg font-bold text-foreground">تنظیمات</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {isDemo ? "حالت آزمایشی — نگهبانان و تنظیمات" : "اطلاعات شرکت، پلن اشتراک، کد دعوت"}
+                </p>
               </div>
 
-              {/* Notification permission card — always at top of settings */}
-              <div className="mb-4">
-                <NotificationPermissionCard />
-              </div>
+              {/* Notification permission */}
+              <NotificationPermissionCard />
 
-              <CompanySettings profile={profile} />
+              {/* Demo mode section */}
+              {isDemo ? (
+                <>
+                  {/* Demo mode banner + reset */}
+                  <DemoModeBanner onReset={handleResetDemo} />
+
+                  {/* Guard manager — only in demo */}
+                  <div className="rounded-xl border border-border bg-card p-5">
+                    <DemoGuardManager />
+                  </div>
+                </>
+              ) : (
+                <CompanySettings profile={profile} />
+              )}
             </div>
           )}
 

@@ -130,6 +130,7 @@ interface DaySession {
   checkOutTime: string | null;
   workedMinutes: number;
   requiredMinutes: number;
+  dailyRequiredHours: number;
   lateMinutes: number;
   earlyLeaveMinutes: number;
   isHoliday: boolean;
@@ -169,14 +170,25 @@ function calcEmployeeMetrics(events: AttendanceRecord[], leaveRequests: LeaveReq
       if (inT !== null) {
         const diff = t - inT;
         if (diff > 0 && diff < 24 * 60 * 60 * 1000) {
+          const isHolidaySession = openIn.isHolidayWork === true || ev.isHolidayWork === true;
+          const isWeekendSession = openIn.isWeekendWork === true || ev.isWeekendWork === true;
+
           workedMs += diff;
+
+          // Compute daily required hours from 44h/week rule
           const stdH = openIn.standardWorkHours;
           const stdMs = stdH && stdH > 0 ? stdH * 3_600_000 : 0;
-          if (stdMs > 0) {
+
+          if (isHolidaySession || isWeekendSession) {
+            // No work requirement on official holidays or Fridays;
+            // all hours worked count as overtime/holiday pay
+            overtimeMs += diff;
+          } else if (stdMs > 0) {
             requiredMs += stdMs;
             if (diff > stdMs) overtimeMs += diff - stdMs;
             else undertimeMs += stdMs - diff;
           }
+
           const lateMin = openIn.lateMinutes ?? 0;
           const earlyMin = ev.earlyLeaveMinutes ?? 0;
           totalLateMin += lateMin;
@@ -190,11 +202,12 @@ function calcEmployeeMetrics(events: AttendanceRecord[], leaveRequests: LeaveReq
             checkInTime: hm(inD),
             checkOutTime: hm(outD),
             workedMinutes: Math.floor(diff / 60000),
-            requiredMinutes: Math.floor(stdMs / 60000),
+            requiredMinutes: (isHolidaySession || isWeekendSession) ? 0 : Math.floor(stdMs / 60000),
+            dailyRequiredHours: stdH && stdH > 0 ? stdH : 0,
             lateMinutes: lateMin,
             earlyLeaveMinutes: earlyMin,
-            isHoliday: openIn.isHolidayWork === true || ev.isHolidayWork === true,
-            isWeekend: openIn.isWeekendWork === true || ev.isWeekendWork === true,
+            isHoliday: isHolidaySession,
+            isWeekend: isWeekendSession,
           });
         }
       }
@@ -219,7 +232,14 @@ function calcEmployeeMetrics(events: AttendanceRecord[], leaveRequests: LeaveReq
       const sD = new Date(req.startDate + "T00:00:00");
       const eD = new Date((req.endDate || req.startDate) + "T00:00:00");
       const days = Math.max(1, Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1);
-      approvedLeaveMin += days * 8 * 60;
+      // Use employee's actual daily required hours (derived from their shift's 44h/week rule)
+      const empDailyHoursVals = events
+        .filter(e => e.type === "check_in" && e.standardWorkHours && e.standardWorkHours > 0)
+        .map(e => e.standardWorkHours as number);
+      const empDailyH = empDailyHoursVals.length > 0
+        ? empDailyHoursVals.reduce((a, b) => a + b, 0) / empDailyHoursVals.length
+        : 44 / 6; // default: 6-day week
+      approvedLeaveMin += days * empDailyH * 60;
     } else if (req.requestType === "excused_absence") {
       const sD = new Date(req.startDate + "T00:00:00");
       const eD = new Date((req.endDate || req.startDate) + "T00:00:00");
@@ -366,8 +386,8 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
       "روز کاری": e.sessions.length,
       "کارکرد (اعشار)": Number(e.workedHours.toFixed(2)),
       "کارکرد (س:د)": fmtHours(e.workedHours),
-      "نیاز (اعشار)": Number(e.requiredHours.toFixed(2)),
-      "نیاز (س:د)": fmtHours(e.requiredHours),
+      "نیاز ماهانه (اعشار)": Number(e.requiredHours.toFixed(2)),
+      "نیاز ماهانه (س:د)": fmtHours(e.requiredHours),
       "اضافه‌کاری (اعشار)": Number(e.overtimeHours.toFixed(2)),
       "اضافه‌کاری (س:د)": fmtHours(e.overtimeHours),
       "کسر کاری (اعشار)": Number(e.undertimeHours.toFixed(2)),
@@ -668,12 +688,28 @@ export default function Analytics({ records }: { records: AttendanceRecord[] }) 
                               <span className="mr-auto font-mono text-white/60 font-semibold">
                                 {fmtHours(s.workedMinutes / 60)}
                               </span>
-                              {s.requiredMinutes > 0 && (
-                                <span className={`text-[10px] font-bold ${ratioTextColor(sr)}`}>
-                                  {Math.min(Math.round(sr * 100), 999)}%
-                                </span>
-                              )}
+                              {(s.isHoliday || s.isWeekend)
+                                ? <span className="text-[10px] font-bold text-purple-300">اضافه‌کاری</span>
+                                : s.requiredMinutes > 0 && (
+                                    <span className={`text-[10px] font-bold ${ratioTextColor(sr)}`}>
+                                      {Math.min(Math.round(sr * 100), 999)}%
+                                    </span>
+                                  )
+                              }
                             </div>
+                            {/* Daily required hours */}
+                            {s.dailyRequiredHours > 0 && !s.isHoliday && !s.isWeekend && (
+                              <div className="flex items-center gap-2 text-[10px] text-white/30">
+                                <Timer size={8} />
+                                <span>نیاز روزانه: {fmtHours(s.dailyRequiredHours)}</span>
+                                {s.requiredMinutes > 0 && s.workedMinutes > s.requiredMinutes && (
+                                  <span className="text-teal-400">+ اضافه‌کاری: {fmtHours((s.workedMinutes - s.requiredMinutes) / 60)}</span>
+                                )}
+                                {s.requiredMinutes > 0 && s.workedMinutes < s.requiredMinutes && (
+                                  <span className="text-red-400">کسر: {fmtHours((s.requiredMinutes - s.workedMinutes) / 60)}</span>
+                                )}
+                              </div>
+                            )}
                             {/* Late / early-leave */}
                             {(s.lateMinutes > 0 || s.earlyLeaveMinutes > 0) && (
                               <div className="flex flex-wrap gap-1.5">

@@ -19,7 +19,14 @@ export interface Shift {
   endTime?: string;
   allowedLateMinutes?: number;
   standardWorkHours?: number;
+  workingDaysPerWeek?: number;
   branchId: string;
+}
+
+function fmtDailyHours(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  return `${hh}:${String(mm).padStart(2, "0")}`;
 }
 
 const TYPE_CONFIG: Record<ShiftType, {
@@ -57,7 +64,7 @@ export default function ShiftManager() {
     startTime: "08:00",
     endTime: "17:00",
     allowedLateMinutes: "10",
-    standardWorkHours: "8",
+    workingDaysPerWeek: "6",
     branchId: "all",
   });
   const [formError, setFormError] = useState("");
@@ -88,10 +95,16 @@ export default function ShiftManager() {
     }
     setSaving(true);
     try {
+      // 44-hour week rule: dailyRequiredHours = 44 / workingDaysPerWeek
+      const daysPerWeek = parseInt(form.workingDaysPerWeek) || 6;
+      const computedDailyHours = parseFloat((44 / daysPerWeek).toFixed(4));
+
       const payload: Record<string, unknown> = {
         shiftName: form.shiftName.trim(),
         shiftType: form.shiftType,
         branchId: form.branchId.trim() || "all",
+        workingDaysPerWeek: daysPerWeek,
+        standardWorkHours: computedDailyHours,
         createdAt: serverTimestamp(),
       };
 
@@ -99,25 +112,19 @@ export default function ShiftManager() {
         payload.startTime = form.startTime;
         payload.endTime = form.endTime;
         payload.allowedLateMinutes = parseInt(form.allowedLateMinutes) || 0;
-        const wh = parseFloat(form.standardWorkHours);
-        if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
       } else if (form.shiftType === "normal") {
         payload.startTime = form.startTime;
         payload.endTime = form.endTime;
         const late = parseInt(form.allowedLateMinutes);
         if (!isNaN(late) && late > 0) payload.allowedLateMinutes = late;
-        const wh = parseFloat(form.standardWorkHours);
-        if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
       } else {
-        // smart: no fixed start/end time — just hours and optional late threshold
-        const wh = parseFloat(form.standardWorkHours);
-        if (!isNaN(wh) && wh > 0) payload.standardWorkHours = wh;
+        // smart: no fixed start/end time
         const late = parseInt(form.allowedLateMinutes);
         if (!isNaN(late) && late > 0) payload.allowedLateMinutes = late;
       }
 
       await addDoc(collection(db, "shifts"), payload);
-      setForm({ shiftName: "", shiftType: "administrative", startTime: "08:00", endTime: "17:00", allowedLateMinutes: "10", standardWorkHours: "8", branchId: "all" });
+      setForm({ shiftName: "", shiftType: "administrative", startTime: "08:00", endTime: "17:00", allowedLateMinutes: "10", workingDaysPerWeek: "6", branchId: "all" });
       setShowForm(false);
       setFormError("");
       await fetchShifts();
@@ -237,18 +244,38 @@ export default function ShiftManager() {
               data-testid="input-shift-late" />
           </div>
 
-          {/* Standard work hours (all types) */}
-          <div className="space-y-1">
+          {/* Working days per week — 44h/week rule */}
+          <div className="space-y-1.5">
             <label className="text-xs text-white/50 block">
-              ساعت کاری استاندارد روزانه
-              <span className="text-white/30 mr-1">— برای محاسبه اضافه‌کاری</span>
+              روزهای کاری در هفته
+              <span className="text-white/30 mr-1">— قانون ۴۴ ساعت</span>
             </label>
-            <input
-              type="number" inputMode="decimal" className="input-field h-11 text-sm" min="1" max="24" step="0.5"
-              placeholder="8"
-              value={form.standardWorkHours}
-              onChange={e => setForm(f => ({ ...f, standardWorkHours: e.target.value }))}
-              data-testid="input-shift-hours" />
+            <div className="grid grid-cols-4 gap-2">
+              {([4, 5, 6, 7] as const).map(d => {
+                const daily = 44 / d;
+                const hh = Math.floor(daily);
+                const mm = Math.round((daily - hh) * 60);
+                return (
+                  <button
+                    key={d} type="button"
+                    onClick={() => setForm(f => ({ ...f, workingDaysPerWeek: String(d) }))}
+                    className={`flex flex-col items-center gap-0.5 p-2.5 rounded-xl border text-center transition-colors ${
+                      form.workingDaysPerWeek === String(d)
+                        ? "bg-teal-500/20 border-teal-400/50 text-teal-200"
+                        : "bg-white/5 border-white/10 text-white/40 hover:text-white/60"
+                    }`}
+                    data-testid={`select-days-${d}`}
+                  >
+                    <span className="text-sm font-bold leading-none">{d}</span>
+                    <span className="text-[9px] opacity-70">روز</span>
+                    <span className="text-[9px] font-mono opacity-60 mt-0.5">{hh}:{String(mm).padStart(2,"0")}/روز</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-white/30 px-0.5">
+              ساعت روزانه: ۴۴ ÷ {form.workingDaysPerWeek} = {fmtDailyHours(44 / (parseInt(form.workingDaysPerWeek) || 6))}
+            </p>
           </div>
 
           {/* Branch */}
@@ -307,7 +334,13 @@ export default function ShiftManager() {
                       بدون ساعت ثابت
                     </span>
                   )}
-                  {stdH != null && stdH > 0 && (
+                  {shift.workingDaysPerWeek != null && shift.workingDaysPerWeek > 0 && (
+                    <span className="flex items-center gap-1 text-xs bg-teal-500/15 text-teal-300 px-2.5 py-1 rounded-xl">
+                      <Clock size={10} />
+                      {shift.workingDaysPerWeek} روز/هفته — {fmtDailyHours(44 / shift.workingDaysPerWeek)}/روز
+                    </span>
+                  )}
+                  {shift.workingDaysPerWeek == null && stdH != null && stdH > 0 && (
                     <span className="flex items-center gap-1 text-xs bg-teal-500/15 text-teal-300 px-2.5 py-1 rounded-xl">
                       <Clock size={10} />
                       {stdH} ساعت/روز

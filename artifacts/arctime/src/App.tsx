@@ -239,6 +239,11 @@ function AppContent() {
 
           const sType = shift.shiftType as string;
 
+          // Compute daily required hours: prefer workingDaysPerWeek (44h/week rule), fall back to standardWorkHours
+          const computedDailyHours = typeof shift.workingDaysPerWeek === "number" && shift.workingDaysPerWeek > 0
+            ? 44 / shift.workingDaysPerWeek
+            : (typeof shift.standardWorkHours === "number" && shift.standardWorkHours > 0 ? shift.standardWorkHours : undefined);
+
           if (sType === "administrative" && shift.startTime) {
             const [sh, sm] = (shift.startTime as string).split(":").map(Number);
             const shiftStartMin = sh * 60 + sm;
@@ -249,7 +254,7 @@ function AppContent() {
             enrichIsLate = diff > allowed;
             enrichLateMinutes = Math.max(0, diff);
             enrichShiftEndTime = shift.endTime as string | undefined;
-            enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
+            enrichStandardWorkHours = computedDailyHours;
           } else if (sType === "normal" && shift.startTime) {
             const [sh, sm] = (shift.startTime as string).split(":").map(Number);
             const shiftStartMin = sh * 60 + sm;
@@ -260,11 +265,10 @@ function AppContent() {
             enrichIsLate = allowed > 0 ? diff > allowed : false;
             enrichLateMinutes = Math.max(0, diff);
             enrichShiftEndTime = shift.endTime as string | undefined;
-            enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
+            enrichStandardWorkHours = computedDailyHours;
           } else if (sType === "smart") {
-            // Simple smart shift: no fixed start time — just save hours for analytics
-            enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
-            // isLate stays undefined — no start time to compare against
+            enrichStandardWorkHours = computedDailyHours;
+            // isLate stays undefined — no fixed start time to compare against
           }
         }
       } catch { /* ignore shift fetch errors */ }
@@ -279,7 +283,9 @@ function AppContent() {
           enrichShiftName = shift.shiftName as string;
           enrichShiftId = employeeProfile.shiftId;
           enrichShiftType = sType;
-          enrichStandardWorkHours = typeof shift.standardWorkHours === "number" ? shift.standardWorkHours : undefined;
+          enrichStandardWorkHours = typeof shift.workingDaysPerWeek === "number" && shift.workingDaysPerWeek > 0
+            ? 44 / shift.workingDaysPerWeek
+            : (typeof shift.standardWorkHours === "number" && shift.standardWorkHours > 0 ? shift.standardWorkHours : undefined);
           if ((sType === "administrative" || sType === "normal") && shift.endTime) {
             const [eh, em] = (shift.endTime as string).split(":").map(Number);
             const shiftEndMin = eh * 60 + em;

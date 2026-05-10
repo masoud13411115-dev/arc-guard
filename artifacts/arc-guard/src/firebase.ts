@@ -8,8 +8,16 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import firebaseConfig from './firebaseConfig';
 import { logger } from './lib/logger';
 
-/** True only when all required VITE_ARC_GUARD_* env vars are present */
-export const isFirebaseReady = Object.values(firebaseConfig).every(Boolean);
+/** True only when all 6 required Firebase env vars are present.
+ *  measurementId (Analytics) is optional — excluded from this check. */
+export const isFirebaseReady = !!(
+  firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId &&
+  firebaseConfig.storageBucket &&
+  firebaseConfig.messagingSenderId &&
+  firebaseConfig.appId
+);
 
 let db: ReturnType<typeof initializeFirestore> | null = null;
 let auth: ReturnType<typeof getAuth> | null = null;

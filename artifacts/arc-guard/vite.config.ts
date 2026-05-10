@@ -15,6 +15,28 @@ if (!basePath) throw new Error("BASE_PATH environment variable is required but w
 
 const isProd = process.env.NODE_ENV === "production";
 
+// ── Inject Replit Secrets into browser bundle ──────────────────────────────
+// Vite in dev mode gives its own import.meta.env handling priority over
+// the define block, so we use a custom global __ARC_GUARD_CONFIG__ that
+// Vite has no special handling for — guaranteed to reach the browser.
+const g = (k: string) => process.env[k] ?? "";
+const arcGuardConfig = {
+  apiKey:            g("VITE_ARC_GUARD_API_KEY"),
+  authDomain:        g("VITE_ARC_GUARD_AUTH_DOMAIN"),
+  projectId:         g("VITE_ARC_GUARD_PROJECT_ID"),
+  storageBucket:     g("VITE_ARC_GUARD_STORAGE_BUCKET"),
+  messagingSenderId: g("VITE_ARC_GUARD_MESSAGING_SENDER_ID"),
+  appId:             g("VITE_ARC_GUARD_APP_ID"),
+  measurementId:     g("VITE_ARC_GUARD_MEASUREMENT_ID"),
+};
+// Debug log (no secret values are printed — only presence)
+for (const [k, v] of Object.entries(arcGuardConfig)) {
+  console.log(`[arc-guard env] ${k}: ${v ? "✓ set" : "✗ missing"}`);
+}
+const envDefine = {
+  __ARC_GUARD_CONFIG__: JSON.stringify(arcGuardConfig),
+};
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -143,6 +165,8 @@ export default defineConfig({
       },
     },
   },
+
+  define: envDefine,
 
   server: {
     port,

@@ -11,15 +11,29 @@ const col = (companyId: string, name: string) =>
   collection(db!, 'companies', companyId, name);
 
 // ── Checkpoints ───────────────────────────────────────────────────────────────
+
+/** Firestore path helper — single source of truth so save & load always match */
+export function checkpointPath(companyId: string): string {
+  return `companies/${companyId}/checkpoints`;
+}
+
 export async function saveCheckpoint(
   companyId: string,
   cp: Omit<Checkpoint, 'id' | 'createdAt' | 'companyId'>,
 ): Promise<string> {
   if (!db) throw new Error('Firebase پیکربندی نشده');
-  const ref = await addDoc(col(companyId, 'checkpoints'), {
-    ...cp, companyId, createdAt: Date.now(),
-  });
-  return ref.id;
+  const path = checkpointPath(companyId);
+  console.log(`[firestore] saveCheckpoint → ${path}`, { name: cp.name, companyId });
+  try {
+    const ref = await addDoc(col(companyId, 'checkpoints'), {
+      ...cp, companyId, createdAt: Date.now(),
+    });
+    console.log(`[firestore] saveCheckpoint ✓ id=${ref.id} path=${path}/${ref.id}`);
+    return ref.id;
+  } catch (err) {
+    console.error(`[firestore] saveCheckpoint ✗ path=${path}`, err);
+    throw err;
+  }
 }
 
 export async function updateCheckpoint(
@@ -28,29 +42,67 @@ export async function updateCheckpoint(
   data: Partial<Checkpoint>,
 ): Promise<void> {
   if (!db) throw new Error('Firebase پیکربندی نشده');
-  await updateDoc(doc(db, 'companies', companyId, 'checkpoints', id), data);
+  const path = `${checkpointPath(companyId)}/${id}`;
+  console.log(`[firestore] updateCheckpoint → ${path}`);
+  try {
+    await updateDoc(doc(db, 'companies', companyId, 'checkpoints', id), data);
+    console.log(`[firestore] updateCheckpoint ✓ ${path}`);
+  } catch (err) {
+    console.error(`[firestore] updateCheckpoint ✗ ${path}`, err);
+    throw err;
+  }
 }
 
 export async function deleteCheckpoint(companyId: string, id: string): Promise<void> {
   if (!db) throw new Error('Firebase پیکربندی نشده');
-  await deleteDoc(doc(db, 'companies', companyId, 'checkpoints', id));
+  const path = `${checkpointPath(companyId)}/${id}`;
+  console.log(`[firestore] deleteCheckpoint → ${path}`);
+  try {
+    await deleteDoc(doc(db, 'companies', companyId, 'checkpoints', id));
+    console.log(`[firestore] deleteCheckpoint ✓ ${path}`);
+  } catch (err) {
+    console.error(`[firestore] deleteCheckpoint ✗ ${path}`, err);
+    throw err;
+  }
 }
 
+/**
+ * Real-time subscription to checkpoints.
+ *
+ * NOTE: Uses only `orderBy('createdAt')` — no composite index needed.
+ * `active` filtering is done client-side to avoid Firestore composite-index
+ * errors on fresh projects that haven't run the Console index builder yet.
+ */
 export function subscribeCheckpoints(
   companyId: string,
   cb: (cps: Checkpoint[]) => void,
+  onError?: (err: Error) => void,
 ): () => void {
   if (!db) return () => {};
+  const path = checkpointPath(companyId);
+  console.log(`[firestore] subscribeCheckpoints → ${path}`);
   return onSnapshot(
-    query(col(companyId, 'checkpoints'), where('active', '==', true), orderBy('createdAt', 'asc')),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint))),
+    query(col(companyId, 'checkpoints'), orderBy('createdAt', 'asc')),
+    (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint));
+      // Filter active client-side — avoids needing a composite index
+      const active = all.filter((c) => c.active !== false);
+      console.log(`[firestore] subscribeCheckpoints snapshot: ${all.length} total, ${active.length} active — ${path}`);
+      cb(active);
+    },
+    (err) => {
+      console.error(`[firestore] subscribeCheckpoints ERROR at ${path}:`, err.code, err.message);
+      onError?.(err);
+    },
   );
 }
 
 export async function getCheckpoints(companyId: string): Promise<Checkpoint[]> {
   if (!db) return [];
-  const snap = await getDocs(query(col(companyId, 'checkpoints'), where('active', '==', true)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Checkpoint));
+  const snap = await getDocs(query(col(companyId, 'checkpoints'), orderBy('createdAt', 'asc')));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as Checkpoint))
+    .filter((c) => c.active !== false);
 }
 
 // ── Patrol Logs ───────────────────────────────────────────────────────────────

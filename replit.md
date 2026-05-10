@@ -56,6 +56,17 @@ _Populate as you build — explicit user instructions worth remembering across s
 - html5-qrcode scanner div needs `id="qr-reader"` exactly
 - Required secrets: VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
 
+## ARC Guard — Key Architecture Notes
+
+- **Secrets injection**: Vite in dev mode does NOT expose `process.env.VITE_*` to `import.meta.env` automatically from Replit Secrets. Fix: define a custom global `__ARC_GUARD_CONFIG__` in `vite.config.ts` → `define` block, then read it in `firebaseConfig.ts`. Never use `import.meta.env.VITE_ARC_GUARD_*` directly.
+- **measurementId is optional**: `isFirebaseReady` in `firebase.ts` must NOT include `measurementId` in its check — it will always be empty string if `VITE_ARC_GUARD_MEASUREMENT_ID` secret is not set, causing `every(Boolean)` to return false and triggering demo mode.
+- **Firestore composite index**: `where('active', '==', true) + orderBy('createdAt')` requires a composite index. Fresh Firebase projects won't have it. Fix: use only `orderBy('createdAt')` and filter `active` client-side. This is implemented in `subscribeCheckpoints` and `getCheckpoints`.
+- **onSnapshot silent errors**: Always pass an error callback (3rd arg) to `onSnapshot` calls. Without it, Firestore errors (missing index, security rules, etc.) are silently dropped and the list stays empty with no user feedback.
+- **Checkpoint paths**: `companies/{companyId}/checkpoints` — both save and load use `checkpointPath(companyId)` helper from `firestore.ts` as single source of truth.
+- **Optimistic updates**: After `saveCheckpoint`, add the new item to local React state immediately. Don't wait for the subscription snapshot — it can take 1–2 seconds and shows 0 list items in the meantime.
+- **localStorage backup**: CheckpointManager keeps a live mirror in `arc_guard_v1:live_{companyId}_checkpoints`. On Firestore error, falls back to this cache so data isn't lost.
+- ARC Guard secrets: `VITE_ARC_GUARD_API_KEY`, `VITE_ARC_GUARD_AUTH_DOMAIN`, `VITE_ARC_GUARD_PROJECT_ID`, `VITE_ARC_GUARD_STORAGE_BUCKET`, `VITE_ARC_GUARD_MESSAGING_SENDER_ID`, `VITE_ARC_GUARD_APP_ID` (+ optional `VITE_ARC_GUARD_MEASUREMENT_ID`)
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

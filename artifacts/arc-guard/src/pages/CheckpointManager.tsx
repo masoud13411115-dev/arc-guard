@@ -10,11 +10,21 @@ import {
   updateCheckpoint as fbUpdateCheckpoint,
   deleteCheckpoint as fbDeleteCheckpoint,
   subscribeCheckpoints as fbSubscribeCheckpoints,
+  checkpointPath,
 } from "@/lib/firestore";
 import * as demoStore from "@/lib/demo-store";
 import { getCurrentPosition } from "@/lib/gps";
 import { isFirebaseReady } from "@/firebase";
 import type { Checkpoint } from "@/types";
+
+// ── LocalStorage backup (live mode) ──────────────────────────────────────────
+const lsKey = (cid: string) => `arc_guard_v1:live_${cid}_checkpoints`;
+function lsBackupSave(cid: string, cps: Checkpoint[]) {
+  try { localStorage.setItem(lsKey(cid), JSON.stringify(cps)); } catch {}
+}
+function lsBackupLoad(cid: string): Checkpoint[] {
+  try { const r = localStorage.getItem(lsKey(cid)); return r ? JSON.parse(r) : []; } catch { return []; }
+}
 
 interface CheckpointManagerProps {
   companyId: string;
@@ -50,6 +60,8 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   const [editId, setEditId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<{ id: string; path: string } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsPreview, setGpsPreview] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [expandedQr, setExpandedQr] = useState<string | null>(null);
@@ -59,14 +71,33 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   const qrRefs = useRef<Record<string, SVGSVGElement | null>>({});
 
   const isDemo = !isFirebaseReady;
+  const fsPath = checkpointPath(companyId); // same path for both save and load
 
   // ── Subscribe to checkpoints ────────────────────────────────────────────────
   useEffect(() => {
     if (isDemo) {
       return demoStore.subscribeCheckpoints(setCheckpoints);
     }
-    return fbSubscribeCheckpoints(companyId, setCheckpoints);
-  }, [companyId, isDemo]);
+    console.log(`[CheckpointManager] subscribing companyId=${companyId} path=${fsPath}`);
+    setLoadError(null);
+    return fbSubscribeCheckpoints(
+      companyId,
+      (cps) => {
+        setCheckpoints(cps);
+        setLoadError(null);
+        lsBackupSave(companyId, cps); // keep local backup in sync
+      },
+      (err) => {
+        const msg = `${err.message} (code: ${(err as { code?: string }).code ?? "unknown"})`;
+        setLoadError(msg);
+        // Fall back to localStorage cache so data is not lost
+        const cached = lsBackupLoad(companyId);
+        if (cached.length > 0) {
+          setCheckpoints(cached);
+        }
+      },
+    );
+  }, [companyId, isDemo, fsPath]);
 
   const setF = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const flash = (msg: string) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(""), 3000); };
@@ -129,6 +160,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
     if (isNaN(lat) || isNaN(lng)) { alert("مختصات GPS معتبر نیست."); return; }
 
     setSaving(true);
+    setDebugInfo(null);
     try {
       const payload = {
         name: form.name.trim(),
@@ -148,22 +180,43 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           demoStore.updateCheckpoint(editId, payload);
           flash("ایستگاه ویرایش شد");
         } else {
-          demoStore.addCheckpoint(payload);
+          const newCp = demoStore.addCheckpoint(payload);
+          setDebugInfo({ id: newCp.id, path: `localStorage (demo) — companyId: demo-company` });
           flash("ایستگاه اضافه شد");
         }
         closeForm();
       } else {
         if (editId) {
           await fbUpdateCheckpoint(companyId, editId, payload);
+          // Optimistic: update list immediately (subscription will confirm later)
+          setCheckpoints((prev) => prev.map((c) => c.id === editId ? { ...c, ...payload } : c));
           flash("ایستگاه ویرایش شد");
+          closeForm();
         } else {
-          await fbSaveCheckpoint(companyId, payload);
-          flash("ایستگاه ذخیره شد");
+          const newId = await fbSaveCheckpoint(companyId, payload);
+          const savedPath = `${fsPath}/${newId}`;
+          console.log(`[CheckpointManager] checkpoint saved — id=${newId} companyId=${companyId} path=${savedPath}`);
+          // Optimistic: add to list immediately so QR appears without waiting for subscription
+          const newCp: Checkpoint = {
+            ...payload, id: newId, companyId, createdAt: Date.now(),
+          };
+          setCheckpoints((prev) => {
+            const updated = [...prev, newCp];
+            lsBackupSave(companyId, updated); // keep backup in sync
+            return updated;
+          });
+          setDebugInfo({
+            id: newId,
+            path: `save: ${savedPath} | load: ${fsPath} (companyId: ${companyId})`,
+          });
+          setExpandedQr(newId); // auto-open QR for new checkpoint
+          flash("ایستگاه ذخیره شد ✓");
+          closeForm();
         }
-        closeForm();
       }
     } catch (err) {
-      alert("خطا: " + err);
+      console.error("[CheckpointManager] save error:", err);
+      alert("خطا در ذخیره:\n" + String(err));
     } finally {
       setSaving(false);
     }
@@ -310,10 +363,41 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         </button>
       </div>
 
+      {/* Load error banner */}
+      {loadError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-red-400">خطا در بارگذاری ایستگاه‌ها از Firebase:</p>
+            <p className="text-xs text-muted-foreground mt-0.5 break-words">{loadError}</p>
+            {!isDemo && (
+              <p className="text-[11px] text-muted-foreground mt-1 font-mono">
+                مسیر: {fsPath}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Success message */}
       {savedMsg && (
         <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2.5 flex items-center gap-2 text-sm text-green-400 animate-fade-in-up">
           <CheckCircle className="w-4 h-4 shrink-0" />{savedMsg}
+        </div>
+      )}
+
+      {/* Debug info — shown after each save */}
+      {debugInfo && (
+        <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3 space-y-1">
+          <p className="text-[11px] font-semibold text-sky-400 flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5" />اطلاعات ذخیره‌سازی
+          </p>
+          <p className="text-[11px] text-muted-foreground font-mono break-words">
+            id: {debugInfo.id}
+          </p>
+          <p className="text-[11px] text-muted-foreground font-mono break-words">
+            {debugInfo.path}
+          </p>
         </div>
       )}
 

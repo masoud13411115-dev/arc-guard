@@ -3,7 +3,7 @@ import { Shield, Eye, EyeOff, Lock, User } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 
 interface LoginPageProps {
-  onLogin: (role: "manager" | "employee") => void;
+  onLogin: (role: "manager" | "employee", username: string) => void;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -24,9 +24,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setTimeout(() => {
       setLoading(false);
       if (username.toLowerCase().includes("manager") || username.toLowerCase() === "admin") {
-        onLogin("manager");
+        onLogin("manager", username);
       } else {
-        onLogin("employee");
+        onLogin("employee", username);
       }
     }, 1200);
   };

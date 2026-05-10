@@ -8,8 +8,12 @@ import SetupPage from "@/pages/SetupPage";
 import Dashboard from "@/pages/Dashboard";
 import GuardPatrol from "@/pages/GuardPatrol";
 import SuperAdminPanel from "@/pages/SuperAdminPanel";
+import InstallPrompt, { UpdateBanner } from "@/components/InstallPrompt";
 import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
+import { initPWA, applyUpdate, isPWAInstalled } from "@/lib/pwa";
+import { syncOfflineQueue } from "@/lib/firestore";
+import { listenForSyncTrigger, getQueueCount } from "@/lib/offline";
 import type { UserProfile } from "@/types";
 
 const queryClient = new QueryClient();
@@ -29,7 +33,27 @@ function screenForRole(role: UserProfile["role"]): Screen {
 
 function AppContent() {
   const [appState, setAppState] = useState<AppState>({ screen: "splash", profile: null });
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [offlineCount, setOfflineCount] = useState(0);
+  const [isStandalone] = useState(isPWAInstalled);
 
+  // ── PWA init ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    initPWA(() => setUpdateAvailable(true));
+
+    // Offline queue listener — sync when back online or SW triggers
+    const unsub = listenForSyncTrigger(async () => {
+      if (isFirebaseReady) {
+        const synced = await syncOfflineQueue();
+        if (synced > 0) setOfflineCount(getQueueCount());
+      }
+    });
+
+    setOfflineCount(getQueueCount());
+    return unsub;
+  }, []);
+
+  // ── Firebase auth ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isFirebaseReady) return;
     const unsub = onAuthChange(async (firebaseUser) => {
@@ -66,16 +90,44 @@ function AppContent() {
 
   const { screen, profile } = appState;
 
-  if (screen === "splash") return <SplashScreen onComplete={handleSplashComplete} />;
-  if (screen === "login") return <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />;
-  if (screen === "setup") return <SetupPage onComplete={handleSetupComplete} onBack={() => setAppState({ screen: "login", profile: null })} />;
-  if (screen === "super-admin" && profile) return <SuperAdminPanel profile={profile} onLogout={handleLogout} />;
-  if (screen === "manager-dashboard" && profile) return <Dashboard profile={profile} onLogout={handleLogout} />;
-  if (screen === "guard-patrol" && profile) return (
-    <GuardPatrol guardId={profile.uid} guardName={profile.displayName} companyId={profile.companyId} onLogout={handleLogout} />
-  );
+  return (
+    <>
+      {/* Offline queue indicator */}
+      {offlineCount > 0 && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-yellow-500/20 border-b border-yellow-500/30 px-4 py-1.5 flex items-center justify-center gap-2 text-xs text-yellow-400" dir="rtl">
+          <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+          {offlineCount} اسکن در صف همگام‌سازی — در انتظار اتصال اینترنت
+        </div>
+      )}
 
-  return <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />;
+      {/* Update banner */}
+      {updateAvailable && (
+        <UpdateBanner
+          onUpdate={applyUpdate}
+          onDismiss={() => setUpdateAvailable(false)}
+        />
+      )}
+
+      {/* Install prompt — only show on non-standalone mode */}
+      {!isStandalone && screen !== "splash" && screen !== "login" && screen !== "setup" && (
+        <InstallPrompt />
+      )}
+
+      {/* Screens */}
+      {screen === "splash" && <SplashScreen onComplete={handleSplashComplete} />}
+      {screen === "login" && <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />}
+      {screen === "setup" && <SetupPage onComplete={handleSetupComplete} onBack={() => setAppState({ screen: "login", profile: null })} />}
+      {screen === "super-admin" && profile && <SuperAdminPanel profile={profile} onLogout={handleLogout} />}
+      {screen === "manager-dashboard" && profile && <Dashboard profile={profile} onLogout={handleLogout} />}
+      {screen === "guard-patrol" && profile && (
+        <GuardPatrol guardId={profile.uid} guardName={profile.displayName} companyId={profile.companyId} onLogout={handleLogout} />
+      )}
+      {/* Fallback */}
+      {!["splash","login","setup","super-admin","manager-dashboard","guard-patrol"].includes(screen) && (
+        <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />
+      )}
+    </>
+  );
 }
 
 function App() {

@@ -2,17 +2,56 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+
+    <!-- ── Viewport ── -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+    <!-- ── Primary meta ── -->
     <title>ARC Guard — سیستم گشت امنیتی</title>
     <meta name="description" content="ARC Guard — سیستم هوشمند گشت و نگهبانی با QR Code و GPS" />
     <meta name="robots" content="index, follow" />
+
+    <!-- ── PWA theme ── -->
+    <meta name="theme-color" content="#0c1829" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0c1829" />
+
+    <!-- ── iOS Safari PWA ── -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ARC Guard" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ── iOS touch icons ── -->
+    <link rel="apple-touch-icon" href="/arc-guard/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/arc-guard/icon-152.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/arc-guard/icon-144.png" />
+    <link rel="apple-touch-icon" sizes="128x128" href="/arc-guard/icon-128.png" />
+
+    <!-- ── iOS Splash screens ── -->
+    <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone12.png"
+      media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+
+    <!-- ── Android ── -->
+    <link rel="manifest" href="/arc-guard/manifest.webmanifest" />
+
+    <!-- ── Standard favicon ── -->
+    <link rel="icon" type="image/svg+xml" href="/arc-guard/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/arc-guard/icon-192.png" />
+
+    <!-- ── OpenGraph ── -->
     <meta property="og:title" content="ARC Guard" />
     <meta property="og:description" content="سیستم هوشمند گشت امنیتی" />
     <meta property="og:type" content="website" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta property="og:image" content="/arc-guard/opengraph.jpg" />
+
+    <!-- ── Microsoft ── -->
+    <meta name="msapplication-TileImage" content="/arc-guard/icon-144.png" />
+    <meta name="msapplication-TileColor" content="#0c1829" />
+
+    <!-- ── Fonts ── -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

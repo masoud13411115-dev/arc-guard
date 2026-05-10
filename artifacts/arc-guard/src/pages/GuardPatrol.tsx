@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   QrCode, MapPin, Wifi, WifiOff, CheckCircle, AlertTriangle,
-  Shield, LogOut, RefreshCw, Camera, XCircle, Clock
+  Shield, LogOut, RefreshCw, Camera, XCircle, Clock,
+  Lock, Zap
 } from "lucide-react";
 import MobileHeader from "@/components/MobileHeader";
 import { getCurrentPosition, haversineDistance, formatCoords } from "@/lib/gps";
 import { addToQueue, getQueueCount } from "@/lib/offline";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue } from "@/lib/firestore";
-import { db } from "@/firebase";
+import { playSuccess, playOutside, playFail, playCooldown } from "@/lib/audioFeedback";
+import {
+  isValidQrFormat, canScan, recordScan,
+  secondsUntilNextScan, formatCountdown
+} from "@/lib/scanProtection";
+import { db, isFirebaseReady } from "@/firebase";
+import { DEMO_CHECKPOINTS } from "@/lib/demo";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 
 interface GuardPatrolProps {
@@ -16,6 +23,12 @@ interface GuardPatrolProps {
   companyId: string;
   onLogout: () => void;
 }
+
+const STATUS_LABEL: Record<ScanStatus, string> = {
+  valid: "✓ معتبر",
+  outside: "⚠ خارج از محدوده",
+  failed: "✗ ناموفق",
+};
 
 export default function GuardPatrol({ guardId, guardName, companyId, onLogout }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
@@ -26,16 +39,33 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   const [online, setOnline] = useState(navigator.onLine);
   const [queueCount, setQueueCount] = useState(getQueueCount());
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
-  const [scanResult, setScanResult] = useState<{ ok: boolean; title: string; msg: string; status: ScanStatus } | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const scannerRef = useRef<any>(null);
+  const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
 
-  const statusLabel: Record<ScanStatus, string> = {
-    valid: "✓ معتبر",
-    outside: "⚠ خارج از محدوده",
-    failed: "✗ ناموفق",
+  type ScanResult = {
+    ok: boolean;
+    title: string;
+    msg: string;
+    status: ScanStatus | "cooldown";
+    sub?: string;
   };
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
+  const scannerRef = useRef<any>(null);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isDemo = !isFirebaseReady;
+
+  // ── Load checkpoints ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isDemo) {
+      setCheckpoints(DEMO_CHECKPOINTS);
+      return;
+    }
+    return subscribeCheckpoints(companyId, setCheckpoints);
+  }, [companyId, isDemo]);
+
+  // ── Online sync ────────────────────────────────────────────────────────────
   const handleSync = useCallback(async () => {
     if (!online || !db) return;
     setSyncing(true);
@@ -49,14 +79,29 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     const onOffline = () => setOnline(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, [handleSync]);
 
-  useEffect(() => {
-    if (!db) return;
-    return subscribeCheckpoints(companyId, setCheckpoints);
-  }, [companyId]);
+  // ── Cooldown countdown timer ───────────────────────────────────────────────
+  const refreshCooldowns = useCallback(() => {
+    const updated: Record<string, number> = {};
+    for (const cp of checkpoints) {
+      const s = secondsUntilNextScan(cp.id);
+      if (s > 0) updated[cp.id] = s;
+    }
+    setCooldowns(updated);
+  }, [checkpoints]);
 
+  useEffect(() => {
+    refreshCooldowns();
+    cooldownTimerRef.current = setInterval(refreshCooldowns, 1000);
+    return () => { if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current); };
+  }, [refreshCooldowns]);
+
+  // ── GPS ────────────────────────────────────────────────────────────────────
   useEffect(() => { fetchGps(); }, []);
 
   const fetchGps = async () => {
@@ -70,7 +115,8 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
           guardId, guardName, companyId,
           lastSeen: Date.now(),
           lastCheckpoint: recentLogs[0]?.checkpointName ?? "—",
-          lastGps: coords, status: "active",
+          lastGps: coords,
+          status: "active",
         });
       }
     } catch {
@@ -80,6 +126,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     }
   };
 
+  // ── Scanner ────────────────────────────────────────────────────────────────
   const startScanner = async () => {
     setScanning(true);
     setScanResult(null);
@@ -89,12 +136,17 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
+        { fps: 12, qrbox: { width: 240, height: 240 } },
         (text: string) => handleQrScan(text),
-        () => {}
+        () => {} // quiet mode — no per-frame errors
       );
     } catch {
-      setScanResult({ ok: false, title: "دسترسی به دوربین رد شد", msg: "لطفاً دسترسی دوربین را در تنظیمات مرورگر فعال کنید.", status: "failed" });
+      setScanResult({
+        ok: false, status: "failed",
+        title: "دسترسی به دوربین رد شد",
+        msg: "لطفاً دسترسی دوربین را در تنظیمات مرورگر فعال کنید.",
+      });
+      playFail();
       setScanning(false);
     }
   };
@@ -109,90 +161,153 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     setScanning(false);
   };
 
+  // ── QR scan handler ────────────────────────────────────────────────────────
   const handleQrScan = async (qrText: string) => {
     await stopScanner();
 
-    const now = Date.now();
-    const nowText = new Date(now).toLocaleString("fa-IR");
-    const checkpoint = checkpoints.find((cp) => cp.qrCode === qrText) ?? null;
+    // 1) Format validation — reject invalid / manual / fake QR
+    if (!isValidQrFormat(qrText)) {
+      setScanResult({
+        ok: false, status: "failed",
+        title: "کد QR نامعتبر",
+        msg: "این کد توسط سیستم ARC Guard صادر نشده. فقط کدهای رسمی قابل اسکن هستند.",
+        sub: `کد دریافتی: ${qrText.slice(0, 40)}${qrText.length > 40 ? "…" : ""}`,
+      });
+      playFail();
+      return;
+    }
 
-    // QR not found
+    // 2) Find matching checkpoint
+    const checkpoint = checkpoints.find((cp) => cp.qrCode === qrText) ?? null;
     if (!checkpoint) {
       setScanResult({
         ok: false, status: "failed",
-        title: "کد QR ناشناس",
-        msg: `این کد در سیستم ثبت نشده: ${qrText.slice(0, 40)}`,
+        title: "ایستگاه ناشناس",
+        msg: "این کد QR در سیستم ثبت نشده است. با مدیر تماس بگیرید.",
+        sub: qrText,
       });
-      const log: PatrolLog = {
-        guardId, guardName, companyId,
-        checkpointId: "unknown", checkpointName: "ناشناس",
-        qrScanned: qrText, gps, distanceMeters: null,
-        withinRadius: false, status: "failed",
-        scanTime: now, scannedAt: now, scannedAtText: nowText, synced: false,
-      };
-      persistLog(log);
+      playFail();
+      persistLog(buildLog(qrText, null, null, null, false, "failed"));
       return;
     }
 
-    // GPS required
+    // 3) Anti-cheat cooldown check
+    if (!canScan(checkpoint.id)) {
+      const secs = secondsUntilNextScan(checkpoint.id);
+      setScanResult({
+        ok: false, status: "cooldown",
+        title: "اسکن مجدد زود است",
+        msg: `ایستگاه "${checkpoint.name}" در ${formatCountdown(secs)} دقیقه دیگر قابل اسکن است.`,
+        sub: "برای جلوگیری از تقلب، هر ایستگاه هر ۵ دقیقه یک‌بار قابل اسکن است.",
+      });
+      playCooldown();
+      return;
+    }
+
+    // 4) GPS check
     if (!gps) {
-      setScanResult({ ok: false, status: "failed", title: "موقعیت GPS دریافت نشد", msg: "GPS دستگاه را فعال کنید و دوباره تلاش نمایید." });
+      setScanResult({
+        ok: false, status: "failed",
+        title: "موقعیت GPS دریافت نشد",
+        msg: "GPS دستگاه را فعال کنید و دوباره تلاش نمایید.",
+      });
+      playFail();
       return;
     }
 
+    // 5) Distance validation
     const distance = Math.round(haversineDistance(gps.lat, gps.lng, checkpoint.lat, checkpoint.lng));
     const withinRadius = distance <= checkpoint.radiusMeters;
     const status: ScanStatus = withinRadius ? "valid" : "outside";
+    const log = buildLog(qrText, checkpoint, gps, distance, withinRadius, status);
 
-    const log: PatrolLog = {
-      guardId, guardName, companyId,
-      checkpointId: checkpoint.id,
-      checkpointName: checkpoint.name,
-      qrScanned: qrText, gps,
-      distanceMeters: distance,
-      withinRadius, status,
-      scanTime: now, scannedAt: now, scannedAtText: nowText,
-      synced: false,
-    };
-
+    // 6) Record cooldown + save log
+    recordScan(checkpoint.id);
+    refreshCooldowns();
     setRecentLogs((prev) => [log, ...prev.slice(0, 9)]);
 
     if (withinRadius) {
       setScanResult({
         ok: true, status: "valid",
-        title: `ایستگاه "${checkpoint.name}" تأیید شد`,
+        title: `✓ ایستگاه "${checkpoint.name}" تأیید شد`,
         msg: `فاصله: ${distance} متر · دقت GPS: ±${Math.round(gps.accuracy)} متر`,
+        sub: new Date().toLocaleString("fa-IR"),
       });
-      if (db) updateGuardSession({ guardId, guardName, companyId, lastSeen: now, lastCheckpoint: checkpoint.name, lastGps: gps, status: "active" });
+      playSuccess();
+      if (db) {
+        updateGuardSession({
+          guardId, guardName, companyId,
+          lastSeen: Date.now(), lastCheckpoint: checkpoint.name,
+          lastGps: gps, status: "active",
+        });
+      }
     } else {
       setScanResult({
         ok: false, status: "outside",
-        title: "خارج از محدوده مجاز",
+        title: "⚠ خارج از محدوده مجاز",
         msg: `فاصله شما ${distance} متر است. حداکثر مجاز: ${checkpoint.radiusMeters} متر.`,
+        sub: "ثبت شد — اما به عنوان تخلف بارگذاری می‌شود.",
       });
+      playOutside();
     }
 
     persistLog(log);
     fetchGps();
   };
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const buildLog = (
+    qrText: string,
+    checkpoint: Checkpoint | null,
+    gpsVal: GpsCoords | null,
+    distance: number | null,
+    withinRadius: boolean,
+    status: ScanStatus
+  ): PatrolLog => ({
+    guardId, guardName, companyId,
+    checkpointId: checkpoint?.id ?? "unknown",
+    checkpointName: checkpoint?.name ?? "ناشناس",
+    qrScanned: qrText,
+    gps: gpsVal,
+    distanceMeters: distance,
+    withinRadius, status,
+    scanTime: Date.now(),
+    scannedAt: Date.now(),
+    scannedAtText: new Date().toLocaleString("fa-IR"),
+    synced: false,
+  });
+
   const persistLog = (log: PatrolLog) => {
-    if (online && db) {
-      savePatrolLog({ ...log, synced: true }).catch(() => {
+    if (!isDemo) {
+      if (online && db) {
+        savePatrolLog({ ...log, synced: true }).catch(() => {
+          addToQueue(log);
+          setQueueCount(getQueueCount());
+        });
+      } else {
         addToQueue(log);
         setQueueCount(getQueueCount());
-      });
-    } else {
-      addToQueue(log);
-      setQueueCount(getQueueCount());
+      }
     }
+    // In demo mode: just show in recentLogs (already set above)
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col">
       <MobileHeader title="ARC Guard" subtitle={guardName} notificationCount={queueCount} />
 
-      <div className="flex-1 p-4 space-y-3 max-w-lg mx-auto w-full">
+      <div className="flex-1 p-4 space-y-3 max-w-lg mx-auto w-full pb-8">
+
+        {/* Demo notice */}
+        {isDemo && (
+          <div className="rounded-lg border border-sky-500/30 bg-sky-500/8 px-3 py-2.5 flex items-center gap-2.5">
+            <Zap className="w-4 h-4 text-sky-400 shrink-0" />
+            <p className="text-xs text-sky-300/80">
+              <span className="font-bold text-sky-400">حالت نمونه</span> — ایستگاه‌های نمونه بارگذاری شدند. اسکن واقعی نیاز به Firebase دارد.
+            </p>
+          </div>
+        )}
 
         {/* Status strip */}
         <div className="flex gap-2">
@@ -220,9 +335,12 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground">{guardName}</p>
-            {gps && <p className="text-xs text-primary/70 mt-0.5 font-mono">{formatCoords(gps)}</p>}
+            {gps
+              ? <p className="text-xs text-primary/70 mt-0.5 font-mono">{formatCoords(gps)}</p>
+              : <p className="text-xs text-muted-foreground mt-0.5">موقعیت در دسترس نیست</p>
+            }
           </div>
-          <button onClick={onLogout} className="flex items-center gap-1 text-xs text-destructive/80 hover:text-destructive transition-colors p-2">
+          <button onClick={onLogout} className="flex items-center gap-1 text-xs text-destructive/70 hover:text-destructive transition-colors p-2">
             <LogOut className="w-4 h-4" />
           </button>
         </div>
@@ -238,102 +356,155 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
           </div>
         )}
 
-        {/* Scanner */}
+        {/* ═══ SCANNER ═══ */}
         {!scanning ? (
-          <button onClick={startScanner}
-            className="w-full rounded-xl border-2 border-dashed border-primary/40 hover:border-primary/70 bg-primary/5 hover:bg-primary/10 transition-all p-7 flex flex-col items-center gap-3">
-            <div className="w-16 h-16 rounded-full bg-primary/20 border-2 border-primary/40 flex items-center justify-center animate-glow-pulse">
-              <QrCode className="w-8 h-8 text-primary" />
+          <button
+            onClick={startScanner}
+            className="w-full rounded-xl border-2 border-dashed border-primary/50 hover:border-primary bg-primary/5 hover:bg-primary/10 transition-all p-8 flex flex-col items-center gap-3 active:scale-[0.98]"
+            style={{ WebkitTapHighlightColor: "rgba(14,165,233,0.2)" }}
+          >
+            <div className="w-20 h-20 rounded-full bg-primary/20 border-2 border-primary/50 flex items-center justify-center animate-glow-pulse">
+              <QrCode className="w-10 h-10 text-primary" />
             </div>
             <div className="text-center">
-              <p className="text-sm font-bold text-primary">اسکن ایستگاه</p>
+              <p className="text-base font-bold text-primary">اسکن ایستگاه</p>
               <p className="text-xs text-muted-foreground mt-1">برای باز شدن دوربین ضربه بزنید</p>
+              <p className="text-[11px] text-muted-foreground/60 mt-0.5">فقط کدهای رسمی ARC Guard پذیرفته می‌شوند</p>
             </div>
           </button>
         ) : (
-          <div className="rounded-xl border border-primary/40 bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-primary/5">
-              <div className="flex items-center gap-2 text-sm font-medium text-primary">
+          <div className="rounded-xl border-2 border-primary/60 bg-card overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-primary/10 border-b border-primary/20">
+              <div className="flex items-center gap-2 text-sm font-bold text-primary">
                 <Camera className="w-4 h-4" />
-                در حال اسکن...
+                دوربین فعال — کد QR را نشان دهید
               </div>
-              <button onClick={stopScanner} className="text-muted-foreground hover:text-foreground transition-colors">
-                <XCircle className="w-4 h-4" />
+              <button onClick={stopScanner} className="text-muted-foreground hover:text-foreground transition-colors p-1">
+                <XCircle className="w-5 h-5" />
               </button>
             </div>
-            <div id="qr-reader-guard" style={{ background: "#fff" }} />
+            {/* White background required for html5-qrcode camera preview */}
+            <div id="qr-reader-guard" style={{ background: "#ffffff" }} />
+            <div className="px-4 py-2 bg-black/30 text-center">
+              <p className="text-[11px] text-primary/70">دوربین را روی کد QR ایستگاه بگیرید</p>
+            </div>
           </div>
         )}
 
-        {/* Scan result */}
+        {/* ═══ SCAN RESULT ═══ */}
         {scanResult && (
-          <div className={`rounded-xl border p-4 flex items-start gap-3 animate-fade-in-up ${
-            scanResult.status === "valid" ? "border-green-500/30 bg-green-500/10" :
-            scanResult.status === "outside" ? "border-yellow-500/30 bg-yellow-500/10" :
-            "border-destructive/30 bg-destructive/10"
+          <div className={`rounded-xl border p-4 animate-fade-in-up ${
+            scanResult.status === "valid"
+              ? "border-green-500/40 bg-green-500/10"
+              : scanResult.status === "outside"
+              ? "border-yellow-500/40 bg-yellow-500/10"
+              : scanResult.status === "cooldown"
+              ? "border-sky-500/40 bg-sky-500/10"
+              : "border-destructive/40 bg-destructive/10"
           }`}>
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
-              scanResult.status === "valid" ? "bg-green-500/20" :
-              scanResult.status === "outside" ? "bg-yellow-500/20" :
-              "bg-destructive/20"
-            }`}>
-              {scanResult.status === "valid"
-                ? <CheckCircle className="w-5 h-5 text-green-400" />
-                : <AlertTriangle className={`w-5 h-5 ${scanResult.status === "outside" ? "text-yellow-400" : "text-destructive"}`} />}
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                scanResult.status === "valid" ? "bg-green-500/20" :
+                scanResult.status === "outside" ? "bg-yellow-500/20" :
+                scanResult.status === "cooldown" ? "bg-sky-500/20" :
+                "bg-destructive/20"
+              }`}>
+                {scanResult.status === "valid"
+                  ? <CheckCircle className="w-6 h-6 text-green-400" />
+                  : scanResult.status === "cooldown"
+                  ? <Lock className="w-6 h-6 text-sky-400" />
+                  : <AlertTriangle className={`w-6 h-6 ${scanResult.status === "outside" ? "text-yellow-400" : "text-destructive"}`} />
+                }
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-bold ${
+                  scanResult.status === "valid" ? "text-green-400" :
+                  scanResult.status === "outside" ? "text-yellow-400" :
+                  scanResult.status === "cooldown" ? "text-sky-400" :
+                  "text-destructive"
+                }`}>{scanResult.title}</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{scanResult.msg}</p>
+                {scanResult.sub && (
+                  <p className="text-[11px] text-muted-foreground/60 mt-1 font-mono break-all">{scanResult.sub}</p>
+                )}
+                {!online && scanResult.status !== "cooldown" && (
+                  <p className="text-xs text-yellow-400 mt-2 flex items-center gap-1">
+                    <WifiOff className="w-3 h-3" />آفلاین ذخیره شد — بعد از اتصال همگام می‌شود
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex-1">
-              <p className={`text-sm font-bold ${
-                scanResult.status === "valid" ? "text-green-400" :
-                scanResult.status === "outside" ? "text-yellow-400" :
-                "text-destructive"
-              }`}>{scanResult.title}</p>
-              <p className="text-xs text-muted-foreground mt-1">{scanResult.msg}</p>
-              {!online && <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1"><WifiOff className="w-3 h-3" />آفلاین ذخیره شد</p>}
-            </div>
+            {/* Quick re-scan button */}
+            {scanResult.status !== "cooldown" && (
+              <button
+                onClick={() => { setScanResult(null); startScanner(); }}
+                className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-current/20 text-xs font-medium opacity-70 hover:opacity-100 transition-opacity"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                اسکن مجدد
+              </button>
+            )}
           </div>
         )}
 
-        {/* Checkpoint list */}
+        {/* ═══ CHECKPOINT LIST ═══ */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/20">
             <Shield className="w-4 h-4 text-primary" />
-            <span className="text-sm font-bold text-foreground">ایستگاه‌های گشت ({checkpoints.length})</span>
+            <span className="text-sm font-bold text-foreground">ایستگاه‌های گشت</span>
+            <span className="text-xs text-muted-foreground mr-1">({checkpoints.length})</span>
           </div>
           {checkpoints.length === 0 ? (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">ایستگاهی توسط مدیر تنظیم نشده است.</div>
+            <div className="px-4 py-8 text-center text-muted-foreground text-sm">ایستگاهی تنظیم نشده است.</div>
           ) : (
             <div className="divide-y divide-border">
               {checkpoints.map((cp) => {
                 const log = recentLogs.find((l) => l.checkpointId === cp.id);
                 const s = log?.status;
+                const coolSecs = cooldowns[cp.id] ?? 0;
+                const locked = coolSecs > 0;
+
                 return (
                   <div key={cp.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 ${
+                    <div className={`w-9 h-9 rounded-full border flex items-center justify-center shrink-0 ${
+                      locked ? "bg-sky-500/10 border-sky-500/30" :
                       s === "valid" ? "bg-green-500/15 border-green-500/40" :
                       s === "outside" ? "bg-yellow-500/15 border-yellow-500/40" :
                       s === "failed" ? "bg-destructive/15 border-destructive/40" :
                       "bg-muted border-border"
                     }`}>
-                      {s === "valid" ? <CheckCircle className="w-4 h-4 text-green-400" /> :
-                       s === "outside" ? <AlertTriangle className="w-4 h-4 text-yellow-400" /> :
-                       s === "failed" ? <AlertTriangle className="w-4 h-4 text-destructive" /> :
-                       <MapPin className="w-4 h-4 text-muted-foreground" />}
+                      {locked
+                        ? <Lock className="w-4 h-4 text-sky-400" />
+                        : s === "valid" ? <CheckCircle className="w-4 h-4 text-green-400" />
+                        : s === "outside" ? <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                        : s === "failed" ? <AlertTriangle className="w-4 h-4 text-destructive" />
+                        : <MapPin className="w-4 h-4 text-muted-foreground" />
+                      }
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-semibold ${
+                        locked ? "text-sky-400" :
                         s === "valid" ? "text-green-400" :
                         s === "outside" ? "text-yellow-400" :
                         s === "failed" ? "text-destructive" : "text-foreground"
                       }`}>{cp.name}</p>
                       {cp.location && <p className="text-xs text-muted-foreground truncate">{cp.location}</p>}
                     </div>
-                    <div className="shrink-0 text-left">
-                      <p className={`text-xs font-semibold ${
-                        s === "valid" ? "text-green-400" :
-                        s === "outside" ? "text-yellow-400" :
-                        s === "failed" ? "text-destructive" : "text-muted-foreground"
-                      }`}>{s ? statusLabel[s] : "در انتظار"}</p>
-                      <p className="text-xs text-muted-foreground">{cp.radiusMeters} متر</p>
+                    <div className="shrink-0 text-left min-w-[70px]">
+                      {locked ? (
+                        <p className="text-xs font-mono text-sky-400 text-center">
+                          🔒 {formatCountdown(coolSecs)}
+                        </p>
+                      ) : (
+                        <>
+                          <p className={`text-xs font-semibold ${
+                            s === "valid" ? "text-green-400" :
+                            s === "outside" ? "text-yellow-400" :
+                            s === "failed" ? "text-destructive" : "text-muted-foreground"
+                          }`}>{s ? STATUS_LABEL[s] : "در انتظار"}</p>
+                          <p className="text-xs text-muted-foreground">{cp.radiusMeters} متر</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -342,32 +513,39 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
           )}
         </div>
 
-        {/* Recent logs */}
+        {/* ═══ RECENT LOGS ═══ */}
         {recentLogs.length > 0 && (
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
               <Clock className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm font-bold text-foreground">آخرین اسکن‌ها</span>
+              <span className="text-sm font-bold text-foreground">آخرین اسکن‌های این نشست</span>
             </div>
             <div className="divide-y divide-border">
               {recentLogs.slice(0, 5).map((log, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${log.status === "valid" ? "bg-green-400" : log.status === "outside" ? "bg-yellow-400" : "bg-destructive"}`} />
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${
+                    log.status === "valid" ? "bg-green-400" :
+                    log.status === "outside" ? "bg-yellow-400" : "bg-destructive"
+                  }`} />
                   <p className="text-xs text-muted-foreground flex-1 truncate">
                     <span className="text-foreground font-medium">{log.checkpointName}</span>
                     {log.distanceMeters !== null && <span> · {log.distanceMeters} متر</span>}
                   </p>
-                  <span className={`text-xs font-medium ${log.status === "valid" ? "text-green-400" : log.status === "outside" ? "text-yellow-400" : "text-destructive"}`}>
-                    {statusLabel[log.status]}
-                  </span>
+                  <span className={`text-xs font-semibold ${
+                    log.status === "valid" ? "text-green-400" :
+                    log.status === "outside" ? "text-yellow-400" : "text-destructive"
+                  }`}>{STATUS_LABEL[log.status]}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        <button onClick={fetchGps} disabled={gpsLoading}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent transition-colors">
+        <button
+          onClick={fetchGps}
+          disabled={gpsLoading}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
+        >
           <RefreshCw className={`w-3.5 h-3.5 ${gpsLoading ? "animate-spin" : ""}`} />
           {gpsLoading ? "در حال دریافت موقعیت..." : "بروزرسانی موقعیت GPS"}
         </button>

@@ -8,8 +8,9 @@ import SetupPage from "@/pages/SetupPage";
 import Dashboard from "@/pages/Dashboard";
 import GuardPatrol from "@/pages/GuardPatrol";
 import SuperAdminPanel from "@/pages/SuperAdminPanel";
+import DemoGuardPicker from "@/pages/DemoGuardPicker";
 import InstallPrompt, { UpdateBanner } from "@/components/InstallPrompt";
-import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
+import { onAuthChange, getUserProfile, signOut, demoLogin } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { initPWA, applyUpdate, isPWAInstalled } from "@/lib/pwa";
 import { syncOfflineQueue } from "@/lib/firestore";
@@ -27,7 +28,7 @@ const queryClient = new QueryClient({
   },
 });
 
-type Screen = "splash" | "login" | "setup" | "manager-dashboard" | "guard-patrol" | "super-admin";
+type Screen = "splash" | "login" | "setup" | "manager-dashboard" | "guard-patrol" | "super-admin" | "demo-guard-select";
 
 interface AppState {
   screen: Screen;
@@ -130,7 +131,26 @@ function AppContent() {
 
   const handleLogin = useCallback((p: UserProfile) => {
     logger.info("app", `Login: ${p.role} @ ${p.companyId}`);
+    // In demo mode, guards must pick their active guard first
+    if (!isFirebaseReady && p.role === "guard") {
+      setAppState({ screen: "demo-guard-select", profile: p });
+      return;
+    }
     setAppState({ screen: screenForRole(p.role), profile: p });
+  }, []);
+
+  const handleDemoGuardSelect = useCallback((guard: UserProfile) => {
+    logger.info("app", `Demo guard selected: ${guard.displayName}`);
+    setAppState({ screen: "guard-patrol", profile: guard });
+  }, []);
+
+  const handleSwitchGuard = useCallback(() => {
+    setAppState((s) => ({ ...s, screen: "demo-guard-select" }));
+  }, []);
+
+  const handleGoToManager = useCallback(() => {
+    const mp = demoLogin("manager");
+    setAppState({ screen: "manager-dashboard", profile: mp });
   }, []);
 
   const handleSetupComplete = useCallback((p: UserProfile) => {
@@ -189,16 +209,24 @@ function AppContent() {
         {screen === "manager-dashboard" && profile && (
           <Dashboard profile={profile} onLogout={handleLogout} />
         )}
+        {screen === "demo-guard-select" && (
+          <DemoGuardPicker
+            onSelect={handleDemoGuardSelect}
+            onBack={() => setAppState({ screen: "login", profile: null })}
+            onGoToManager={handleGoToManager}
+          />
+        )}
         {screen === "guard-patrol" && profile && (
           <GuardPatrol
             guardId={profile.uid}
             guardName={profile.displayName}
             companyId={profile.companyId}
             onLogout={handleLogout}
+            onSwitchGuard={!isFirebaseReady ? handleSwitchGuard : undefined}
           />
         )}
         {/* Fallback */}
-        {!["splash","login","setup","super-admin","manager-dashboard","guard-patrol"].includes(screen) && (
+        {!["splash","login","setup","super-admin","manager-dashboard","guard-patrol","demo-guard-select"].includes(screen) && (
           <LoginPage onLogin={handleLogin} onRegister={() => setAppState({ screen: "setup", profile: null })} />
         )}
       </div>

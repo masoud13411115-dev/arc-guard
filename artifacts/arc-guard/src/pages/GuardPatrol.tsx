@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   QrCode, MapPin, Wifi, WifiOff, CheckCircle, AlertTriangle,
   Shield, LogOut, RefreshCw, Camera, XCircle, Clock,
-  Lock, Zap, Radio, Mic
+  Lock, Zap, Radio, Mic, ArrowLeftRight, Users,
 } from "lucide-react";
 import {
   checkPatrolPermissions, requestPatrolPermissions, permissionsReady,
@@ -26,6 +26,7 @@ interface GuardPatrolProps {
   guardName: string;
   companyId: string;
   onLogout: () => void;
+  onSwitchGuard?: () => void;
 }
 
 const STATUS_LABEL: Record<ScanStatus, string> = {
@@ -36,7 +37,7 @@ const STATUS_LABEL: Record<ScanStatus, string> = {
 
 const SOS_HOLD_MS = 3000;
 
-export default function GuardPatrol({ guardId, guardName, companyId, onLogout }: GuardPatrolProps) {
+export default function GuardPatrol({ guardId, guardName, companyId, onLogout, onSwitchGuard }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [scanning, setScanning] = useState(false);
   const [gps, setGps] = useState<GpsCoords | null>(null);
@@ -483,13 +484,31 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
 
       <div className="flex-1 p-4 space-y-3 max-w-lg mx-auto w-full pb-8">
 
-        {/* Demo notice */}
+        {/* Demo notice + active guard + switch */}
         {isDemo && (
-          <div className="rounded-lg border border-sky-500/30 bg-sky-500/8 px-3 py-2.5 flex items-center gap-2.5">
-            <Zap className="w-4 h-4 text-sky-400 shrink-0" />
-            <p className="text-xs text-sky-300/80">
-              <span className="font-bold text-sky-400">حالت نمونه</span> — ایستگاه‌های نمونه بارگذاری شدند.
-            </p>
+          <div className="rounded-xl border border-sky-500/30 bg-sky-500/8 px-3 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                {guardName.charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-foreground truncate">{guardName}</p>
+                <p className="text-[11px] text-sky-400">
+                  <span className="flex items-center gap-1">
+                    <Zap className="w-3 h-3" />حالت آزمایشی فعال
+                  </span>
+                </p>
+              </div>
+              {onSwitchGuard && (
+                <button
+                  onClick={onSwitchGuard}
+                  className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-400 border border-sky-500/30 rounded-lg px-2.5 py-1.5 hover:bg-sky-500/15 active:scale-95 transition-all shrink-0"
+                >
+                  <ArrowLeftRight className="w-3 h-3" />
+                  <span>تغییر نگهبان</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 

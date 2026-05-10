@@ -204,6 +204,27 @@ export function resolveAlert(id: string): void {
 export const subscribeAlerts = makeSubscribe('alerts', getAlerts);
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ACTIVE GUARD (selected guard for demo patrol)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ACTIVE_GUARD_KEY = P + 'active_guard';
+
+export function getActiveGuard(): UserProfile | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_GUARD_KEY);
+    return raw ? (JSON.parse(raw) as UserProfile) : null;
+  } catch { return null; }
+}
+
+export function setActiveGuard(g: UserProfile): void {
+  try { localStorage.setItem(ACTIVE_GUARD_KEY, JSON.stringify(g)); } catch {}
+}
+
+export function clearActiveGuard(): void {
+  try { localStorage.removeItem(ACTIVE_GUARD_KEY); } catch {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // RESET
 // ═══════════════════════════════════════════════════════════════════════════════
 

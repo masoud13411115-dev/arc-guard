@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
-  Users, Clock, CheckCircle, TrendingUp,
-  MapPin, QrCode, LogOut, Activity, Shield, AlertTriangle,
-  Monitor, FileText, Map
+  Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
+  Monitor, FileText, Map, MapPin, Radio, Bell
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
@@ -10,24 +9,29 @@ import LiveMonitor from "./LiveMonitor";
 import CheckpointManager from "./CheckpointManager";
 import PatrolLogs from "./PatrolLogs";
 import LiveMapView from "@/components/LiveMapView";
-import { subscribePatrolLogs, subscribeGuardSessions, subscribeMissedAlerts, subscribeCheckpoints } from "@/lib/firestore";
+import AlertPopup from "@/components/AlertPopup";
+import AlertHistory from "./AlertHistory";
+import {
+  subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
+  subscribeCheckpoints, resolveAlert,
+} from "@/lib/firestore";
 import { db, isFirebaseReady } from "@/firebase";
-import { DEMO_SESSIONS, DEMO_CHECKPOINTS, DEMO_LOGS } from "@/lib/demo";
-import type { UserProfile, PatrolLog, GuardSession, MissedAlert, Checkpoint } from "@/types";
+import { DEMO_SESSIONS, DEMO_CHECKPOINTS, DEMO_LOGS, DEMO_ALERTS } from "@/lib/demo";
+import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
 
 interface DashboardProps {
   profile: UserProfile;
   onLogout: () => void;
 }
 
-type Tab = "overview" | "map" | "monitor" | "checkpoints" | "logs";
+type Tab = "overview" | "map" | "monitor" | "checkpoints" | "logs" | "alerts";
 
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
   const [sessions, setSessions] = useState<GuardSession[]>([]);
-  const [alerts, setAlerts] = useState<MissedAlert[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
 
   const isDemo = !isFirebaseReady;
@@ -37,14 +41,26 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       setSessions(DEMO_SESSIONS);
       setCheckpoints(DEMO_CHECKPOINTS);
       setRecentLogs(DEMO_LOGS);
+      setAlerts(DEMO_ALERTS);
       return;
     }
     const u1 = subscribePatrolLogs(profile.companyId, setRecentLogs, 100);
     const u2 = subscribeGuardSessions(profile.companyId, setSessions);
-    const u3 = subscribeMissedAlerts(profile.companyId, setAlerts);
+    const u3 = subscribeAlerts(profile.companyId, setAlerts);
     const u4 = subscribeCheckpoints(profile.companyId, setCheckpoints);
     return () => { u1(); u2(); u3(); u4(); };
   }, [profile.companyId, isDemo]);
+
+  const handleResolveAlert = useCallback(async (id: string) => {
+    if (isDemo) {
+      setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, resolved: true, resolvedAt: Date.now() } : a));
+      return;
+    }
+    await resolveAlert(profile.companyId, id);
+  }, [isDemo, profile.companyId]);
+
+  const openAlerts = alerts.filter((a) => !a.resolved);
+  const sosAlerts = openAlerts.filter((a) => a.kind === "sos");
 
   const activeGuards = sessions.filter((s) => s.status === "active").length;
   const scansToday = recentLogs.filter((l) => {
@@ -56,14 +72,15 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const stats = [
     { label: "کل نگهبانان", value: String(sessions.length), icon: Users, color: "text-primary", bg: "bg-primary/10" },
     { label: "فعال اکنون", value: String(activeGuards), icon: CheckCircle, color: "text-green-400", bg: "bg-green-400/10" },
-    { label: "هشدارهای باز", value: String(alerts.length), icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-400/10" },
+    { label: "هشدار باز", value: String(openAlerts.length), icon: AlertTriangle, color: openAlerts.length > 0 ? "text-red-400" : "text-yellow-400", bg: openAlerts.length > 0 ? "bg-red-400/10" : "bg-yellow-400/10" },
     { label: "اسکن‌های امروز", value: String(scansToday), icon: QrCode, color: "text-purple-400", bg: "bg-purple-400/10" },
   ];
 
-  const navItems: { tab: Tab; label: string; icon: React.ElementType }[] = [
+  const navItems: { tab: Tab; label: string; icon: React.ElementType; badge?: number }[] = [
     { tab: "overview",    label: "داشبورد",       icon: Activity },
     { tab: "map",         label: "نقشه زنده",      icon: Map },
     { tab: "monitor",     label: "مانیتور زنده",   icon: Monitor },
+    { tab: "alerts",      label: "هشدارها",        icon: Bell, badge: openAlerts.length },
     { tab: "checkpoints", label: "ایستگاه‌ها",     icon: MapPin },
     { tab: "logs",        label: "گزارش گشت",      icon: FileText },
   ];
@@ -79,14 +96,22 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         </div>
       </div>
       <nav className="flex-1 space-y-1">
-        {navItems.map(({ tab, label, icon: Icon }) => (
+        {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => { setActiveTab(tab); setSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
               activeTab === tab
                 ? "bg-primary/15 text-primary border border-primary/20"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
             }`}>
-            <Icon className="w-4 h-4" />{label}
+            <Icon className="w-4 h-4" />
+            <span className="flex-1 text-right">{label}</span>
+            {badge != null && badge > 0 && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                tab === "alerts" && sosAlerts.length > 0
+                  ? "bg-red-500 text-white animate-pulse"
+                  : "bg-yellow-500/20 text-yellow-400"
+              }`}>{badge}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -105,11 +130,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
   return (
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col">
+      {/* ── Alert Popup Overlay ── */}
+      <AlertPopup alerts={openAlerts} onResolve={handleResolveAlert} />
+
       <MobileHeader
         title="ARC Guard"
         subtitle={profile.companyName ?? "مدیریت"}
         onMenuClick={() => setSidebarOpen(!sidebarOpen)}
-        notificationCount={alerts.length}
+        notificationCount={openAlerts.length}
       />
 
       {sidebarOpen && (
@@ -123,15 +151,18 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
       {/* Mobile tab bar */}
       <div className="md:hidden flex overflow-x-auto border-b border-border bg-card/80 backdrop-blur shrink-0 scrollbar-none">
-        {navItems.map(({ tab, label, icon: Icon }) => (
+        {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex flex-col items-center gap-0.5 px-4 py-2.5 shrink-0 text-[10px] font-medium transition-colors border-b-2 ${
-              activeTab === tab
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground"
+            className={`relative flex flex-col items-center gap-0.5 px-3 py-2.5 shrink-0 text-[9px] font-medium transition-colors border-b-2 ${
+              activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground"
             }`}>
             <Icon className="w-4 h-4" />
             {label}
+            {badge != null && badge > 0 && (
+              <span className={`absolute top-1 right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold rounded-full ${
+                tab === "alerts" && sosAlerts.length > 0 ? "bg-red-500 text-white animate-pulse" : "bg-yellow-500 text-black"
+              }`}>{badge > 9 ? "9+" : badge}</span>
+            )}
           </button>
         ))}
       </div>
@@ -152,6 +183,25 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                   {new Date().toLocaleDateString("fa-IR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                 </p>
               </div>
+
+              {/* Active SOS banner */}
+              {sosAlerts.length > 0 && (
+                <div className="rounded-xl border-2 border-red-500 bg-red-950/40 p-4 flex items-center gap-3 animate-pulse-ring">
+                  <Radio className="w-6 h-6 text-red-400 animate-ping shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-red-400">🚨 {sosAlerts.length} هشدار SOS فعال</p>
+                    <p className="text-xs text-red-300/70 mt-0.5">
+                      {sosAlerts.map((a) => a.guardName).join("، ")} — نیاز به توجه فوری
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab("alerts")}
+                    className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0"
+                  >
+                    مشاهده
+                  </button>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {stats.map(({ label, value, icon: Icon, color, bg }) => (
@@ -197,8 +247,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                           </div>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
                             s === "valid" ? "bg-green-400/10 text-green-400" :
-                            s === "outside" ? "bg-yellow-400/10 text-yellow-400" :
-                            "bg-destructive/10 text-destructive"
+                            s === "outside" ? "bg-yellow-400/10 text-yellow-400" : "bg-destructive/10 text-destructive"
                           }`}>
                             {s === "valid" ? "معتبر" : s === "outside" ? "خارج" : "ناموفق"}
                           </span>
@@ -210,12 +259,13 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
               </div>
 
               {/* Quick actions */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { label: "نقشه زنده",    tab: "map"         as Tab, icon: Map,      color: "text-green-400",   bg: "bg-green-400/10 border-green-500/20" },
-                  { label: "مانیتور زنده", tab: "monitor"     as Tab, icon: Monitor,  color: "text-primary",     bg: "bg-primary/10 border-primary/20" },
-                  { label: "ایستگاه‌ها",   tab: "checkpoints" as Tab, icon: MapPin,   color: "text-sky-400",     bg: "bg-sky-400/10 border-sky-500/20" },
-                  { label: "گزارش گشت",    tab: "logs"        as Tab, icon: FileText, color: "text-purple-400",  bg: "bg-purple-400/10 border-purple-500/20" },
+                  { label: "نقشه زنده",    tab: "map"      as Tab, icon: Map,      color: "text-green-400",   bg: "bg-green-400/10 border-green-500/20" },
+                  { label: "هشدارها",       tab: "alerts"   as Tab, icon: Bell,     color: "text-red-400",     bg: "bg-red-400/10 border-red-500/20" },
+                  { label: "مانیتور زنده", tab: "monitor"  as Tab, icon: Monitor,  color: "text-primary",     bg: "bg-primary/10 border-primary/20" },
+                  { label: "ایستگاه‌ها",   tab: "checkpoints" as Tab, icon: MapPin, color: "text-sky-400",   bg: "bg-sky-400/10 border-sky-500/20" },
+                  { label: "گزارش گشت",    tab: "logs"     as Tab, icon: FileText, color: "text-purple-400",  bg: "bg-purple-400/10 border-purple-500/20" },
                 ].map(({ label, tab, icon: Icon, color, bg }) => (
                   <button key={tab} onClick={() => setActiveTab(tab)}
                     className={`rounded-xl border ${bg} p-4 flex flex-col items-center gap-2 hover:opacity-80 transition-opacity`}>
@@ -245,16 +295,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             <div className="animate-fade-in-up">
               <div className="mb-4">
                 <h2 className="text-lg font-bold text-foreground">نقشه زنده گشت</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  موقعیت نگهبانان، ایستگاه‌ها و مسیر گشت روی نقشه
-                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">موقعیت نگهبانان، ایستگاه‌ها و مسیر گشت روی نقشه</p>
               </div>
-              <LiveMapView
-                sessions={sessions}
-                checkpoints={checkpoints}
-                logs={recentLogs}
-                isDemo={isDemo}
-              />
+              <LiveMapView sessions={sessions} checkpoints={checkpoints} logs={recentLogs} isDemo={isDemo} />
             </div>
           )}
 
@@ -266,6 +309,24 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <p className="text-xs text-muted-foreground mt-0.5">موقعیت و وضعیت نگهبانان در لحظه</p>
               </div>
               <LiveMonitor companyId={profile.companyId} />
+            </div>
+          )}
+
+          {/* ── Alerts ── */}
+          {activeTab === "alerts" && (
+            <div className="max-w-2xl animate-fade-in-up">
+              <div className="mb-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-foreground">هشدارها و اضطراری</h2>
+                  {openAlerts.length > 0 && (
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      sosAlerts.length > 0 ? "bg-red-500/20 text-red-400 animate-pulse" : "bg-yellow-500/20 text-yellow-400"
+                    }`}>{openAlerts.length} باز</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">SOS نگهبانان، ایستگاه‌های از دست رفته، تخلفات GPS</p>
+              </div>
+              <AlertHistory alerts={alerts} companyId={profile.companyId} onAlertResolved={handleResolveAlert} />
             </div>
           )}
 

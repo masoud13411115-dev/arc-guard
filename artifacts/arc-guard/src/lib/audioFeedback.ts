@@ -29,6 +29,10 @@ function beep(
   osc.stop(ac.currentTime + delay + duration + 0.01);
 }
 
+function vibrate(pattern: number[]) {
+  try { navigator.vibrate?.(pattern); } catch {}
+}
+
 /** ✓ Short high-pitched double-beep — scan success */
 export function playSuccess() {
   const ac = getCtx();
@@ -66,6 +70,23 @@ export function playCooldown() {
   vibrate([40, 20, 40, 20, 40]);
 }
 
-function vibrate(pattern: number[]) {
-  try { navigator.vibrate?.(pattern); } catch {}
+/** 🚨 SOS / Emergency — rapid urgent alarm */
+export function playEmergency() {
+  const ac = getCtx();
+  if (!ac) return;
+  for (let i = 0; i < 6; i++) {
+    beep(1400, 0.14, 0.7, "square", i * 0.22, ac);
+    beep(900, 0.1, 0.6, "square", i * 0.22 + 0.14, ac);
+  }
+  vibrate([300, 100, 300, 100, 300, 100, 500]);
+}
+
+/** ⚡ Missed checkpoint — medium urgency */
+export function playMissed() {
+  const ac = getCtx();
+  if (!ac) return;
+  beep(600, 0.2, 0.4, "triangle", 0, ac);
+  beep(500, 0.2, 0.4, "triangle", 0.25, ac);
+  beep(400, 0.3, 0.35, "triangle", 0.5, ac);
+  vibrate([150, 80, 150, 80, 150]);
 }

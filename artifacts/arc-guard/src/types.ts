@@ -59,17 +59,27 @@ export interface PatrolLog {
   offlineQueued?: boolean;
 }
 
-export interface MissedAlert {
+export type AlertKind = 'sos' | 'missed' | 'outside';
+
+export interface Alert {
   id?: string;
+  kind: AlertKind;
   guardId: string;
   guardName: string;
-  checkpointId: string;
-  checkpointName: string;
-  scheduledAt: number;
+  checkpointId?: string;
+  checkpointName?: string;
+  gps?: GpsCoords | null;
+  distanceMeters?: number | null;
+  scheduledAt?: number;
   alertedAt: number;
   companyId: string;
   resolved: boolean;
+  resolvedAt?: number;
+  message?: string;
 }
+
+/** @deprecated use Alert */
+export type MissedAlert = Alert;
 
 export interface GuardSession {
   guardId: string;

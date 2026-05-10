@@ -1,4 +1,4 @@
-import type { UserProfile, Checkpoint, PatrolLog, GuardSession, MissedAlert } from '@/types';
+import type { UserProfile, Checkpoint, PatrolLog, GuardSession, Alert } from '@/types';
 
 export const DEMO_COMPANY_ID = 'demo-company';
 
@@ -47,6 +47,58 @@ export const DEMO_SESSIONS: GuardSession[] = [
   { guardId: 'demo-guard3', guardName: 'رضا احمدی', lastSeen: now - 45 * 60000, lastCheckpoint: 'پارکینگ B', lastGps: null, status: 'idle', companyId: DEMO_COMPANY_ID },
 ];
 
-export const DEMO_ALERTS: MissedAlert[] = [
-  { id: 'da1', guardId: 'demo-guard3', guardName: 'رضا احمدی', checkpointId: 'cp1', checkpointName: 'دروازه اصلی', scheduledAt: now - 35 * 60000, alertedAt: now - 20 * 60000, companyId: DEMO_COMPANY_ID, resolved: false },
+export const DEMO_ALERTS: Alert[] = [
+  {
+    id: 'da1',
+    kind: 'sos',
+    guardId: 'demo-guard3',
+    guardName: 'رضا احمدی',
+    gps: { lat: 35.6855, lng: 51.3775, accuracy: 20 },
+    alertedAt: now - 8 * 60000,
+    companyId: DEMO_COMPANY_ID,
+    resolved: false,
+    message: 'اضطراری توسط نگهبان فعال شد',
+  },
+  {
+    id: 'da2',
+    kind: 'missed',
+    guardId: 'demo-guard3',
+    guardName: 'رضا احمدی',
+    checkpointId: 'cp1',
+    checkpointName: 'دروازه اصلی',
+    scheduledAt: now - 35 * 60000,
+    alertedAt: now - 20 * 60000,
+    companyId: DEMO_COMPANY_ID,
+    resolved: false,
+    message: 'بازدید از ایستگاه در زمان مقرر انجام نشد',
+  },
+  {
+    id: 'da3',
+    kind: 'outside',
+    guardId: 'demo-guard3',
+    guardName: 'رضا احمدی',
+    checkpointId: 'cp3',
+    checkpointName: 'پارکینگ B',
+    gps: { lat: 35.6855, lng: 51.3775, accuracy: 42 },
+    distanceMeters: 94,
+    alertedAt: now - 48 * 60000,
+    companyId: DEMO_COMPANY_ID,
+    resolved: true,
+    resolvedAt: now - 30 * 60000,
+    message: 'اسکن از خارج از محدوده مجاز انجام شد (۹۴ متر)',
+  },
+  {
+    id: 'da4',
+    kind: 'missed',
+    guardId: 'demo-guard2',
+    guardName: 'سارا حسینی',
+    checkpointId: 'cp4',
+    checkpointName: 'دسترسی پشت‌بام',
+    scheduledAt: now - 4 * 3600000,
+    alertedAt: now - 3.5 * 3600000,
+    companyId: DEMO_COMPANY_ID,
+    resolved: true,
+    resolvedAt: now - 3 * 3600000,
+    message: 'بازدید از ایستگاه در زمان مقرر انجام نشد',
+  },
 ];

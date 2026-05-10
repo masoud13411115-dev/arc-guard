@@ -7,7 +7,7 @@ import { collection, addDoc, getDocs, getDoc, query, orderBy, where, serverTimes
 import type { Html5Qrcode as Html5QrcodeType } from "html5-qrcode";
 import { MapPin, QrCode, LogIn, LogOut, ArrowRight, AlertCircle } from "lucide-react";
 import ManagerScreen from "./ManagerScreen";
-import { toJalaliDateTime } from "./jalali";
+import { toJalaliDateTime, toJalaliDate, jalaliDateKey, localTimeStr } from "./jalali";
 
 const queryClient = new QueryClient();
 
@@ -349,7 +349,10 @@ function AppContent() {
         ...(enrichHolidayTitle !== undefined && { holidayTitle: enrichHolidayTitle }),
         isWeekendWork: enrichIsWeekendWork,
         createdAt: serverTimestamp(),
-        createdAtText: nowText()
+        createdAtText: nowText(),
+        localDateJalali: toJalaliDate(new Date()),
+        localDateKey: jalaliDateKey(new Date()),
+        localTime: localTimeStr(new Date()),
       });
       setMessage({ text: type === "check_in" ? "ورود با موفقیت ثبت شد." : "خروج با موفقیت ثبت شد.", type: "success" });
       // Reset after success

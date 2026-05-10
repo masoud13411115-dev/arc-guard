@@ -85,3 +85,21 @@ export function jalaliStrToGreg(s: string): string | null {
 export function todayJalali(): string {
   return toJalaliDate(new Date());
 }
+
+/** JS Date → dash-separated key "1403-08-20" (for reliable string comparison) */
+export function jalaliDateKey(d: Date): string {
+  const { jy, jm, jd } = jalaali.toJalaali(
+    d.getFullYear(), d.getMonth() + 1, d.getDate()
+  );
+  return `${jy}-${String(jm).padStart(2,"0")}-${String(jd).padStart(2,"0")}`;
+}
+
+/** Today as dash key "1403-08-20" */
+export function todayJalaliKey(): string {
+  return jalaliDateKey(new Date());
+}
+
+/** JS Date → "HH:MM" local time */
+export function localTimeStr(d: Date): string {
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}

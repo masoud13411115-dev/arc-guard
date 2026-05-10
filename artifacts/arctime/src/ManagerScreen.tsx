@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { toJalaliDate, todayJalali } from "./jalali";
+import { toJalaliDate, todayJalali, todayJalaliKey } from "./jalali";
 import * as XLSX from "xlsx";
 import {
   ArrowRight, RefreshCw, Download, Users, LogIn, LogOut,
@@ -18,6 +18,9 @@ interface AttendanceRecord {
   type?: "check_in" | "check_out";
   createdAtText?: string;
   createdAt?: { toDate?: () => Date; seconds?: number };
+  localDateKey?: string;
+  localDateJalali?: string;
+  localTime?: string;
   distanceMeters?: number;
   branchName?: string;
   branchId?: string;
@@ -67,6 +70,9 @@ function getDate(r: AttendanceRecord): Date | null {
 }
 
 function isToday(r: AttendanceRecord): boolean {
+  // Prefer localDateKey saved at write time — immune to timezone drift
+  if (r.localDateKey) return r.localDateKey === todayJalaliKey();
+  // Fallback for older records without localDateKey
   const d = getDate(r);
   if (!d) return false;
   return toJalaliDate(d) === todayJalali();
@@ -141,8 +147,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
     employeesToday: new Set(
       filtered.filter(r => String(r.type) === "check_in" && isToday(r)).map(r => r.employeeName)
     ).size,
-    checkIns: filtered.filter(r => String(r.type) === "check_in").length,
-    checkOuts: filtered.filter(r => String(r.type) === "check_out").length,
+    checkIns: filtered.filter(r => String(r.type) === "check_in" && isToday(r)).length,
+    checkOuts: filtered.filter(r => String(r.type) === "check_out" && isToday(r)).length,
     lateArrivals: filtered.filter(r => computeLate(r) && isToday(r)).length,
   }), [filtered]);
 
@@ -158,6 +164,8 @@ export default function ManagerScreen({ records, loading, onRefresh, onBack, onL
       "دقیقه تأخیر": r.lateMinutes ?? "",
       "خروج زود": r.isEarlyLeave === true ? "بله" : r.isEarlyLeave === false ? "خیر" : "",
       "دقیقه خروج زود": r.earlyLeaveMinutes ?? "",
+      "تاریخ شمسی (محلی)": r.localDateJalali ?? r.createdAtText?.split(" ")[0] ?? "",
+      "ساعت (محلی)": r.localTime ?? r.createdAtText?.split(" ")[1] ?? "",
       "تاریخ و ساعت": r.createdAtText ?? "",
       "کار در روز تعطیل": r.isHolidayWork ? "بله" : "خیر",
       "تعطیل کاری": r.isWeekendWork ? "بله" : "خیر",

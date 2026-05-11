@@ -186,7 +186,9 @@ function AppContent() {
           <GuardPatrol
             guardId={profile.uid}
             guardName={profile.displayName}
+            guardCode={profile.guardCode}
             companyId={profile.companyId}
+            companyName={profile.companyName}
             onLogout={handleLogout}
           />
         )}

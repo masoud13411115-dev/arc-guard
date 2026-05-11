@@ -17,7 +17,9 @@ import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 interface GuardPatrolProps {
   guardId: string;
   guardName: string;
+  guardCode?: string;
   companyId: string;
+  companyName?: string;
   onLogout: () => void;
 }
 
@@ -91,7 +93,7 @@ function gpsErrorTitle(code: number): string {
   }
 }
 
-export default function GuardPatrol({ guardId, guardName, companyId, onLogout }: GuardPatrolProps) {
+export default function GuardPatrol({ guardId, guardName, guardCode, companyId, companyName, onLogout }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints]             = useState<Checkpoint[]>([]);
   const [checkpointsLoaded, setCheckpointsLoaded] = useState(false);
   const [gps, setGps]                             = useState<GpsCoords | null>(null);
@@ -686,32 +688,58 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col select-none" dir="rtl">
 
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-5 pt-6 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-            <Shield className="w-7 h-7 text-primary" />
-          </div>
-          <div>
-            <p className="text-[19px] font-bold text-foreground leading-tight">{guardName}</p>
-            <p className="text-[14px] text-muted-foreground mt-0.5">نگهبان</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[14px] font-semibold ${
-            online ? "bg-green-500/12 border-green-500/35 text-green-400" : "bg-red-500/12 border-red-500/35 text-red-400"
-          }`}>
-            {online
-              ? <><Wifi className="w-4 h-4" />آنلاین</>
-              : <><WifiOff className="w-4 h-4" />آفلاین</>}
+      <header className="px-5 pt-5 pb-3 space-y-3">
+
+        {/* Top row: company + mode badge + logout */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {/* Guard mode badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/12 border border-green-500/30">
+              <Shield className="w-3.5 h-3.5 text-green-400" />
+              <span className="text-[12px] font-bold text-green-400 tracking-wide">حالت نگهبان</span>
+            </div>
+            {/* Company name */}
+            {companyName && (
+              <span className="text-[12px] text-muted-foreground truncate max-w-[120px]">{companyName}</span>
+            )}
           </div>
           <button
             onClick={onLogout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-muted-foreground
               hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors"
           >
             <LogOut className="w-4 h-4" />
             <span className="text-[13px] font-medium">خروج</span>
           </button>
+        </div>
+
+        {/* Bottom row: guard identity + online status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+              <Shield className="w-7 h-7 text-primary" />
+            </div>
+            <div>
+              <p className="text-[19px] font-bold text-foreground leading-tight">{guardName}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {guardCode && (
+                  <span className="text-[12px] font-mono font-semibold text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded">
+                    {guardCode}
+                  </span>
+                )}
+                <span className="text-[13px] text-muted-foreground">نگهبان</span>
+              </div>
+            </div>
+          </div>
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] font-semibold ${
+            online
+              ? "bg-green-500/12 border-green-500/35 text-green-400"
+              : "bg-red-500/12 border-red-500/35 text-red-400"
+          }`}>
+            {online
+              ? <><Wifi className="w-4 h-4" />آنلاین</>
+              : <><WifiOff className="w-4 h-4" />آفلاین</>}
+          </div>
         </div>
       </header>
 

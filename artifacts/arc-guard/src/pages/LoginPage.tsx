@@ -1,11 +1,11 @@
 import { useState } from "react";
 import {
-  Shield, Eye, EyeOff, Lock, Mail, AlertCircle, Info,
-  ChevronDown, ChevronUp, Hash, Building2,
+  Shield, Eye, EyeOff, Lock, AlertCircle, Info,
+  ChevronDown, ChevronUp, Hash, Building2, AtSign,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import {
-  signIn, signInWithGuardCode, resolveCompanyByInviteCode,
+  signInWithUsername, signInWithGuardCode, resolveCompanyByInviteCode,
   getUserProfile,
 } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
@@ -17,14 +17,13 @@ interface Props {
   onRegister: () => void;
 }
 
-const FIREBASE_MANAGER_ERRORS: Record<string, string> = {
-  "auth/user-not-found":         "ایمیل یا رمز عبور اشتباه است.",
-  "auth/wrong-password":         "ایمیل یا رمز عبور اشتباه است.",
-  "auth/invalid-credential":     "ایمیل یا رمز عبور اشتباه است.",
+const FIREBASE_ERRORS: Record<string, string> = {
+  "auth/user-not-found":         "نام کاربری یا رمز عبور اشتباه است.",
+  "auth/wrong-password":         "نام کاربری یا رمز عبور اشتباه است.",
+  "auth/invalid-credential":     "نام کاربری یا رمز عبور اشتباه است.",
   "auth/too-many-requests":      "تعداد تلاش زیاد. چند دقیقه صبر کنید.",
   "auth/network-request-failed": "خطای اتصال به اینترنت. اتصال شبکه را بررسی کنید.",
   "auth/user-disabled":          "حساب شما توسط مدیر غیرفعال شده است.",
-  "auth/invalid-email":          "فرمت ایمیل اشتباه است.",
 };
 
 type LoginMode = "manager" | "guard";
@@ -33,7 +32,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const [mode, setMode] = useState<LoginMode>("manager");
 
   // Manager fields
-  const [email, setEmail]       = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   // Guard fields
@@ -46,17 +45,17 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const [error, setError]     = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
-  // ── Manager login ──────────────────────────────────────────────────────────
+  // ── Manager / Super Admin login ────────────────────────────────────────────
   const handleManagerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید."); return; }
-    if (!email.trim()) { setError("ایمیل الزامی است."); return; }
-    if (!password)     { setError("رمز عبور الزامی است."); return; }
+    if (!username.trim()) { setError("نام کاربری الزامی است."); return; }
+    if (!password)        { setError("رمز عبور الزامی است."); return; }
 
     setLoading(true);
     try {
-      const user    = await signIn(email.trim().toLowerCase(), password);
+      const user    = await signInWithUsername(username.trim(), password);
       const profile = await getUserProfile(user.uid);
       if (!profile)        { setError("پروفایل کاربری یافت نشد. با پشتیبانی تماس بگیرید."); return; }
       if (!profile.active) { setError("حساب شما غیرفعال است. با مدیر تماس بگیرید."); return; }
@@ -66,7 +65,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code ?? "";
       logger.warn("login", "Manager failed", code);
-      setError(FIREBASE_MANAGER_ERRORS[code] ?? "خطا در ورود. دوباره تلاش کنید.");
+      setError(FIREBASE_ERRORS[code] ?? "خطا در ورود. دوباره تلاش کنید.");
     } finally {
       setLoading(false);
     }
@@ -77,7 +76,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
     e.preventDefault();
     setError("");
     if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید."); return; }
-    if (!guardCode.trim()) { setError("کد نگهبان الزامی است."); return; }
+    if (!guardCode.trim())  { setError("کد نگهبان الزامی است."); return; }
     if (!inviteCode.trim()) { setError("کد دعوت شرکت الزامی است."); return; }
     if (!pin)               { setError("PIN الزامی است."); return; }
 
@@ -91,7 +90,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
       logger.info("login", `Guard success: ${profile.displayName}`);
       onLogin(profile);
     } catch (err: unknown) {
-      const msg = (err as Error).message ?? "";
+      const msg  = (err as Error).message ?? "";
       const code = (err as { code?: string })?.code ?? "";
       logger.warn("login", "Guard failed", code, msg);
       if (msg.includes("کد دعوت")) setError(msg);
@@ -108,6 +107,13 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
       setLoading(false);
     }
   };
+
+  const spinnerSvg = (
+    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+    </svg>
+  );
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background arc-grid-bg" dir="rtl">
@@ -199,21 +205,21 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
 
           <div className="p-5">
-            {/* ── Manager form ── */}
+            {/* ── Manager / Super Admin form ── */}
             {mode === "manager" && (
               <form onSubmit={handleManagerLogin} className="space-y-3" noValidate>
                 <div>
-                  <label htmlFor="arc-email" className="text-xs text-muted-foreground block mb-1">ایمیل مدیر</label>
+                  <label htmlFor="arc-username" className="text-xs text-muted-foreground block mb-1">نام کاربری</label>
                   <div className="relative">
-                    <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <AtSign className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     <input
-                      id="arc-email"
-                      type="email"
-                      inputMode="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="manager@company.com"
-                      autoComplete="email"
+                      id="arc-username"
+                      type="text"
+                      inputMode="text"
+                      value={username}
+                      onChange={e => setUsername(e.target.value.toLowerCase())}
+                      placeholder="نام کاربری خود را وارد کنید"
+                      autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
                       disabled={!isFirebaseReady}
@@ -254,14 +260,8 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                 <button type="submit" disabled={loading || !isFirebaseReady}
                   className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
                   {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                      </svg>
-                      در حال ورود...
-                    </span>
-                  ) : "ورود مدیر"}
+                    <span className="flex items-center justify-center gap-2">{spinnerSvg}در حال ورود...</span>
+                  ) : "ورود"}
                 </button>
               </form>
             )}
@@ -339,13 +339,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                 <button type="submit" disabled={loading || !isFirebaseReady}
                   className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
                   {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                      </svg>
-                      در حال ورود...
-                    </span>
+                    <span className="flex items-center justify-center gap-2">{spinnerSvg}در حال ورود...</span>
                   ) : "ورود نگهبان"}
                 </button>
 

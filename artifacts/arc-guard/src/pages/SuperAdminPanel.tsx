@@ -55,7 +55,7 @@ export default function SuperAdminPanel({ profile: _profile, onLogout }: SuperAd
 
   const filtered = companies.filter((c) => {
     if (search && !c.name.toLowerCase().includes(search.toLowerCase()) &&
-        !c.adminEmail.toLowerCase().includes(search.toLowerCase())) return false;
+        !c.adminUsername.toLowerCase().includes(search.toLowerCase())) return false;
     if (planFilter !== "all" && c.plan !== planFilter) return false;
     if (statusFilter === "active" && (c.suspended || !c.active)) return false;
     if (statusFilter === "suspended" && !c.suspended) return false;
@@ -209,7 +209,7 @@ export default function SuperAdminPanel({ profile: _profile, onLogout }: SuperAd
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/20">آزمایشی</span>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{company.adminEmail}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">@{company.adminUsername}</p>
                       <div className="flex items-center gap-3 mt-1 flex-wrap">
                         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                           <Users className="w-2.5 h-2.5" />

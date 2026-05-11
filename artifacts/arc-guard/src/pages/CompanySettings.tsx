@@ -305,7 +305,7 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
         </div>
         {[
           { label: "نام شرکت", value: company.name },
-          { label: "ایمیل مدیر", value: company.adminEmail },
+          { label: "نام کاربری مدیر", value: "@" + company.adminUsername },
           { label: "شناسه", value: company.id, mono: true },
           { label: "تاریخ ثبت", value: new Date(company.createdAt).toLocaleDateString("fa-IR") },
         ].map(({ label, value, mono }) => (

@@ -15,21 +15,13 @@ import { generateInviteCode } from '@/lib/plans';
 
 export type { User };
 
-// ── Auth state ────────────────────────────────────────────────────────────────
-export function onAuthChange(cb: (user: User | null) => void): () => void {
-  if (!auth || !isFirebaseReady) { cb(null); return () => {}; }
-  return onAuthStateChanged(auth, cb);
-}
+// ── Internal helpers ───────────────────────────────────────────────────────────
 
-// ── Manager login (email + password) ─────────────────────────────────────────
-export async function signIn(email: string, password: string): Promise<User> {
-  if (!auth) throw new Error('Firebase پیکربندی نشده است.');
-  const cred = await signInWithEmailAndPassword(auth, email, password);
-  return cred.user;
+/** Maps a username to a synthetic Firebase Auth email. Never shown in UI. */
+function usernameToEmail(username: string): string {
+  const safe = username.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  return `${safe}@arcguard.local`;
 }
-
-// ── Guard login (guardCode + companyId + PIN) ─────────────────────────────────
-// Guards do not know their email — we derive a synthetic email internally.
 
 /** Derives a stable synthetic email for a guard. Never shown to the guard. */
 function guardSyntheticEmail(guardCode: string, companyId: string): string {
@@ -38,6 +30,31 @@ function guardSyntheticEmail(guardCode: string, companyId: string): string {
   return `${code}.${cid}@arcg.internal`;
 }
 
+// ── Auth state ────────────────────────────────────────────────────────────────
+export function onAuthChange(cb: (user: User | null) => void): () => void {
+  if (!auth || !isFirebaseReady) { cb(null); return () => {}; }
+  return onAuthStateChanged(auth, cb);
+}
+
+// ── Username availability check ───────────────────────────────────────────────
+/** Returns true if the username is available (not taken). */
+export async function checkUsernameAvailable(username: string): Promise<boolean> {
+  if (!db) throw new Error('Firebase پیکربندی نشده است.');
+  const snap = await getDocs(
+    query(collection(db, 'users'), where('username', '==', username.toLowerCase().trim())),
+  );
+  return snap.empty;
+}
+
+// ── Manager / Super Admin login (username + password) ─────────────────────────
+export async function signInWithUsername(username: string, password: string): Promise<User> {
+  if (!auth) throw new Error('Firebase پیکربندی نشده است.');
+  const email = usernameToEmail(username.trim());
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  return cred.user;
+}
+
+// ── Guard login (guardCode + companyId + PIN) ─────────────────────────────────
 /**
  * Look up a company document by its inviteCode.
  * Returns { id, name } or throws if not found.
@@ -93,14 +110,21 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
 
 // ── Register manager + create company ────────────────────────────────────────
 export async function registerManager(
-  email: string,
+  username: string,
   password: string,
   displayName: string,
   companyName: string,
 ): Promise<UserProfile> {
   if (!auth || !db) throw new Error('Firebase پیکربندی نشده است.');
 
-  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  const normalizedUsername = username.toLowerCase().trim();
+
+  // Check username uniqueness
+  const available = await checkUsernameAvailable(normalizedUsername);
+  if (!available) throw Object.assign(new Error('این نام کاربری قبلاً استفاده شده است.'), { code: 'username-taken' });
+
+  const syntheticEmail = usernameToEmail(normalizedUsername);
+  const cred = await createUserWithEmailAndPassword(auth, syntheticEmail, password);
   const uid = cred.user.uid;
   await updateProfile(cred.user, { displayName });
 
@@ -109,7 +133,7 @@ export async function registerManager(
   const companyData: Omit<CompanyRecord, 'id'> = {
     name: companyName,
     adminUid: uid,
-    adminEmail: email,
+    adminUsername: normalizedUsername,
     plan: 'basic',
     active: true,
     suspended: false,
@@ -123,7 +147,7 @@ export async function registerManager(
   const companyRef = await addDoc(collection(db, 'companies'), companyData);
 
   const profile: Omit<UserProfile, 'uid'> = {
-    email,
+    username: normalizedUsername,
     displayName,
     role: 'manager',
     companyId: companyRef.id,
@@ -149,19 +173,21 @@ export async function registerGuardWithCode(
 ): Promise<UserProfile> {
   if (!auth || !db) throw new Error('Firebase پیکربندی نشده است.');
 
-  const email = guardSyntheticEmail(guardCode, companyId);
+  const normalizedCode = guardCode.trim().toUpperCase();
+  const syntheticEmail = guardSyntheticEmail(normalizedCode, companyId);
 
-  const cred = await createUserWithEmailAndPassword(auth, email, pin);
+  const cred = await createUserWithEmailAndPassword(auth, syntheticEmail, pin);
   const uid = cred.user.uid;
   await updateProfile(cred.user, { displayName });
 
+  // Guards use their guardCode as username
   const profile: Omit<UserProfile, 'uid'> = {
-    email,
+    username: normalizedCode,
     displayName,
     role: 'guard',
     companyId,
     companyName,
-    guardCode: guardCode.trim().toUpperCase(),
+    guardCode: normalizedCode,
     active: true,
     createdAt: Date.now(),
   };
@@ -172,18 +198,25 @@ export async function registerGuardWithCode(
 
 // ── Register super admin ──────────────────────────────────────────────────────
 export async function registerSuperAdmin(
-  email: string,
+  username: string,
   password: string,
   displayName: string,
 ): Promise<UserProfile> {
   if (!auth || !db) throw new Error('Firebase پیکربندی نشده است.');
 
-  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  const normalizedUsername = username.toLowerCase().trim();
+
+  // Check username uniqueness
+  const available = await checkUsernameAvailable(normalizedUsername);
+  if (!available) throw Object.assign(new Error('این نام کاربری قبلاً استفاده شده است.'), { code: 'username-taken' });
+
+  const syntheticEmail = usernameToEmail(normalizedUsername);
+  const cred = await createUserWithEmailAndPassword(auth, syntheticEmail, password);
   const uid = cred.user.uid;
   await updateProfile(cred.user, { displayName });
 
   const profile: Omit<UserProfile, 'uid'> = {
-    email,
+    username: normalizedUsername,
     displayName,
     role: 'super_admin',
     companyId: 'platform',

@@ -10,7 +10,7 @@ export interface Company {
   id: string;
   name: string;
   adminUid: string;
-  adminEmail: string;
+  adminUsername: string;
   createdAt: number;
 }
 
@@ -18,7 +18,7 @@ export interface CompanyRecord {
   id: string;
   name: string;
   adminUid: string;
-  adminEmail: string;
+  adminUsername: string;
   plan: PlanId;
   active: boolean;
   suspended: boolean;
@@ -32,7 +32,7 @@ export interface CompanyRecord {
 
 export interface UserProfile {
   uid: string;
-  email: string;
+  username: string;
   displayName: string;
   role: 'manager' | 'guard' | 'super_admin';
   companyId: string;

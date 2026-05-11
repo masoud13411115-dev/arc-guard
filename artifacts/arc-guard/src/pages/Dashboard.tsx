@@ -235,7 +235,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
       <div className="pt-3 border-t border-border mt-2">
         <div className="px-2 mb-2">
-          <p className="text-[10px] text-muted-foreground truncate">{profile.email}</p>
+          <p className="text-[10px] text-muted-foreground truncate">@{profile.username}</p>
         </div>
         <button onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors">

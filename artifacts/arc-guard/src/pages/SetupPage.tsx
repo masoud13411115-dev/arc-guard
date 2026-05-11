@@ -1,11 +1,13 @@
 import { useState } from "react";
 import {
-  Shield, Building2, User, Mail, Lock, Eye, EyeOff,
-  ArrowRight, CheckCircle, AlertCircle, Hash, KeyRound,
+  Shield, Building2, User, Lock, Eye, EyeOff,
+  ArrowRight, CheckCircle, AlertCircle, Hash, KeyRound, AtSign,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
-import { registerManager, registerGuardWithCode, resolveCompanyByInviteCode, getUserProfile } from "@/lib/auth";
-import { signIn } from "@/lib/auth";
+import {
+  registerManager, registerGuardWithCode, resolveCompanyByInviteCode,
+  checkUsernameAvailable,
+} from "@/lib/auth";
 import type { UserProfile } from "@/types";
 
 type Mode = "choose" | "manager" | "guard";
@@ -22,30 +24,34 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
   const [showPass, setShowPass] = useState(false);
 
   // Manager form
-  const [mEmail, setMEmail]     = useState("");
-  const [mPass, setMPass]       = useState("");
-  const [mName, setMName]       = useState("");
-  const [mCompany, setMCompany] = useState("");
+  const [mUsername, setMUsername] = useState("");
+  const [mPass, setMPass]         = useState("");
+  const [mName, setMName]         = useState("");
+  const [mCompany, setMCompany]   = useState("");
 
-  // Guard form — no email needed
-  const [gName, setGName]           = useState("");
-  const [gGuardCode, setGGuardCode] = useState("");
-  const [gInviteCode, setGInviteCode] = useState("");
-  const [gPin, setGPin]             = useState("");
-  const [gPinConfirm, setGPinConfirm] = useState("");
+  // Guard form
+  const [gName, setGName]               = useState("");
+  const [gGuardCode, setGGuardCode]     = useState("");
+  const [gInviteCode, setGInviteCode]   = useState("");
+  const [gPin, setGPin]                 = useState("");
+  const [gPinConfirm, setGPinConfirm]   = useState("");
 
   const handleManagerRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!mEmail || !mPass || !mName || !mCompany) { setError("همه فیلدها الزامی است."); return; }
+    if (!mUsername.trim() || !mPass || !mName || !mCompany) { setError("همه فیلدها الزامی است."); return; }
+    if (mUsername.trim().length < 3) { setError("نام کاربری باید حداقل ۳ کاراکتر باشد."); return; }
     if (mPass.length < 6) { setError("رمز عبور باید حداقل ۶ کاراکتر باشد."); return; }
     setLoading(true);
     try {
-      const profile = await registerManager(mEmail.trim(), mPass, mName.trim(), mCompany.trim());
+      const available = await checkUsernameAvailable(mUsername.trim());
+      if (!available) { setError("این نام کاربری قبلاً استفاده شده است. نام دیگری انتخاب کنید."); setLoading(false); return; }
+      const profile = await registerManager(mUsername.trim(), mPass, mName.trim(), mCompany.trim());
       onComplete(profile);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code ?? "";
-      if (code === "auth/email-already-in-use") setError("این ایمیل قبلاً ثبت شده است.");
+      if (code === "username-taken") setError("این نام کاربری قبلاً استفاده شده است.");
+      else if (code === "auth/email-already-in-use") setError("این نام کاربری قبلاً ثبت شده است.");
       else if (code === "auth/weak-password") setError("رمز عبور بسیار ضعیف است.");
       else setError("خطا در ثبت‌نام: " + (err as Error).message);
     } finally {
@@ -65,10 +71,7 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
 
     setLoading(true);
     try {
-      // 1. Resolve company from invite code
       const company = await resolveCompanyByInviteCode(gInviteCode.trim().toUpperCase());
-
-      // 2. Register guard with synthetic email (no real email required)
       const profile = await registerGuardWithCode(
         gName.trim(),
         gGuardCode.trim().toUpperCase(),
@@ -78,8 +81,8 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
       );
       onComplete(profile);
     } catch (err: unknown) {
-      const code  = (err as { code?: string })?.code ?? "";
-      const msg   = (err as Error).message ?? "";
+      const code = (err as { code?: string })?.code ?? "";
+      const msg  = (err as Error).message ?? "";
       if (msg.includes("کد دعوت")) setError(msg);
       else if (code === "auth/email-already-in-use") setError("این کد نگهبان قبلاً در این شرکت ثبت شده است.");
       else if (code === "auth/weak-password") setError("PIN بسیار ضعیف است. از ۶ رقم یا بیشتر استفاده کنید.");
@@ -132,7 +135,7 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-bold text-foreground">نگهبان</p>
-                <p className="text-xs text-muted-foreground mt-0.5">پیوستن به شرکت با کد دعوت — بدون نیاز به ایمیل</p>
+                <p className="text-xs text-muted-foreground mt-0.5">پیوستن به شرکت با کد دعوت و کد نگهبان</p>
               </div>
               <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
             </button>
@@ -154,23 +157,57 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
             <form onSubmit={handleManagerRegister} className="space-y-3" dir="rtl">
               <div className="space-y-1">
                 <label className={labelClass}>نام مدیر</label>
-                <input value={mName} onChange={(e) => setMName(e.target.value)} placeholder="نام و نام خانوادگی" className={commonInput} />
+                <div className="relative">
+                  <User className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    value={mName}
+                    onChange={(e) => setMName(e.target.value)}
+                    placeholder="نام و نام خانوادگی"
+                    className={commonInput + " pr-10"}
+                  />
+                </div>
               </div>
               <div className="space-y-1">
                 <label className={labelClass}>نام شرکت / سازمان</label>
-                <input value={mCompany} onChange={(e) => setMCompany(e.target.value)} placeholder="شرکت امنیتی آرک" className={commonInput} />
+                <div className="relative">
+                  <Building2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    value={mCompany}
+                    onChange={(e) => setMCompany(e.target.value)}
+                    placeholder="شرکت امنیتی آرک"
+                    className={commonInput + " pr-10"}
+                  />
+                </div>
               </div>
               <div className="space-y-1">
-                <label className={labelClass}>ایمیل</label>
+                <label className={labelClass}>نام کاربری (حداقل ۳ کاراکتر)</label>
                 <div className="relative">
-                  <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input type="email" value={mEmail} onChange={(e) => setMEmail(e.target.value)} placeholder="manager@company.com" className={commonInput + " pr-10"} />
+                  <AtSign className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={mUsername}
+                    onChange={(e) => setMUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                    placeholder="مثال: admin یا manager1"
+                    autoCapitalize="none"
+                    autoComplete="username"
+                    spellCheck={false}
+                    className={commonInput + " pr-10 font-mono"}
+                  />
                 </div>
+                <p className="text-[10px] text-muted-foreground">فقط حروف انگلیسی کوچک، عدد، نقطه و خط تیره مجاز است.</p>
               </div>
               <div className="space-y-1">
                 <label className={labelClass}>رمز عبور (حداقل ۶ کاراکتر)</label>
                 <div className="relative">
-                  <input type={showPass ? "text" : "password"} value={mPass} onChange={(e) => setMPass(e.target.value)} placeholder="••••••••" className={commonInput + " pl-10"} />
+                  <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type={showPass ? "text" : "password"}
+                    value={mPass}
+                    onChange={(e) => setMPass(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    className={commonInput + " pr-10 pl-10"}
+                  />
                   <button type="button" onClick={() => setShowPass(!showPass)} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                     {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -198,7 +235,7 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
           </div>
         )}
 
-        {/* Guard registration — no email required */}
+        {/* Guard registration */}
         {mode === "guard" && (
           <div className="rounded-xl border border-border bg-card p-6">
             <div className="flex items-center gap-2 mb-2">
@@ -206,7 +243,7 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
               <span className="text-sm font-bold text-foreground">ثبت‌نام نگهبان</span>
             </div>
             <p className="text-[11px] text-muted-foreground mb-4">
-              نیازی به ایمیل ندارید — فقط کد نگهبان، کد دعوت شرکت و یک PIN.
+              برای ثبت‌نام به کد نگهبان و کد دعوت شرکت نیاز دارید.
             </p>
             <form onSubmit={handleGuardRegister} className="space-y-3" dir="rtl">
 
@@ -224,7 +261,7 @@ export default function SetupPage({ onComplete, onBack }: SetupPageProps) {
                 </div>
               </div>
 
-              {/* Guard code (employee number) */}
+              {/* Guard code */}
               <div className="space-y-1">
                 <label className={labelClass}>کد نگهبان / شماره پرسنلی</label>
                 <div className="relative">

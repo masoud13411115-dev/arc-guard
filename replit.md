@@ -75,14 +75,22 @@ _Populate as you build — explicit user instructions worth remembering across s
 - On checkpoint create: `qrCode = ARCG|${companyId}|${checkpointId}` — never edited on update.
 - `isValidQrFormat` in `scanProtection.ts` accepts both v1 and v2. `parseQrCode` returns `{companyId, checkpointId}` for v2, null for v1.
 
-## ARC Guard — Guard Authentication (No Email)
+## ARC Guard — Username-Based Authentication (No Email in UI)
 
-- Guards do NOT need an email address. Firebase Auth is used internally with a **synthetic email**: `{guardCode}.{companyId}@arcg.internal`.
-- Guard registration: fullName + guardCode + inviteCode + PIN (min 6 chars). `registerGuardWithCode` in `auth.ts`.
+- **No email is shown anywhere in the UI.** Firebase Auth is used internally with synthetic emails — never exposed to users.
+- **Managers / Super Admins**: username + password. Synthetic email internally: `{username}@arcguard.local`.
+- **Guards**: guardCode + inviteCode + PIN. Synthetic email internally: `{guardCode}.{companyId}@arcg.internal`.
+- `usernameToEmail(username)` in `auth.ts` — maps username → `@arcguard.local` for Firebase Auth.
+- `signInWithUsername(username, password)` in `auth.ts` — replaces old `signIn(email, password)`.
+- `registerManager(username, password, displayName, companyName)` — stores `username` in Firestore, NOT email.
+- `registerSuperAdmin(username, password, displayName)` — same pattern.
+- `checkUsernameAvailable(username)` — queries Firestore `users` collection to enforce uniqueness.
+- `UserProfile.username` field — shown in UI as `@username`. `email` field removed.
+- `CompanyRecord.adminUsername` — replaces `adminEmail`. Shown as `@username` in SuperAdminPanel and CompanySettings.
+- Guard registration: fullName + guardCode + inviteCode + PIN (min 6 chars). `registerGuardWithCode` in `auth.ts`. Guard's `username` = their `guardCode`.
 - Guard login: guardCode + inviteCode (to resolve companyId) + PIN. `signInWithGuardCode` in `auth.ts`.
-- Manager login: unchanged — email + password via `signIn`.
-- LoginPage has two tabs: Manager / Guard.
-- SetupPage guard form: no email field; uses guardCode + inviteCode + PIN + PIN confirm.
+- LoginPage has two tabs: Manager+Admin / Guard.
+- Username rules: lowercase letters, numbers, dot, dash only (`/[^a-z0-9._-]/g` stripped).
 
 ## ARC Guard — Guard Scanner Logic
 

@@ -3,6 +3,7 @@ import {
   AlertTriangle, CheckCheck, Radio, Clock, MapPin,
   Filter, ChevronDown, ChevronUp, ShieldAlert, RotateCcw, Eye
 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import type { Alert, AlertKind } from "@/types";
 import { resolveAlert } from "@/lib/firestore";
 
@@ -17,46 +18,6 @@ interface AlertHistoryProps {
 type KindFilter = "all" | AlertKind;
 type StatusFilter = "all" | "open" | "resolved";
 
-const KIND_META: Record<AlertKind, {
-  label: string; color: string; bg: string; border: string;
-  icon: React.ElementType; badgeBg: string;
-}> = {
-  sos: {
-    label: "SOS اضطراری",
-    color: "text-red-400",
-    bg: "bg-red-500/10",
-    border: "border-red-500/30",
-    badgeBg: "bg-red-500/20 text-red-400 border-red-500/40",
-    icon: Radio,
-  },
-  missed: {
-    label: "ایستگاه از دست رفت",
-    color: "text-yellow-400",
-    bg: "bg-yellow-500/10",
-    border: "border-yellow-500/30",
-    badgeBg: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
-    icon: Clock,
-  },
-  outside: {
-    label: "خارج از محدوده",
-    color: "text-orange-400",
-    bg: "bg-orange-500/10",
-    border: "border-orange-500/30",
-    badgeBg: "bg-orange-500/20 text-orange-400 border-orange-500/40",
-    icon: MapPin,
-  },
-};
-
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts;
-  const m = Math.round(diff / 60000);
-  if (m < 1) return "همین الان";
-  if (m < 60) return `${m} دقیقه پیش`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} ساعت پیش`;
-  return Math.round(h / 24) + " روز پیش";
-}
-
 export default function AlertHistory({
   alerts,
   companyId,
@@ -64,10 +25,51 @@ export default function AlertHistory({
   seenIds = new Set(),
   onMarkSeen,
 }: AlertHistoryProps) {
+  const { t, dir } = useI18n();
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
+
+  const KIND_META: Record<AlertKind, {
+    label: string; color: string; bg: string; border: string;
+    icon: React.ElementType; badgeBg: string;
+  }> = {
+    sos: {
+      label: t("alert.sos.label"),
+      color: "text-red-400",
+      bg: "bg-red-500/10",
+      border: "border-red-500/30",
+      badgeBg: "bg-red-500/20 text-red-400 border-red-500/40",
+      icon: Radio,
+    },
+    missed: {
+      label: t("alert.missed.label"),
+      color: "text-yellow-400",
+      bg: "bg-yellow-500/10",
+      border: "border-yellow-500/30",
+      badgeBg: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
+      icon: Clock,
+    },
+    outside: {
+      label: t("alert.outside.label"),
+      color: "text-orange-400",
+      bg: "bg-orange-500/10",
+      border: "border-orange-500/30",
+      badgeBg: "bg-orange-500/20 text-orange-400 border-orange-500/40",
+      icon: MapPin,
+    },
+  };
+
+  const formatRelative = (ts: number): string => {
+    const diff = Date.now() - ts;
+    const m = Math.round(diff / 60000);
+    if (m < 1) return t("alert.time.now");
+    if (m < 60) return t("alert.time.minutes", { n: m });
+    const h = Math.round(m / 60);
+    if (h < 24) return t("alert.time.hours", { n: h });
+    return t("alert.time.days", { n: Math.round(h / 24) });
+  };
 
   const filtered = alerts
     .filter((a) => {
@@ -101,27 +103,27 @@ export default function AlertHistory({
   };
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div className="space-y-4" dir={dir}>
 
       {/* ── Summary bar ── */}
       <div className="grid grid-cols-3 gap-3">
         {[
           {
-            label: "SOS باز",
+            label: t("alert.summary.sos"),
             value: sosCount,
             color: "text-red-400",
             bg: "bg-red-500/10 border-red-500/20",
             animate: sosCount > 0,
           },
           {
-            label: "هشدار باز",
+            label: t("alert.summary.open"),
             value: openCount,
             color: openCount > 0 ? "text-yellow-400" : "text-muted-foreground",
             bg: openCount > 0 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-muted/20 border-border",
             animate: false,
           },
           {
-            label: "ندیده",
+            label: t("alert.summary.unseen"),
             value: unseenCount,
             color: unseenCount > 0 ? "text-primary" : "text-muted-foreground",
             bg: unseenCount > 0 ? "bg-primary/10 border-primary/20" : "bg-muted/20 border-border",
@@ -150,7 +152,7 @@ export default function AlertHistory({
                     : "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground hover:bg-accent"
                 }`}>
-                {k === "all" ? "همه" : KIND_META[k].label}
+                {k === "all" ? t("common.all") : KIND_META[k].label}
               </button>
             ))}
           </div>
@@ -160,7 +162,7 @@ export default function AlertHistory({
               className="flex items-center gap-1 text-[10px] text-primary hover:underline shrink-0"
             >
               <Eye className="w-3 h-3" />
-              همه دیده شد
+              {t("alert.filter.markSeen")}
             </button>
           )}
         </div>
@@ -173,7 +175,7 @@ export default function AlertHistory({
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:bg-accent"
               }`}>
-              {s === "all" ? "همه" : s === "open" ? "باز" : "بسته شده"}
+              {s === "all" ? t("common.all") : s === "open" ? t("alert.filter.open") : t("alert.filter.resolved")}
             </button>
           ))}
         </div>
@@ -183,7 +185,7 @@ export default function AlertHistory({
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-10 flex flex-col items-center gap-3">
           <ShieldAlert className="w-10 h-10 text-muted-foreground/20" />
-          <p className="text-sm text-muted-foreground">هیچ هشداری با این فیلتر یافت نشد</p>
+          <p className="text-sm text-muted-foreground">{t("alert.empty")}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -222,7 +224,7 @@ export default function AlertHistory({
                       </span>
                       {!isSeen && (
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${meta.badgeBg} animate-pulse`}>
-                          جدید
+                          {t("alert.badge.new")}
                         </span>
                       )}
                       {a.kind === "sos" && !a.resolved && (
@@ -231,7 +233,7 @@ export default function AlertHistory({
                     </div>
                     <p className="text-sm font-medium text-foreground truncate">{a.guardName}</p>
                     {a.checkpointName && (
-                      <p className="text-xs text-muted-foreground truncate">ایستگاه: {a.checkpointName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{t("alert.checkpoint", { name: a.checkpointName })}</p>
                     )}
                   </div>
 
@@ -239,10 +241,10 @@ export default function AlertHistory({
                     <span className="text-[10px] text-muted-foreground">{ago}</span>
                     {a.resolved ? (
                       <span className="flex items-center gap-0.5 text-[10px] text-green-400">
-                        <CheckCheck className="w-3 h-3" /> بسته شد
+                        <CheckCheck className="w-3 h-3" /> {t("alert.resolved")}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-red-400 font-medium animate-pulse">باز</span>
+                      <span className="text-[10px] text-red-400 font-medium animate-pulse">{t("alert.open")}</span>
                     )}
                   </div>
 
@@ -260,10 +262,10 @@ export default function AlertHistory({
                       <p className="text-xs text-muted-foreground leading-relaxed">{a.message}</p>
                     )}
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>زمان هشدار: {new Date(a.alertedAt).toLocaleString("fa-IR")}</span>
-                      {a.gps && <span>دقت GPS: ±{Math.round(a.gps.accuracy)} متر</span>}
-                      {a.distanceMeters != null && <span>فاصله: {a.distanceMeters} متر</span>}
-                      {a.resolvedAt && <span>بسته شد: {new Date(a.resolvedAt).toLocaleString("fa-IR")}</span>}
+                      <span>{t("alert.alertedAt")} {new Date(a.alertedAt).toLocaleString("fa-IR")}</span>
+                      {a.gps && <span>{t("alert.gpsAccuracy", { n: Math.round(a.gps.accuracy) })}</span>}
+                      {a.distanceMeters != null && <span>{t("alert.distance", { n: a.distanceMeters })}</span>}
+                      {a.resolvedAt && <span>{t("alert.resolvedAt")} {new Date(a.resolvedAt).toLocaleString("fa-IR")}</span>}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -276,7 +278,7 @@ export default function AlertHistory({
                           {resolving === a.id
                             ? <RotateCcw className="w-3.5 h-3.5 animate-spin" />
                             : <CheckCheck className="w-3.5 h-3.5" />}
-                          {resolving === a.id ? "در حال بستن..." : "تأیید و بستن هشدار"}
+                          {resolving === a.id ? t("alert.resolve.loading") : t("alert.resolve.btn")}
                         </button>
                       )}
                       {a.id && !seenIds.has(a.id) && !a.resolved && (
@@ -285,7 +287,7 @@ export default function AlertHistory({
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted border border-border text-muted-foreground text-xs hover:bg-accent transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5" />
-                          علامت‌گذاری دیده شد
+                          {t("alert.markSeen.btn")}
                         </button>
                       )}
                     </div>

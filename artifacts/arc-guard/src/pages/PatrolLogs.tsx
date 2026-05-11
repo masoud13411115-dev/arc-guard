@@ -4,6 +4,7 @@ import {
   Search, ChevronDown, X, Users, Shield, SlidersHorizontal,
   Loader2,
 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import { getPatrolLogs } from "@/lib/firestore";
 import { getQueue } from "@/lib/offline";
 import type { PatrolLog, ScanStatus } from "@/types";
@@ -12,11 +13,6 @@ interface PatrolLogsProps {
   companyId: string;
 }
 
-const statusLabel: Record<ScanStatus, string> = {
-  valid: "✓ معتبر",
-  outside: "⚠ خارج",
-  failed: "✗ ناموفق",
-};
 const statusColor: Record<ScanStatus, string> = {
   valid: "bg-green-500/10 text-green-400 border-green-500/20",
   outside: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
@@ -33,7 +29,6 @@ type StatusFilter = "all" | ScanStatus | "offline";
 interface GuardOption { id: string; name: string }
 interface CheckpointOption { id: string; name: string }
 
-// ── Click-outside hook ────────────────────────────────────────────────────────
 function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -44,18 +39,18 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
   }, [ref, onClose]);
 }
 
-// ── Dropdown component ────────────────────────────────────────────────────────
 interface DropdownProps {
   label: string;
   icon: React.ReactNode;
   options: { id: string; name: string }[];
   selected: string | null;
   allLabel: string;
+  emptyLabel: string;
   onSelect: (id: string | null) => void;
   accentColor?: string;
 }
 
-function SelectDropdown({ label, icon, options, selected, allLabel, onSelect, accentColor = "text-primary border-primary/40 bg-primary/10" }: DropdownProps) {
+function SelectDropdown({ label, icon, options, selected, allLabel, emptyLabel, onSelect, accentColor = "text-primary border-primary/40 bg-primary/10" }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -83,7 +78,6 @@ function SelectDropdown({ label, icon, options, selected, allLabel, onSelect, ac
       {open && (
         <div className="absolute top-[calc(100%+6px)] right-0 min-w-[220px] max-w-[280px] bg-card border border-border rounded-2xl shadow-2xl z-30 overflow-hidden"
           style={{ maxHeight: "60vh", overflowY: "auto" }}>
-          {/* All option */}
           <button
             type="button"
             onClick={() => { onSelect(null); setOpen(false); }}
@@ -119,7 +113,7 @@ function SelectDropdown({ label, icon, options, selected, allLabel, onSelect, ac
 
           {options.length === 0 && (
             <div className="px-4 py-4 text-center text-[13px] text-muted-foreground">
-              هنوز داده‌ای موجود نیست
+              {emptyLabel}
             </div>
           )}
         </div>
@@ -128,13 +122,18 @@ function SelectDropdown({ label, icon, options, selected, allLabel, onSelect, ac
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
 export default function PatrolLogs({ companyId }: PatrolLogsProps) {
+  const { t, dir } = useI18n();
   const [logs, setLogs] = useState<PatrolLog[]>([]);
   const [offlineLogs, setOfflineLogs] = useState<PatrolLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters
+  const statusLabel: Record<ScanStatus, string> = {
+    valid: t("logs.status.valid"),
+    outside: t("logs.status.outside"),
+    failed: t("logs.status.failed"),
+  };
+
   const [selectedGuardId, setSelectedGuardId] = useState<string | null>(null);
   const [selectedCpId, setSelectedCpId]       = useState<string | null>(null);
   const [filterStatus, setFilterStatus]        = useState<StatusFilter>("all");
@@ -153,7 +152,6 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
     ...logs,
   ], [logs, offlineLogs]);
 
-  // Derive unique guards from logs
   const guardOptions: GuardOption[] = useMemo(() => {
     const map = new Map<string, string>();
     allLogs.forEach(l => { if (l.guardId && l.guardName) map.set(l.guardId, l.guardName); });
@@ -162,7 +160,6 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
       .sort((a, b) => a.name.localeCompare(b.name, "fa"));
   }, [allLogs]);
 
-  // Derive unique checkpoints from logs
   const checkpointOptions: CheckpointOption[] = useMemo(() => {
     const map = new Map<string, string>();
     allLogs.forEach(l => { if (l.checkpointId && l.checkpointName) map.set(l.checkpointId, l.checkpointName); });
@@ -171,7 +168,6 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
       .sort((a, b) => a.name.localeCompare(b.name, "fa"));
   }, [allLogs]);
 
-  // Filtered logs
   const filtered = useMemo(() => allLogs.filter(log => {
     const matchGuard = !selectedGuardId || log.guardId === selectedGuardId;
     const matchCp    = !selectedCpId    || log.checkpointId === selectedCpId;
@@ -195,7 +191,7 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
   };
 
   const exportCsv = () => {
-    const header = "نگهبان,ایستگاه,زمان,عرض,طول,فاصله(متر),وضعیت";
+    const header = t("logs.csv.header");
     const rows = filtered.map(l =>
       [l.guardName, l.checkpointName, l.scannedAtText,
         l.gps?.lat ?? "", l.gps?.lng ?? "",
@@ -209,37 +205,38 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
   };
 
   const statusButtons: { value: StatusFilter; label: string; count: number }[] = [
-    { value: "all",     label: "همه",    count: allLogs.length },
-    { value: "valid",   label: "معتبر",  count: allLogs.filter(l => l.status === "valid").length },
-    { value: "outside", label: "خارج",   count: allLogs.filter(l => l.status === "outside").length },
-    { value: "failed",  label: "ناموفق", count: allLogs.filter(l => l.status === "failed").length },
+    { value: "all",     label: t("common.all"),           count: allLogs.length },
+    { value: "valid",   label: t("status.valid"),         count: allLogs.filter(l => l.status === "valid").length },
+    { value: "outside", label: t("status.outside"),       count: allLogs.filter(l => l.status === "outside").length },
+    { value: "failed",  label: t("status.failed"),        count: allLogs.filter(l => l.status === "failed").length },
     ...(offlineLogs.length > 0
-      ? [{ value: "offline" as StatusFilter, label: "آفلاین", count: offlineLogs.length }]
+      ? [{ value: "offline" as StatusFilter, label: t("logs.status.offline"), count: offlineLogs.length }]
       : []),
   ];
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div className="space-y-4" dir={dir}>
 
       {/* ── Filter toolbar ── */}
       <div className="space-y-3">
-        {/* Row 1: dropdowns + search toggle + export */}
         <div className="flex items-center gap-2 flex-wrap">
           <SelectDropdown
-            label="انتخاب نگهبان"
+            label={t("logs.guard.select")}
             icon={<Users className="w-4 h-4" />}
             options={guardOptions}
             selected={selectedGuardId}
-            allLabel="همه نگهبانان"
+            allLabel={t("logs.guard.all")}
+            emptyLabel={t("logs.no.data")}
             onSelect={setSelectedGuardId}
             accentColor="text-primary border-primary/40 bg-primary/10"
           />
           <SelectDropdown
-            label="انتخاب ایستگاه"
+            label={t("logs.cp.select")}
             icon={<MapPin className="w-4 h-4" />}
             options={checkpointOptions}
             selected={selectedCpId}
-            allLabel="همه ایستگاه‌ها"
+            allLabel={t("logs.cp.all")}
+            emptyLabel={t("logs.no.data")}
             onSelect={setSelectedCpId}
             accentColor="text-sky-400 border-sky-400/40 bg-sky-500/10"
           />
@@ -252,7 +249,7 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-border bg-muted text-muted-foreground hover:text-foreground"
               }`}
-              title="جستجو"
+              title={t("common.search")}
             >
               <Search className="w-4 h-4" />
             </button>
@@ -261,14 +258,13 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
               onClick={exportCsv}
               disabled={filtered.length === 0}
               className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-border bg-muted text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
-              title="دریافت CSV"
+              title={t("logs.export.csv")}
             >
               <Download className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Search field — conditional */}
         {(showSearch || search) && (
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -276,7 +272,7 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
               autoFocus
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="جستجو در نام نگهبان یا ایستگاه..."
+              placeholder={t("logs.search.placeholder")}
               className="w-full bg-muted border border-border rounded-xl pr-10 pl-10 py-2.5 text-[14px] focus:outline-none focus:border-primary transition-colors"
             />
             {search && (
@@ -288,7 +284,6 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
           </div>
         )}
 
-        {/* Row 2: Status pills */}
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-0.5">
           {statusButtons.map(({ value, label, count }) => (
             <button
@@ -313,12 +308,11 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
           ))}
         </div>
 
-        {/* ── Active filter chips ── */}
         {hasActiveFilters && (
           <div className="flex items-center gap-2 flex-wrap pt-1">
             <span className="flex items-center gap-1 text-[12px] text-muted-foreground shrink-0">
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              فیلتر فعال:
+              {t("logs.filter.active")}
             </span>
 
             {selectedGuardId && (
@@ -350,7 +344,7 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
                 : filterStatus === "failed"  ? "bg-red-500/12 border-red-500/30 text-red-400"
                 : "bg-orange-500/12 border-orange-500/30 text-orange-400"
               }`}>
-                {statusLabel[filterStatus as ScanStatus] ?? "آفلاین"}
+                {statusLabel[filterStatus as ScanStatus] ?? t("logs.status.offline")}
                 <button type="button" onClick={() => setFilterStatus("all")}
                   className="hover:text-destructive transition-colors ml-0.5">
                   <X className="w-3 h-3" />
@@ -372,24 +366,23 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
             <button type="button" onClick={clearAll}
               className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-destructive/10 mr-auto">
               <X className="w-3.5 h-3.5" />
-              پاک کردن فیلترها
+              {t("logs.filter.clear")}
             </button>
           </div>
         )}
 
-        {/* Result count */}
         <div className="flex items-center justify-between">
           <p className="text-[13px] text-muted-foreground">
-            {loading ? "در حال بارگذاری..." : `${filtered.length} رکورد`}
+            {loading ? t("common.loading") : t("logs.records", { n: filtered.length })}
             {filtered.length !== allLogs.length && !loading && (
-              <span className="text-muted-foreground/60"> از {allLogs.length}</span>
+              <span className="text-muted-foreground/60"> {t("logs.of", { total: allLogs.length })}</span>
             )}
           </p>
           {filtered.length > 0 && !loading && (
             <button type="button" onClick={exportCsv}
               className="flex items-center gap-1 text-[12px] text-primary hover:underline">
               <Download className="w-3.5 h-3.5" />
-              دریافت CSV
+              {t("logs.export.csv")}
             </button>
           )}
         </div>
@@ -399,18 +392,18 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
       {loading ? (
         <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
           <Loader2 className="w-5 h-5 animate-spin" />
-          <span className="text-sm">در حال بارگذاری...</span>
+          <span className="text-sm">{t("common.loading")}</span>
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 space-y-2">
           <Shield className="w-10 h-10 text-muted-foreground/30 mx-auto" />
           <p className="text-sm text-muted-foreground">
-            {hasActiveFilters ? "رکوردی با این فیلترها پیدا نشد." : "هنوز هیچ اسکنی ثبت نشده است."}
+            {hasActiveFilters ? t("logs.empty.filtered") : t("logs.empty")}
           </p>
           {hasActiveFilters && (
             <button type="button" onClick={clearAll}
               className="text-sm text-primary hover:underline mt-1">
-              پاک کردن فیلترها
+              {t("logs.filter.clear")}
             </button>
           )}
         </div>
@@ -430,7 +423,7 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
                     <div className="flex items-center gap-1.5 shrink-0">
                       {log.offlineQueued && (
                         <span className="text-[11px] bg-orange-500/10 text-orange-400 border border-orange-500/20 px-2 py-0.5 rounded-full">
-                          آفلاین
+                          {t("logs.offline.tag")}
                         </span>
                       )}
                       <span className={`text-[12px] font-bold px-2.5 py-1 rounded-full border ${statusColor[s]}`}>
@@ -456,7 +449,7 @@ export default function PatrolLogs({ companyId }: PatrolLogsProps) {
                         {log.withinRadius
                           ? <CheckCircle className="w-3.5 h-3.5" />
                           : <AlertTriangle className="w-3.5 h-3.5" />}
-                        {log.distanceMeters} متر
+                        {t("logs.meters", { n: log.distanceMeters })}
                       </span>
                     )}
                   </div>

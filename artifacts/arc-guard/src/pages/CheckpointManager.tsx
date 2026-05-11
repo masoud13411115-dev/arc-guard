@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useI18n } from "@/lib/i18n";
 import { QRCodeSVG } from "qrcode.react";
 import {
   MapPin, Plus, QrCode, Trash2, Shield, Clock,
@@ -44,15 +45,16 @@ function toIntervalMinutes(value: string, unit: IntervalUnit): number {
   return unit === "hours" ? n * 60 : n;
 }
 
-function formatIntervalLabel(mins: number): string {
-  if (mins < 60) return `هر ${mins} دقیقه`;
-  if (mins % 60 === 0) return `هر ${mins / 60} ساعت`;
+function formatIntervalLabel(mins: number, t: (k: string, v?: Record<string, string>) => string): string {
+  if (mins < 60) return t("cp.interval.minutes", { n: String(mins) });
+  if (mins % 60 === 0) return t("cp.interval.hours", { n: String(mins / 60) });
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return `هر ${h} ساعت و ${m} دقیقه`;
+  return t("cp.interval.hours.minutes", { h: String(h), m: String(m) });
 }
 
 export default function CheckpointManager({ companyId }: CheckpointManagerProps) {
+  const { t, dir } = useI18n();
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -138,7 +140,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       setF("lng", c.lng.toFixed(7));
       setGpsPreview({ lat: c.lat, lng: c.lng, accuracy: c.accuracy });
     } catch {
-      alert("دریافت GPS ممکن نشد. مجوز مکان را در مرورگر فعال کنید.");
+      alert(t("cp.gps.failed"));
     } finally {
       setGpsLoading(false);
     }
@@ -151,7 +153,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
 
     const lat = parseFloat(form.lat);
     const lng = parseFloat(form.lng);
-    if (isNaN(lat) || isNaN(lng)) { alert("مختصات GPS معتبر نیست."); return; }
+    if (isNaN(lat) || isNaN(lng)) { alert(t("cp.gps.failed")); return; }
 
     setSaving(true);
     setDebugInfo(null);
@@ -170,7 +172,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       if (editId) {
         await fbUpdateCheckpoint(companyId, editId, payload);
         setCheckpoints((prev) => prev.map((c) => c.id === editId ? { ...c, ...payload } : c));
-        flash("ایستگاه ویرایش شد");
+        flash(t("cp.updated"));
         closeForm();
       } else {
         const newId = await fbSaveCheckpoint(companyId, payload);
@@ -190,12 +192,12 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           path: `save: ${savedPath} | load: ${fsPath} (companyId: ${companyId}) | QR: ${qrCode}`,
         });
         setExpandedQr(newId);
-        flash("ایستگاه ذخیره شد ✓");
+        flash(t("cp.saved"));
         closeForm();
       }
     } catch (err) {
       console.error("[CheckpointManager] save error:", err);
-      alert("خطا در ذخیره:\n" + String(err));
+      alert(t("common.error") + ":\n" + String(err));
     } finally {
       setSaving(false);
     }
@@ -206,9 +208,9 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
     if (deleteConfirm !== id) { setDeleteConfirm(id); return; }
     try {
       await fbDeleteCheckpoint(companyId, id);
-      flash("ایستگاه حذف شد");
+      flash(t("cp.deleted"));
     } catch (err) {
-      alert("خطا: " + err);
+      alert(t("common.error") + ": " + err);
     } finally {
       setDeleteConfirm(null);
     }
@@ -288,12 +290,12 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   </style>
 </head>
 <body>
-  <div class="logo">ARC GUARD · سیستم هوشمند گشت امنیتی</div>
+  <div class="logo">ARC GUARD · ${t("app.tagline")}</div>
   <div class="qr">${svgHtml}</div>
   <div class="name">${cp.name}</div>
   ${cp.location ? `<div class="loc">${cp.location}</div>` : ""}
   <div class="code">${cp.qrCode}</div>
-  <div class="badge">شعاع: ${cp.radiusMeters} متر · بازه: ${formatIntervalLabel(cp.patrolIntervalMinutes)}</div>
+  <div class="badge">${t("cp.radius.suffix", { n: String(cp.radiusMeters) })} · ${formatIntervalLabel(cp.patrolIntervalMinutes, t)}</div>
   <div class="gps">${cp.lat.toFixed(6)}, ${cp.lng.toFixed(6)}</div>
   <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
 </body>
@@ -310,21 +312,21 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   };
 
   return (
-    <div className="space-y-4" dir="rtl">
+    <div className="space-y-4" dir={dir}>
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-bold text-foreground">مدیریت ایستگاه‌ها</h3>
+          <h3 className="text-sm font-bold text-foreground">{t("cp.manage.title")}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {checkpoints.length} ایستگاه فعال
+            {t("cp.active.count", { n: String(checkpoints.length) })}
           </p>
         </div>
         <button
           onClick={openCreate}
           className="flex items-center gap-1.5 text-xs font-semibold text-primary-foreground bg-primary rounded-lg px-3 py-2 hover:opacity-90 transition-opacity"
         >
-          <Plus className="w-3.5 h-3.5" />افزودن ایستگاه
+          <Plus className="w-3.5 h-3.5" />{t("cp.add.btn")}
         </button>
       </div>
 
@@ -333,7 +335,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-start gap-2.5">
           <Info className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-red-400">خطا در بارگذاری ایستگاه‌ها از Firebase:</p>
+            <p className="text-xs font-semibold text-red-400">{t("cp.error.load")}</p>
             <p className="text-xs text-muted-foreground mt-0.5 break-words">{loadError}</p>
             <p className="text-[11px] text-muted-foreground mt-1 font-mono">
               مسیر: {fsPath}
@@ -353,7 +355,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       {debugInfo && (
         <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3 space-y-1">
           <p className="text-[11px] font-semibold text-sky-400 flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5" />اطلاعات ذخیره‌سازی
+            <Info className="w-3.5 h-3.5" />{t("cp.debug.path")}
           </p>
           <p className="text-[11px] text-muted-foreground font-mono break-words">
             id: {debugInfo.id}
@@ -370,7 +372,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-sm font-bold flex items-center gap-2">
               <MapPin className="w-4 h-4 text-primary" />
-              {editId ? "ویرایش ایستگاه" : "ایستگاه جدید"}
+              {editId ? t("cp.form.edit") : t("cp.form.new")}
             </h4>
             <button onClick={closeForm} className="text-muted-foreground hover:text-foreground">
               <X className="w-4 h-4" />
@@ -380,11 +382,11 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           <form onSubmit={handleSubmit} className="space-y-3">
             {/* Name */}
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">نام ایستگاه *</label>
+              <label className="text-xs text-muted-foreground">{t("cp.form.name.label")}</label>
               <input
                 value={form.name}
                 onChange={(e) => setF("name", e.target.value)}
-                placeholder="مثال: دروازه اصلی"
+                placeholder={t("cp.form.name.placeholder")}
                 required
                 className={inputClass}
               />
@@ -392,11 +394,11 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
 
             {/* Description */}
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">توضیح موقعیت</label>
+              <label className="text-xs text-muted-foreground">{t("cp.form.location.label")}</label>
               <input
                 value={form.location}
                 onChange={(e) => setF("location", e.target.value)}
-                placeholder="ورودی شمالی، ساختمان الف"
+                placeholder={t("cp.form.location.placeholder")}
                 className={inputClass}
               />
             </div>
@@ -409,9 +411,9 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary/40 text-sm text-primary hover:bg-primary/10 hover:border-primary/60 transition-all font-medium"
             >
               {gpsLoading ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" />در حال دریافت موقعیت GPS...</>
+                <><RefreshCw className="w-4 h-4 animate-spin" />{t("cp.form.gps.loading")}</>
               ) : (
-                <><Navigation className="w-4 h-4" />استفاده از موقعیت فعلی (GPS)</>
+                <><Navigation className="w-4 h-4" />{t("cp.form.gps.btn")}</>
               )}
             </button>
 
@@ -423,18 +425,18 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                     <Crosshair className="w-4 h-4 text-green-400" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-bold text-green-400">موقعیت GPS دریافت شد ✓</p>
+                    <p className="text-xs font-bold text-green-400">{t("cp.form.gps.ok")}</p>
                     <div className="mt-1.5 grid grid-cols-3 gap-2">
                       <div className="rounded-lg bg-black/20 px-2 py-1.5 text-center">
-                        <p className="text-[9px] text-muted-foreground mb-0.5">عرض</p>
+                        <p className="text-[9px] text-muted-foreground mb-0.5">{t("cp.gps.lat")}</p>
                         <p className="text-xs font-mono text-foreground">{gpsPreview.lat.toFixed(6)}</p>
                       </div>
                       <div className="rounded-lg bg-black/20 px-2 py-1.5 text-center">
-                        <p className="text-[9px] text-muted-foreground mb-0.5">طول</p>
+                        <p className="text-[9px] text-muted-foreground mb-0.5">{t("cp.gps.lng")}</p>
                         <p className="text-xs font-mono text-foreground">{gpsPreview.lng.toFixed(6)}</p>
                       </div>
                       <div className="rounded-lg bg-black/20 px-2 py-1.5 text-center">
-                        <p className="text-[9px] text-muted-foreground mb-0.5">دقت</p>
+                        <p className="text-[9px] text-muted-foreground mb-0.5">{t("cp.gps.accuracy")}</p>
                         <p className="text-xs font-mono text-foreground">±{Math.round(gpsPreview.accuracy)}م</p>
                       </div>
                     </div>
@@ -446,7 +448,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
             {/* Manual lat/lng */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">عرض جغرافیایی *</label>
+                <label className="text-xs text-muted-foreground">{t("cp.form.lat.label")}</label>
                 <input
                   value={form.lat}
                   onChange={(e) => { setF("lat", e.target.value); setGpsPreview(null); }}
@@ -459,7 +461,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">طول جغرافیایی *</label>
+                <label className="text-xs text-muted-foreground">{t("cp.form.lng.label")}</label>
                 <input
                   value={form.lng}
                   onChange={(e) => { setF("lng", e.target.value); setGpsPreview(null); }}
@@ -474,19 +476,19 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
             </div>
 
             <p className="text-[11px] text-muted-foreground text-center">
-              مختصات را از GPS بالا بگیرید یا دستی وارد کنید
+              {t("cp.form.coords.hint")}
             </p>
 
             {/* Radius */}
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">شعاع مجاز (متر)</label>
+              <label className="text-xs text-muted-foreground">{t("cp.form.radius.label")}</label>
               <select
                 value={form.radiusMeters}
                 onChange={(e) => setF("radiusMeters", e.target.value)}
                 className={inputClass}
               >
                 {["10", "25", "50", "100", "200"].map((v) => (
-                  <option key={v} value={v}>{v} متر</option>
+                  <option key={v} value={v}>{t("cp.radius.suffix", { n: v })}</option>
                 ))}
               </select>
             </div>
@@ -495,7 +497,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" />
-                بازه گشت (فاصله بین هر بازدید)
+                {t("cp.form.interval.label")}
               </label>
               <div className="flex gap-2">
                 <input
@@ -511,13 +513,13 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                   onChange={(e) => setF("intervalUnit", e.target.value as IntervalUnit)}
                   className={inputClass}
                 >
-                  <option value="minutes">دقیقه</option>
-                  <option value="hours">ساعت</option>
+                  <option value="minutes">{t("cp.form.interval.minutes")}</option>
+                  <option value="hours">{t("cp.form.interval.hours")}</option>
                 </select>
               </div>
               <p className="text-[11px] text-primary/70 text-center">
-                {formatIntervalLabel(toIntervalMinutes(form.intervalValue, form.intervalUnit))}
-                {" · "}هر نگهبان باید در این بازه از این ایستگاه بازدید کند
+                {formatIntervalLabel(toIntervalMinutes(form.intervalValue, form.intervalUnit), t)}
+                {" · "}{t("cp.form.interval.hint")}
               </p>
             </div>
 
@@ -528,14 +530,14 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                 onClick={closeForm}
                 className="flex-1 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent transition-colors"
               >
-                انصراف
+                {t("common.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={saving}
                 className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
-                {saving ? "در حال ذخیره..." : editId ? "ذخیره تغییرات" : "ایجاد ایستگاه"}
+                {saving ? t("cp.form.saving") : editId ? t("cp.form.update") : t("cp.form.save")}
               </button>
             </div>
           </form>
@@ -546,7 +548,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       <div className="space-y-3">
         {checkpoints.length === 0 && !showForm && (
           <div className="text-center py-10 text-muted-foreground text-sm">
-            هنوز ایستگاهی تعریف نشده. با دکمه «افزودن ایستگاه» شروع کنید.
+            {t("cp.no.checkpoints")}
           </div>
         )}
         {checkpoints.map((cp) => (
@@ -590,18 +592,18 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                 {/* Delete confirm */}
                 {deleteConfirm === cp.id && (
                   <div className="mt-2 flex items-center gap-2">
-                    <p className="text-xs text-destructive flex-1">آیا مطمئنید؟</p>
+                    <p className="text-xs text-destructive flex-1">{t("cp.delete.confirm")}</p>
                     <button
                       onClick={() => handleDelete(cp.id)}
                       className="text-xs text-destructive border border-destructive/30 rounded px-2 py-0.5 hover:bg-destructive/10"
                     >
-                      حذف
+                      {t("common.delete")}
                     </button>
                     <button
                       onClick={() => setDeleteConfirm(null)}
                       className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5 hover:bg-muted"
                     >
-                      نه
+                      {t("cp.delete.no")}
                     </button>
                   </div>
                 )}
@@ -612,10 +614,10 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                     <MapPin className="w-3 h-3" />{cp.lat.toFixed(4)}, {cp.lng.toFixed(4)}
                   </span>
                   <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary rounded px-2 py-0.5">
-                    <Shield className="w-3 h-3" />{cp.radiusMeters} متر
+                    <Shield className="w-3 h-3" />{t("cp.radius.suffix", { n: String(cp.radiusMeters) })}
                   </span>
                   <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground">
-                    <Clock className="w-3 h-3" />{formatIntervalLabel(cp.patrolIntervalMinutes)}
+                    <Clock className="w-3 h-3" />{formatIntervalLabel(cp.patrolIntervalMinutes, t)}
                   </span>
                 </div>
               </div>
@@ -629,7 +631,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
               >
                 <span className="flex items-center gap-1.5">
                   <QrCode className="w-3.5 h-3.5 text-primary" />
-                  نمایش و دانلود کد QR
+                  {t("cp.qr.expand")}
                 </span>
                 {expandedQr === cp.id
                   ? <ChevronUp className="w-3.5 h-3.5" />
@@ -660,19 +662,19 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                       onClick={() => downloadQrPng(cp)}
                       className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors"
                     >
-                      <Download className="w-3.5 h-3.5" />دانلود PNG
+                      <Download className="w-3.5 h-3.5" />{t("cp.qr.download.png")}
                     </button>
                     <button
                       onClick={() => downloadQrSvg(cp)}
                       className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-border bg-muted text-xs font-semibold text-muted-foreground hover:bg-accent transition-colors"
                     >
-                      <Download className="w-3.5 h-3.5" />دانلود SVG
+                      <Download className="w-3.5 h-3.5" />{t("cp.qr.download.svg")}
                     </button>
                     <button
                       onClick={() => printQr(cp)}
                       className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-border bg-muted text-xs font-semibold text-muted-foreground hover:bg-accent transition-colors"
                     >
-                      <Printer className="w-3.5 h-3.5" />چاپ QR
+                      <Printer className="w-3.5 h-3.5" />{t("cp.qr.print")}
                     </button>
                     <button
                       onClick={() => copyQrCode(cp)}
@@ -683,16 +685,16 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                       }`}
                     >
                       {copiedId === cp.id
-                        ? <><CheckCircle className="w-3.5 h-3.5" />کپی شد!</>
-                        : <><Copy className="w-3.5 h-3.5" />کپی کد</>}
+                        ? <><CheckCircle className="w-3.5 h-3.5" />{t("cp.qr.copied")}</>
+                        : <><Copy className="w-3.5 h-3.5" />{t("cp.qr.copy")}</>}
                     </button>
                   </div>
 
                   {/* Security note */}
                   <div className="rounded-lg bg-muted/50 border border-border px-3 py-2.5">
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      <span className="text-primary font-semibold">🔒 امنیت:</span>{" "}
-                      این کد QR فقط توسط دوربین نگهبان قابل اسکن است. هر ایستگاه هر ۵ دقیقه یک‌بار قابل اسکن است.
+                      <span className="text-primary font-semibold">🔒</span>{" "}
+                      {t("cp.qr.security")}
                     </p>
                   </div>
                 </div>

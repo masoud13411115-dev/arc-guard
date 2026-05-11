@@ -41,6 +41,7 @@ const PLAN_ICON: Record<string, React.ElementType> = {
 
 // ── Notification permission card ──────────────────────────────────────────────
 function NotificationPermissionCard() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<NotifPermission>(() => getPermissionStatus());
   const [requesting, setRequesting] = useState(false);
 
@@ -71,16 +72,14 @@ function NotificationPermissionCard() {
           <p className={`text-sm font-bold ${
             status === "granted" ? "text-green-400" : status === "denied" ? "text-red-400" : "text-yellow-400"
           }`}>
-            {status === "granted" ? "اعلان‌ها فعال است ✓"
-             : status === "denied" ? "اعلان‌ها مسدود شده"
-             : "اعلان‌های مرورگر"}
+            {status === "granted" ? t("notif.granted")
+             : status === "denied" ? t("notif.denied")
+             : t("notif.default")}
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {status === "granted"
-              ? "هشدارهای SOS حتی وقتی برنامه در پس‌زمینه است نمایش داده می‌شوند"
-              : status === "denied"
-              ? "برای فعال‌سازی، از تنظیمات مرورگر اجازه دسترسی بدهید"
-              : "با فعال کردن اعلان‌ها، هشدارهای اضطراری را فوری دریافت کنید"}
+            {status === "granted" ? t("notif.granted.desc")
+              : status === "denied" ? t("notif.denied.desc")
+              : t("notif.default.desc")}
           </p>
         </div>
         {status === "default" && (
@@ -89,21 +88,21 @@ function NotificationPermissionCard() {
             disabled={requesting}
             className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold hover:bg-yellow-500/30 transition-colors disabled:opacity-60"
           >
-            {requesting ? "..." : "فعال کن"}
+            {requesting ? "..." : t("notif.enable.btn")}
           </button>
         )}
       </div>
       {status === "granted" && (
         <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
           {[
-            { icon: "🚨", label: "SOS اضطراری", sub: "فوری + لرزش" },
-            { icon: "⏰", label: "ایستگاه از دست", sub: "لرزش متوسط" },
-            { icon: "📍", label: "خارج از محدوده", sub: "لرزش کوتاه" },
-          ].map(({ icon, label, sub }) => (
-            <div key={label} className="rounded-lg bg-muted/30 p-1.5">
+            { icon: "🚨", labelKey: "notif.sos.label", subKey: "notif.sos.sub" },
+            { icon: "⏰", labelKey: "notif.missed.label", subKey: "notif.missed.sub" },
+            { icon: "📍", labelKey: "notif.outside.label", subKey: "notif.outside.sub" },
+          ].map(({ icon, labelKey, subKey }) => (
+            <div key={labelKey} className="rounded-lg bg-muted/30 p-1.5">
               <div className="text-base">{icon}</div>
-              <p className="text-muted-foreground font-medium">{label}</p>
-              <p className="text-muted-foreground/60">{sub}</p>
+              <p className="text-muted-foreground font-medium">{t(labelKey)}</p>
+              <p className="text-muted-foreground/60">{t(subKey)}</p>
             </div>
           ))}
         </div>
@@ -213,14 +212,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       <div className={`mx-2 mb-4 rounded-lg border ${currentPlan.border} ${currentPlan.bg} px-3 py-2 flex items-center gap-2`}>
         <PlanIcon className={`w-3.5 h-3.5 ${currentPlan.color} shrink-0`} />
         <div className="flex-1 min-w-0">
-          <p className={`text-[10px] font-bold ${currentPlan.color}`}>پلن {currentPlan.name}</p>
+          <p className={`text-[10px] font-bold ${currentPlan.color}`}>{t("dash.plan.badge", { name: currentPlan.name })}</p>
           <p className="text-[9px] text-muted-foreground">{currentPlan.price}</p>
         </div>
         <button
           onClick={() => { handleTabChange("settings"); setSidebarOpen(false); }}
           className="text-[9px] text-primary hover:underline shrink-0"
         >
-          مشاهده
+          {t("dash.plan.view")}
         </button>
       </div>
 
@@ -311,7 +310,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           {activeTab === "overview" && (
             <div className="space-y-5 animate-fade-in-up max-w-3xl">
               <div>
-                <h2 className="text-lg font-bold text-foreground">داشبورد امنیتی</h2>
+                <h2 className="text-lg font-bold text-foreground">{t("dash.section.overview")}</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {new Date().toLocaleDateString("fa-IR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                 </p>
@@ -321,14 +320,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <div className="rounded-xl border-2 border-red-500 bg-red-950/40 p-4 flex items-center gap-3">
                   <Radio className="w-6 h-6 text-red-400 animate-ping shrink-0" />
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-red-400">🚨 {sosAlerts.length} هشدار SOS فعال</p>
-                    <p className="text-xs text-red-300/70 mt-0.5">{sosAlerts.map((a) => a.guardName).join("، ")} — نیاز به توجه فوری</p>
+                    <p className="text-sm font-bold text-red-400">{t("dash.sos.banner", { n: String(sosAlerts.length) })}</p>
+                    <p className="text-xs text-red-300/70 mt-0.5">{sosAlerts.map((a) => a.guardName).join("، ")} — {t("dash.sos.attention")}</p>
                   </div>
                   <button
                     onClick={() => handleTabChange("alerts")}
                     className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors shrink-0"
                   >
-                    مشاهده
+                    {t("dash.sos.view")}
                   </button>
                 </div>
               )}
@@ -378,7 +377,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                               <span className="text-primary">{log.checkpointName}</span>
                             </p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {log.scannedAtText}{log.distanceMeters !== null && ` · ${log.distanceMeters} متر`}
+                              {log.scannedAtText}{log.distanceMeters !== null && ` · ${t("logs.meters", { n: String(log.distanceMeters) })}`}
                             </p>
                           </div>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
@@ -417,9 +416,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                   <Shield className="w-5 h-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-primary">سیستم عملیاتی · پلن {currentPlan.name}</p>
+                  <p className="text-sm font-semibold text-primary">{t("dash.system.plan", { name: currentPlan.name })}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {profile.companyName ?? profile.companyId} · Firebase متصل · GPS فعال
+                    {profile.companyName ?? profile.companyId} · {t("dash.system.connected")}
                   </p>
                 </div>
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
@@ -430,8 +429,8 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           {activeTab === "map" && (
             <div className="animate-fade-in-up">
               <div className="mb-4">
-                <h2 className="text-lg font-bold text-foreground">نقشه زنده گشت</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">موقعیت نگهبانان، ایستگاه‌ها و مسیر گشت روی نقشه</p>
+                <h2 className="text-lg font-bold text-foreground">{t("dash.section.map")}</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{t("dash.map.sub")}</p>
               </div>
               <LiveMapView sessions={sessions} checkpoints={checkpoints} logs={recentLogs} />
             </div>
@@ -440,8 +439,8 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           {activeTab === "monitor" && (
             <div className="max-w-3xl animate-fade-in-up">
               <div className="mb-4">
-                <h2 className="text-lg font-bold text-foreground">مانیتور زنده</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">موقعیت و وضعیت نگهبانان در لحظه</p>
+                <h2 className="text-lg font-bold text-foreground">{t("dash.section.monitor")}</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{t("dash.section.monitor.sub")}</p>
               </div>
               <LiveMonitor companyId={profile.companyId} />
             </div>
@@ -451,19 +450,19 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             <div className="max-w-2xl animate-fade-in-up">
               <div className="mb-4">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-foreground">هشدارها و اضطراری</h2>
+                  <h2 className="text-lg font-bold text-foreground">{t("dash.section.alerts")}</h2>
                   {openAlerts.length > 0 && (
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                       sosAlerts.length > 0 ? "bg-red-500/20 text-red-400 animate-pulse" : "bg-yellow-500/20 text-yellow-400"
-                    }`}>{openAlerts.length} باز</span>
+                    }`}>{t("dash.alerts.count.open", { n: String(openAlerts.length) })}</span>
                   )}
                   {unseenOpenCount > 0 && (
                     <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
-                      {unseenOpenCount} جدید
+                      {t("dash.alerts.count.new", { n: String(unseenOpenCount) })}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">SOS نگهبانان، ایستگاه‌های از دست رفته، تخلفات GPS</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t("dash.section.alerts.sub")}</p>
               </div>
 
               {/* ── Firestore listener error banner ── */}
@@ -471,7 +470,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <div className="mb-4 rounded-xl border-2 border-red-500/60 bg-red-950/50 p-4 flex items-start gap-3" dir="rtl">
                   <AlertOctagon className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-red-400">خطا در دریافت هشدارها از Firestore</p>
+                    <p className="text-sm font-bold text-red-400">{t("dash.firestore.error")}</p>
                     <p className="text-xs text-red-300/70 mt-1 font-mono break-all">{alertsError}</p>
                     <p className="text-xs text-red-300/50 mt-1">مسیر listener: companies/{profile.companyId}/alerts</p>
                   </div>
@@ -543,9 +542,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           {activeTab === "checkpoints" && (
             <div className="max-w-2xl animate-fade-in-up">
               <div className="mb-4">
-                <h2 className="text-lg font-bold text-foreground">مدیریت ایستگاه‌ها</h2>
+                <h2 className="text-lg font-bold text-foreground">{t("dash.section.checkpoints")}</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  تعریف نقاط گشت با GPS و کد QR
+                  {t("dash.section.checkpoints.sub")}
                 </p>
               </div>
               <CheckpointManager companyId={profile.companyId} />
@@ -555,8 +554,8 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           {activeTab === "logs" && (
             <div className="max-w-3xl animate-fade-in-up">
               <div className="mb-4">
-                <h2 className="text-lg font-bold text-foreground">گزارش گشت</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">تمام اسکن‌های نگهبانان با تأیید GPS</p>
+                <h2 className="text-lg font-bold text-foreground">{t("dash.section.logs")}</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{t("dash.section.logs.sub")}</p>
               </div>
               <PatrolLogs companyId={profile.companyId} />
             </div>
@@ -565,9 +564,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           {activeTab === "settings" && (
             <div className="max-w-2xl animate-fade-in-up space-y-5">
               <div>
-                <h2 className="text-lg font-bold text-foreground">تنظیمات</h2>
+                <h2 className="text-lg font-bold text-foreground">{t("dash.section.settings")}</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  اطلاعات شرکت، پلن اشتراک، کد دعوت
+                  {t("dash.section.settings.sub")}
                 </p>
               </div>
 

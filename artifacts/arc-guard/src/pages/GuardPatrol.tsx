@@ -76,22 +76,22 @@ type PendingGps = {
 const SOS_HOLD_MS = 3000;
 const GPS_TIMEOUT_MS = 20_000;
 
-/** Map GeolocationPositionError.code to Persian message */
-function gpsErrorMessage(code: number): string {
+/** Map GeolocationPositionError.code to translated message */
+function gpsErrorMessage(code: number, t: (k: string) => string): string {
   switch (code) {
-    case 1: return "دسترسی به GPS رد شده است. لطفاً در تنظیمات مرورگر دسترسی موقعیت مکانی را فعال کنید.";
-    case 2: return "موقعیت مکانی در دسترس نیست. GPS دستگاه را بررسی کنید.";
-    case 3: return "دریافت GPS بیش از ۲۰ ثانیه طول کشید. دوباره تلاش کنید.";
-    default: return "خطای ناشناخته GPS. دوباره تلاش کنید.";
+    case 1: return t("gps.error.denied");
+    case 2: return t("gps.error.unavailable");
+    case 3: return t("gps.error.timeout");
+    default: return t("gps.error.unknown");
   }
 }
 
-function gpsErrorTitle(code: number): string {
+function gpsErrorTitle(code: number, t: (k: string) => string): string {
   switch (code) {
-    case 1: return "دسترسی GPS رد شد";
-    case 2: return "GPS در دسترس نیست";
-    case 3: return "انتظار GPS منقضی شد";
-    default: return "خطای GPS";
+    case 1: return t("gps.title.denied");
+    case 2: return t("gps.title.unavailable");
+    case 3: return t("gps.title.timeout");
+    default: return t("gps.title.unknown");
   }
 }
 
@@ -215,8 +215,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
         setScanPhase("idle");
         showResult({
           ok: false, status: "failed",
-          title: "دسترسی به دوربین رد شد",
-          msg: "لطفاً دسترسی دوربین را در تنظیمات مرورگر فعال کنید.",
+          title: tRef.current("guard.camera.denied"),
+          msg: tRef.current("guard.camera.denied.msg"),
         });
         playFail();
       }
@@ -272,8 +272,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     if (withinRadius) {
       showResult({
         ok: true, status: "valid",
-        title: "ایستگاه تأیید شد ✓",
-        msg: `فاصله: ${distance} متر · دقت GPS: ±${Math.round(coords.accuracy)} متر`,
+        title: tRef.current("guard.scan.result.valid"),
+        msg: tRef.current("scan.result.valid.msg", { distance: String(distance), accuracy: String(Math.round(coords.accuracy)) }),
         checkpoint: checkpoint.name,
         distance,
         guardCoords: coords,
@@ -290,8 +290,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     } else {
       showResult({
         ok: false, status: "outside",
-        title: "خارج از محدوده ایستگاه",
-        msg: `فاصله شما ${distance} متر است. حداکثر مجاز: ${checkpoint.radiusMeters} متر.`,
+        title: tRef.current("scan.result.outside.title"),
+        msg: tRef.current("scan.result.outside.msg", { distance: String(distance), radius: String(checkpoint.radiusMeters) }),
         checkpoint: checkpoint.name,
         distance,
         guardCoords: coords,
@@ -356,8 +356,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
         showResult({
           ok: false, status: "gps-error",
-          title: gpsErrorTitle(err.code),
-          msg: gpsErrorMessage(err.code),
+          title: gpsErrorTitle(err.code, tRef.current),
+          msg: gpsErrorMessage(err.code, tRef.current),
           checkpoint: saved?.checkpoint.name,
           gpsErrorCode: err.code,
           checkpointCoords: saved ? { lat: saved.checkpoint.lat, lng: saved.checkpoint.lng } : undefined,
@@ -403,8 +403,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       });
       showResult({
         ok: false, status: "failed",
-        title: "این QR در سیستم تعریف نشده است",
-        msg: "کد QR توسط ARC Guard صادر نشده. با مدیر تماس بگیرید.",
+        title: tRef.current("scan.result.invalid.title"),
+        msg: tRef.current("scan.result.invalid.msg"),
       });
       playFail();
       persistLog(buildLog(qrText, null, null, null, false, "failed"));
@@ -431,8 +431,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       });
       showResult({
         ok: false, status: "failed",
-        title: "این QR برای شرکت دیگری است",
-        msg: `شناسه QR: …${qrCompanyId?.slice(-8) ?? "?"}\nشناسه شما: …${companyId.slice(-8)}`,
+        title: tRef.current("scan.result.company.title"),
+        msg: `QR ID: …${qrCompanyId?.slice(-8) ?? "?"}\n${tRef.current("guard.role")} ID: …${companyId.slice(-8)}`,
       });
       playFail();
       return;
@@ -490,10 +490,10 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       });
       showResult({
         ok: false, status: "failed",
-        title: "ایستگاه در سیستم پیدا نشد",
+        title: tRef.current("scan.result.notfound.title"),
         msg: !checkpointsLoaded && checkpoints.length === 0
-          ? "لیست ایستگاه‌ها هنوز بارگذاری نشده. چند ثانیه صبر کنید و دوباره اسکن کنید."
-          : "این ایستگاه در سیستم تعریف نشده. با مدیر تماس بگیرید.",
+          ? tRef.current("scan.result.notfound.loading")
+          : tRef.current("scan.result.notfound.missing"),
       });
       playFail();
       persistLog(buildLog(qrText, null, null, null, false, "failed"));
@@ -515,8 +515,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       });
       showResult({
         ok: false, status: "cooldown",
-        title: "اسکن مجدد زود است",
-        msg: `ایستگاه "${checkpoint.name}" تا ${formatCountdown(secs)} دقیقه دیگر قابل اسکن است.`,
+        title: tRef.current("scan.cooldown.title"),
+        msg: `"${checkpoint.name}" — ${formatCountdown(secs)}`,
         checkpoint: checkpoint.name,
       });
       playCooldown();
@@ -643,7 +643,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     console.log(`[SOS] writing to ${writePath} — guardId=${guardId} companyId=${companyId}`);
 
     if (!db) {
-      setSosError("Firebase پیکربندی نشده — SOS ارسال نشد. با مدیر سیستم تماس بگیرید.");
+      setSosError(tRef.current("scan.sos.firebase.error"));
       setSosSending(false);
       return;
     }
@@ -671,7 +671,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[SOS] ✗ saveAlert failed:`, err);
-      setSosError(`خطا در ارسال SOS به سرور: ${msg}`);
+      setSosError(tRef.current("scan.sos.error", { msg }));
     }
 
     setSosSending(false);
@@ -688,6 +688,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   // ── i18n ──────────────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const { t, dir } = useI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -962,17 +964,17 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
       {/* ── QR Scanner overlay ── */}
       {scanPhase === "scanning" && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col" dir="rtl">
+        <div className="fixed inset-0 z-50 bg-black flex flex-col" dir={dir}>
           <div className="flex items-center justify-between px-5 py-5 bg-black/85">
             <button
               onClick={async () => { await stopScanner(); setScanPhase("idle"); }}
               className="flex items-center gap-2 text-white/75 hover:text-white transition-colors text-[16px] font-medium"
             >
-              <XCircle className="w-6 h-6" />لغو
+              <XCircle className="w-6 h-6" />{t("scan.camera.close.btn")}
             </button>
             <div className="flex items-center gap-2 text-white/75 text-[16px]">
               <Camera className="w-5 h-5" />
-              <span>کد QR ایستگاه را اسکن کنید</span>
+              <span>{t("scan.camera.prompt")}</span>
             </div>
           </div>
           <div className="flex-1 flex items-center justify-center bg-black">
@@ -980,7 +982,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           </div>
           <div className="px-5 py-6 bg-black/85 flex items-center justify-center">
             <p className="text-white/55 text-[15px] text-center leading-relaxed">
-              دوربین را روی کد QR روی تابلوی ایستگاه بگیرید
+              {t("scan.camera.hint")}
             </p>
           </div>
         </div>
@@ -988,15 +990,15 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
       {/* ── GPS Wait overlay ── */}
       {scanPhase === "gps-wait" && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 bg-black/92" dir="rtl">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 bg-black/92" dir={dir}>
           <div className="w-28 h-28 rounded-full bg-primary/15 border-2 border-primary/40 flex items-center justify-center mb-7 animate-pulse">
             <Navigation className="w-14 h-14 text-primary" />
           </div>
-          <p className="text-[22px] font-bold text-white mb-3">دریافت موقعیت GPS</p>
+          <p className="text-[22px] font-bold text-white mb-3">{t("scan.wait.gps")}</p>
           <p className="text-[16px] text-white/60 text-center leading-relaxed">
-            لطفاً صبر کنید — موقعیت مکانی شما در حال دریافت است…
+            {t("scan.wait.gps.desc")}
           </p>
-          <p className="text-[14px] text-white/35 mt-4">حداکثر ۲۰ ثانیه</p>
+          <p className="text-[14px] text-white/35 mt-4">{t("scan.wait.gps.max")}</p>
         </div>
       )}
 
@@ -1015,7 +1017,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           }}
           onClick={(e) => { if (e.target === e.currentTarget) dismissResult(); }}
         >
-          <div className="flex flex-col items-center w-full max-w-sm" dir="rtl">
+          <div className="flex flex-col items-center w-full max-w-sm" dir={dir}>
 
             {/* Icon */}
             <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 ${
@@ -1056,7 +1058,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 {scanResult.guardCoords && (
                   <div className="px-4 py-3 flex items-center justify-between gap-3">
                     <span className="text-[13px] text-white/45 shrink-0 flex items-center gap-1.5">
-                      <Navigation className="w-3.5 h-3.5" />موقعیت شما
+                      <Navigation className="w-3.5 h-3.5" />{t("scan.result.pos.label")}
                     </span>
                     <span className="text-[12px] font-mono text-white/70 text-left" dir="ltr">
                       {scanResult.guardCoords.lat.toFixed(6)}, {scanResult.guardCoords.lng.toFixed(6)}
@@ -1066,7 +1068,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 {scanResult.checkpointCoords && (
                   <div className="px-4 py-3 flex items-center justify-between gap-3">
                     <span className="text-[13px] text-white/45 shrink-0 flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5" />ایستگاه
+                      <MapPin className="w-3.5 h-3.5" />{t("scan.result.cp.label")}
                     </span>
                     <span className="text-[12px] font-mono text-white/70 text-left" dir="ltr">
                       {scanResult.checkpointCoords.lat.toFixed(6)}, {scanResult.checkpointCoords.lng.toFixed(6)}
@@ -1075,10 +1077,10 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 )}
                 {scanResult.distance !== undefined && (
                   <div className="px-4 py-3 flex items-center justify-between gap-3">
-                    <span className="text-[13px] text-white/45">فاصله محاسبه‌شده</span>
+                    <span className="text-[13px] text-white/45">{t("scan.result.distance.label")}</span>
                     <span className={`text-[16px] font-bold font-mono ${
                       scanResult.ok ? "text-green-400" : "text-orange-400"
-                    }`}>{scanResult.distance} متر</span>
+                    }`}>{t("scan.result.distance.value", { n: String(scanResult.distance) })}</span>
                   </div>
                 )}
               </div>
@@ -1091,7 +1093,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 className="mt-5 flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-purple-500/20 border border-purple-500/45 text-purple-300 text-[17px] font-bold hover:bg-purple-500/30 active:scale-95 transition-all"
               >
                 <RefreshCw className="w-5 h-5" />
-                دریافت مجدد GPS
+                {t("scan.gps.retry")}
               </button>
             )}
 
@@ -1144,11 +1146,11 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 onClick={dismissResult}
                 className="px-7 py-3 rounded-xl bg-white/10 hover:bg-white/18 border border-white/15 text-white/70 text-[17px] font-semibold transition-colors"
               >
-                بستن
+                {t("scan.result.close")}
               </button>
             </div>
             {scanResult.status !== "gps-error" && (
-              <p className="text-[13px] text-white/30 mt-3">یا صبر کنید — خودکار بسته می‌شود</p>
+              <p className="text-[13px] text-white/30 mt-3">{t("scan.result.auto.close")}</p>
             )}
           </div>
         </div>

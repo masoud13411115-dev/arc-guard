@@ -17,9 +17,18 @@ export type { User };
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
-/** Maps a username to a synthetic Firebase Auth email. Never shown in UI. */
+/**
+ * Maps a username to a synthetic Firebase Auth email. Never shown in UI.
+ * Throws `invalid-username` if the username contains no valid characters.
+ */
 function usernameToEmail(username: string): string {
   const safe = username.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  if (!safe) {
+    throw Object.assign(
+      new Error('نام کاربری فقط می‌تواند حروف انگلیسی، اعداد، نقطه و خط تیره داشته باشد.'),
+      { code: 'invalid-username' },
+    );
+  }
   return `${safe}@arcguard.local`;
 }
 
@@ -49,9 +58,18 @@ export async function checkUsernameAvailable(username: string): Promise<boolean>
 // ── Manager / Super Admin login (username + password) ─────────────────────────
 export async function signInWithUsername(username: string, password: string): Promise<User> {
   if (!auth) throw new Error('Firebase پیکربندی نشده است.');
-  const email = usernameToEmail(username.trim());
-  const cred = await signInWithEmailAndPassword(auth, email, password);
-  return cred.user;
+  const email = usernameToEmail(username.trim()); // may throw invalid-username
+  console.log('[auth] signInWithUsername →', { username: username.trim(), emailDomain: '@arcguard.local' });
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    console.log('[auth] signInWithUsername ✓ uid:', cred.user.uid);
+    return cred.user;
+  } catch (err: unknown) {
+    const code    = (err as { code?: string })?.code    ?? 'unknown';
+    const message = (err as Error).message ?? '';
+    console.error('[auth] signInWithUsername ✗', { code, message, online: navigator.onLine });
+    throw err;
+  }
 }
 
 // ── Guard login (guardCode + companyId + PIN) ─────────────────────────────────

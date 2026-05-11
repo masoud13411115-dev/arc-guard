@@ -17,16 +17,127 @@ interface Props {
   onRegister: () => void;
 }
 
-const FIREBASE_ERRORS: Record<string, string> = {
-  "auth/user-not-found":         "نام کاربری یا رمز عبور اشتباه است.",
-  "auth/wrong-password":         "نام کاربری یا رمز عبور اشتباه است.",
-  "auth/invalid-credential":     "نام کاربری یا رمز عبور اشتباه است.",
-  "auth/too-many-requests":      "تعداد تلاش زیاد. چند دقیقه صبر کنید.",
-  "auth/network-request-failed": "خطای اتصال به اینترنت. اتصال شبکه را بررسی کنید.",
-  "auth/user-disabled":          "حساب شما توسط مدیر غیرفعال شده است.",
-};
-
 type LoginMode = "manager" | "guard";
+
+// ── Centralised Firebase / Firestore error resolver ───────────────────────────
+function resolveAuthError(err: unknown): string {
+  const code    = (err as { code?: string })?.code    ?? "";
+  const message = (err as Error)?.message              ?? "";
+  const online  = navigator.onLine;
+
+  // Log full error details for debugging
+  console.error("[login] auth error", { code, message, online, err });
+
+  switch (code) {
+    // ── Wrong credentials ──────────────────────────────────────────────────
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "نام کاربری یا رمز عبور اشتباه است.";
+
+    // ── Account state ──────────────────────────────────────────────────────
+    case "auth/user-disabled":
+      return "حساب شما توسط مدیر غیرفعال شده است.";
+
+    case "auth/too-many-requests":
+      return "تعداد تلاش بیش از حد. چند دقیقه صبر کنید.";
+
+    // ── Username / email format ────────────────────────────────────────────
+    case "invalid-username":
+      return message || "نام کاربری نامعتبر است. فقط حروف انگلیسی و اعداد مجاز است.";
+
+    case "auth/invalid-email":
+      return "فرمت نام کاربری نامعتبر است. فقط حروف انگلیسی و اعداد مجاز است.";
+
+    // ── Firebase Auth config ───────────────────────────────────────────────
+    case "auth/operation-not-allowed":
+      return "ورود با این روش در Firebase فعال نشده. در Firebase Console → Authentication → Sign-in method → Email/Password را فعال کنید.";
+
+    case "auth/requires-recent-login":
+      return "نشست منقضی شده. لطفاً دوباره وارد شوید.";
+
+    // ── Network / server ───────────────────────────────────────────────────
+    case "auth/network-request-failed":
+      // Online but Firebase Auth endpoint unreachable
+      return online
+        ? "خطای ارتباط با سرور Firebase. ممکن است موقتی باشد — چند ثانیه صبر کنید و دوباره تلاش کنید."
+        : "اتصال اینترنت قطع است. اتصال شبکه را بررسی کنید.";
+
+    case "auth/timeout":
+    case "auth/web-storage-unsupported":
+      return "سرور پاسخ نمی‌دهد. دوباره تلاش کنید.";
+
+    case "auth/internal-error": {
+      // Firebase sometimes wraps the real error in the message
+      const inner = extractInnerMessage(message);
+      return inner ?? "خطای داخلی Firebase. دوباره تلاش کنید.";
+    }
+
+    case "auth/app-deleted":
+    case "auth/app-not-authorized":
+    case "auth/argument-error":
+    case "auth/invalid-api-key":
+      return "پیکربندی Firebase نادرست است. کلیدهای VITE_ARC_GUARD_* را بررسی کنید.";
+
+    // ── Firestore ──────────────────────────────────────────────────────────
+    case "permission-denied":
+      return "دسترسی Firebase مجاز نیست. قوانین Firestore را در Firebase Console بررسی کنید.";
+
+    case "unavailable":
+      return "سرویس Firebase موقتاً در دسترس نیست. بعد از چند ثانیه دوباره تلاش کنید.";
+
+    case "not-found":
+      return "منبع درخواستی در Firestore پیدا نشد.";
+
+    case "unauthenticated":
+      return "احراز هویت الزامی است. مجدداً وارد شوید.";
+
+    case "resource-exhausted":
+      return "محدودیت درخواست Firebase. بعداً تلاش کنید.";
+
+    default:
+      break;
+  }
+
+  // Check message text for known patterns (Firebase sometimes embeds error in message)
+  if (message.includes("INVALID_LOGIN_CREDENTIALS") || message.includes("INVALID_PASSWORD")) {
+    return "نام کاربری یا رمز عبور اشتباه است.";
+  }
+  if (message.includes("TOO_MANY_ATTEMPTS")) {
+    return "تعداد تلاش بیش از حد. چند دقیقه صبر کنید.";
+  }
+  if (message.includes("USER_DISABLED")) {
+    return "حساب شما غیرفعال شده است.";
+  }
+  if (message.includes("OPERATION_NOT_ALLOWED")) {
+    return "ورود با این روش در Firebase فعال نشده است.";
+  }
+  if (!online) {
+    return "اتصال اینترنت قطع است. اتصال شبکه را بررسی کنید.";
+  }
+
+  // Absolute fallback — show code + truncated message for debuggability
+  const detail = code ? `(${code})` : message ? `(${message.slice(0, 80)})` : "";
+  return `خطا در ورود ${detail}. اگر مشکل ادامه داشت با پشتیبانی تماس بگیرید.`;
+}
+
+/** Extract a human-readable message from Firebase's wrapped internal errors */
+function extractInnerMessage(raw: string): string | null {
+  try {
+    const match = raw.match(/\{.*\}/s);
+    if (!match) return null;
+    const obj = JSON.parse(match[0]) as { error?: { message?: string } };
+    const msg = obj?.error?.message ?? "";
+    if (msg === "INVALID_LOGIN_CREDENTIALS" || msg === "INVALID_PASSWORD" || msg === "EMAIL_NOT_FOUND") {
+      return "نام کاربری یا رمز عبور اشتباه است.";
+    }
+    if (msg === "USER_DISABLED") return "حساب شما غیرفعال شده است.";
+    if (msg === "TOO_MANY_ATTEMPTS_TRY_LATER") return "تعداد تلاش بیش از حد. چند دقیقه صبر کنید.";
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export default function LoginPage({ onLogin, onRegister }: Props) {
   const [mode, setMode] = useState<LoginMode>("manager");
@@ -40,32 +151,49 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const [inviteCode, setInviteCode] = useState("");
   const [pin, setPin]               = useState("");
 
-  const [showPw, setShowPw]   = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState("");
+  const [showPw, setShowPw]       = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
   // ── Manager / Super Admin login ────────────────────────────────────────────
   const handleManagerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید."); return; }
+
+    if (!isFirebaseReady) {
+      setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید.");
+      return;
+    }
     if (!username.trim()) { setError("نام کاربری الزامی است."); return; }
     if (!password)        { setError("رمز عبور الزامی است."); return; }
 
+    console.log("[login] manager attempt →", { username: username.trim(), online: navigator.onLine });
     setLoading(true);
     try {
-      const user    = await signInWithUsername(username.trim(), password);
+      const user = await signInWithUsername(username.trim(), password);
+      console.log("[login] Firebase Auth ✓ uid:", user.uid, "— loading Firestore profile…");
+
       const profile = await getUserProfile(user.uid);
-      if (!profile)        { setError("پروفایل کاربری یافت نشد. با پشتیبانی تماس بگیرید."); return; }
-      if (!profile.active) { setError("حساب شما غیرفعال است. با مدیر تماس بگیرید."); return; }
-      if (profile.role === "guard") { setError("برای ورود نگهبان، تب «نگهبان» را انتخاب کنید."); return; }
+      console.log("[login] Firestore profile →", profile ? { role: profile.role, active: profile.active } : null);
+
+      if (!profile) {
+        setError("پروفایل کاربری یافت نشد. اگر تازه ثبت‌نام کرده‌اید، مجدداً وارد شوید یا با پشتیبانی تماس بگیرید.");
+        return;
+      }
+      if (!profile.active) {
+        setError("حساب شما غیرفعال است. با مدیر تماس بگیرید.");
+        return;
+      }
+      if (profile.role === "guard") {
+        setError("این حساب نگهبان است. برای ورود از تب «نگهبان» استفاده کنید.");
+        return;
+      }
+
       logger.info("login", `Manager success: ${profile.role}`);
       onLogin(profile);
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? "";
-      logger.warn("login", "Manager failed", code);
-      setError(FIREBASE_ERRORS[code] ?? "خطا در ورود. دوباره تلاش کنید.");
+      setError(resolveAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -75,33 +203,48 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const handleGuardLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید."); return; }
+
+    if (!isFirebaseReady) {
+      setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید.");
+      return;
+    }
     if (!guardCode.trim())  { setError("کد نگهبان الزامی است."); return; }
     if (!inviteCode.trim()) { setError("کد دعوت شرکت الزامی است."); return; }
     if (!pin)               { setError("PIN الزامی است."); return; }
 
+    console.log("[login] guard attempt →", { guardCode: guardCode.trim(), inviteCode: inviteCode.trim(), online: navigator.onLine });
     setLoading(true);
     try {
+      console.log("[login] resolving company by invite code…");
       const company = await resolveCompanyByInviteCode(inviteCode.trim().toUpperCase());
-      const user    = await signInWithGuardCode(guardCode.trim().toUpperCase(), company.id, pin);
+      console.log("[login] company resolved →", { id: company.id, name: company.name });
+
+      const user = await signInWithGuardCode(guardCode.trim().toUpperCase(), company.id, pin);
+      console.log("[login] Firebase Auth ✓ uid:", user.uid, "— loading guard profile…");
+
       const profile = await getUserProfile(user.uid);
-      if (!profile)        { setError("پروفایل نگهبان یافت نشد. ابتدا ثبت‌نام کنید."); return; }
-      if (!profile.active) { setError("حساب نگهبان غیرفعال است. با مدیر تماس بگیرید."); return; }
+      console.log("[login] guard profile →", profile ? { role: profile.role, active: profile.active } : null);
+
+      if (!profile) {
+        setError("پروفایل نگهبان یافت نشد. ابتدا با کد دعوت ثبت‌نام کنید.");
+        return;
+      }
+      if (!profile.active) {
+        setError("حساب نگهبان غیرفعال است. با مدیر تماس بگیرید.");
+        return;
+      }
+
       logger.info("login", `Guard success: ${profile.displayName}`);
       onLogin(profile);
     } catch (err: unknown) {
-      const msg  = (err as Error).message ?? "";
-      const code = (err as { code?: string })?.code ?? "";
-      logger.warn("login", "Guard failed", code, msg);
-      if (msg.includes("کد دعوت")) setError(msg);
-      else if (msg.includes("کد نگهبان") || code === "auth/invalid-credential" || code === "auth/wrong-password") {
-        setError("کد نگهبان یا PIN اشتباه است.");
-      } else if (code === "auth/too-many-requests") {
-        setError("تعداد تلاش زیاد. چند دقیقه صبر کنید.");
-      } else if (code === "auth/network-request-failed") {
-        setError("خطای اتصال. اتصال اینترنت را بررسی کنید.");
+      const msg = (err as Error)?.message ?? "";
+      // Guard-specific messages take priority
+      if (msg.includes("کد دعوت") || msg.includes("شرکت")) {
+        setError(msg);
+      } else if (msg.includes("کد نگهبان") || msg.includes("PIN")) {
+        setError(msg);
       } else {
-        setError("خطا در ورود: " + msg);
+        setError(resolveAuthError(err));
       }
     } finally {
       setLoading(false);
@@ -156,9 +299,9 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
             {showGuide && (
               <div className="px-4 pb-4 pt-2 space-y-3 border-t border-yellow-500/20 bg-black/20">
                 {[
-                  { n:"۱", t:"پروژه Firebase جدید بسازید", b:"console.firebase.google.com → Add project" },
-                  { n:"۲", t:"Auth و Firestore را فعال کنید", b:"Authentication → Email/Password → Enable\nFirestore → Create database → Production mode" },
-                  { n:"۳", t:"این ۶ Secret را در Replit اضافه کنید", b:"VITE_ARC_GUARD_API_KEY\nVITE_ARC_GUARD_AUTH_DOMAIN\nVITE_ARC_GUARD_PROJECT_ID\nVITE_ARC_GUARD_STORAGE_BUCKET\nVITE_ARC_GUARD_MESSAGING_SENDER_ID\nVITE_ARC_GUARD_APP_ID" },
+                  { n: "۱", t: "پروژه Firebase جدید بسازید", b: "console.firebase.google.com → Add project" },
+                  { n: "۲", t: "Auth و Firestore را فعال کنید", b: "Authentication → Email/Password → Enable\nFirestore → Create database → Production mode" },
+                  { n: "۳", t: "این ۶ Secret را در Replit اضافه کنید", b: "VITE_ARC_GUARD_API_KEY\nVITE_ARC_GUARD_AUTH_DOMAIN\nVITE_ARC_GUARD_PROJECT_ID\nVITE_ARC_GUARD_STORAGE_BUCKET\nVITE_ARC_GUARD_MESSAGING_SENDER_ID\nVITE_ARC_GUARD_APP_ID" },
                 ].map(({ n, t, b }) => (
                   <div key={n} className="flex gap-3">
                     <div className="w-5 h-5 rounded-full bg-yellow-400/20 border border-yellow-500/40 flex items-center justify-center text-[10px] font-bold text-yellow-400 shrink-0 mt-0.5">{n}</div>
@@ -173,39 +316,28 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
         )}
 
-        {/* ── Login form ── */}
+        {/* ── Login card ── */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
 
-          {/* Mode tab switcher */}
+          {/* Tab switcher */}
           <div className="flex border-b border-border">
-            <button
-              type="button"
-              onClick={() => { setMode("manager"); setError(""); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold transition-colors ${
-                mode === "manager"
-                  ? "bg-primary/10 text-primary border-b-2 border-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              }`}
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              مدیر / ادمین
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMode("guard"); setError(""); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold transition-colors ${
-                mode === "guard"
-                  ? "bg-primary/10 text-primary border-b-2 border-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5" />
-              نگهبان
-            </button>
+            {(["manager", "guard"] as const).map((m) => (
+              <button key={m} type="button"
+                onClick={() => { setMode(m); setError(""); }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold transition-colors ${
+                  mode === m
+                    ? "bg-primary/10 text-primary border-b-2 border-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}>
+                {m === "manager"
+                  ? <><Building2 className="w-3.5 h-3.5" />مدیر / ادمین</>
+                  : <><Shield   className="w-3.5 h-3.5" />نگهبان</>}
+              </button>
+            ))}
           </div>
 
           <div className="p-5">
-            {/* ── Manager / Super Admin form ── */}
+            {/* ── Manager form ── */}
             {mode === "manager" && (
               <form onSubmit={handleManagerLogin} className="space-y-3" noValidate>
                 <div>
@@ -242,26 +374,20 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                       disabled={!isFirebaseReady}
                       className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     />
-                    <button type="button" onClick={() => setShowPw(v => !v)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      tabIndex={-1}>
+                    <button type="button" onClick={() => setShowPw(v => !v)} tabIndex={-1}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                       {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
 
-                {error && (
-                  <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
+                {error && <ErrorBanner msg={error} />}
 
                 <button type="submit" disabled={loading || !isFirebaseReady}
                   className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">{spinnerSvg}در حال ورود...</span>
-                  ) : "ورود"}
+                  {loading
+                    ? <span className="flex items-center justify-center gap-2">{spinnerSvg}در حال ورود...</span>
+                    : "ورود"}
                 </button>
               </form>
             )}
@@ -321,26 +447,20 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                       disabled={!isFirebaseReady}
                       className="w-full bg-muted border border-border rounded-lg pr-10 pl-10 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     />
-                    <button type="button" onClick={() => setShowPw(v => !v)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      tabIndex={-1}>
+                    <button type="button" onClick={() => setShowPw(v => !v)} tabIndex={-1}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                       {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
 
-                {error && (
-                  <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
+                {error && <ErrorBanner msg={error} />}
 
                 <button type="submit" disabled={loading || !isFirebaseReady}
                   className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">{spinnerSvg}در حال ورود...</span>
-                  ) : "ورود نگهبان"}
+                  {loading
+                    ? <span className="flex items-center justify-center gap-2">{spinnerSvg}در حال ورود...</span>
+                    : "ورود نگهبان"}
                 </button>
 
                 <p className="text-center text-[11px] text-muted-foreground pt-1">
@@ -362,7 +482,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           </div>
         </div>
 
-        {/* Register link — only for manager */}
+        {/* Register link */}
         {isFirebaseReady && mode === "manager" && (
           <div className="text-center">
             <p className="text-xs text-muted-foreground">
@@ -378,6 +498,15 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
           ARC Guard v3.0 · SaaS Multi-Tenant
         </p>
       </div>
+    </div>
+  );
+}
+
+function ErrorBanner({ msg }: { msg: string }) {
+  return (
+    <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5" role="alert">
+      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+      <span className="leading-relaxed">{msg}</span>
     </div>
   );
 }

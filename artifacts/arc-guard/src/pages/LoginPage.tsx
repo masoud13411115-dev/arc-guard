@@ -15,6 +15,8 @@ import type { UserProfile } from "@/types";
 interface Props {
   onLogin: (profile: UserProfile) => void;
   onRegister: () => void;
+  /** When set, hides the tab switcher and locks to a single mode */
+  lockedMode?: "manager" | "guard";
 }
 
 type LoginMode = "manager" | "guard";
@@ -139,8 +141,8 @@ function extractInnerMessage(raw: string): string | null {
   }
 }
 
-export default function LoginPage({ onLogin, onRegister }: Props) {
-  const [mode, setMode] = useState<LoginMode>("manager");
+export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
+  const [mode, setMode] = useState<LoginMode>(lockedMode ?? "manager");
 
   // Manager fields
   const [username, setUsername] = useState("");
@@ -323,23 +325,39 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
         {/* ── Login card ── */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
 
-          {/* Tab switcher */}
-          <div className="flex border-b border-border">
-            {(["manager", "guard"] as const).map((m) => (
-              <button key={m} type="button"
-                onClick={() => { setMode(m); setError(""); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-4 text-[16px] font-bold transition-colors border-b-[3px] ${
-                  mode === m
-                    ? "bg-primary/15 text-white border-primary [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]"
-                    : "text-gray-400 border-transparent hover:text-gray-200 hover:bg-white/[0.04]"
-                }`}
-                style={mode === m ? { color: '#ffffff' } : {}}>
-                {m === "manager"
-                  ? <><Building2 className="w-[18px] h-[18px]" />مدیر / ادمین</>
-                  : <><Shield   className="w-[18px] h-[18px]" />نگهبان</>}
-              </button>
-            ))}
-          </div>
+          {/* Tab switcher — hidden when lockedMode is set */}
+          {!lockedMode && (
+            <div className="flex border-b border-border">
+              {(["manager", "guard"] as const).map((m) => (
+                <button key={m} type="button"
+                  onClick={() => { setMode(m); setError(""); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-4 text-[16px] font-bold transition-colors border-b-[3px] ${
+                    mode === m
+                      ? "bg-primary/15 text-white border-primary [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]"
+                      : "text-gray-400 border-transparent hover:text-gray-200 hover:bg-white/[0.04]"
+                  }`}
+                  style={mode === m ? { color: '#ffffff' } : {}}>
+                  {m === "manager"
+                    ? <><Building2 className="w-[18px] h-[18px]" />مدیر / ادمین</>
+                    : <><Shield   className="w-[18px] h-[18px]" />نگهبان</>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Locked mode header — shown instead of tabs */}
+          {lockedMode && (
+            <div className={`flex items-center justify-center gap-2.5 py-4 border-b border-border ${
+              lockedMode === "guard" ? "bg-green-500/[0.06]" : "bg-primary/[0.06]"
+            }`}>
+              {lockedMode === "guard"
+                ? <Shield className="w-5 h-5 text-green-400" />
+                : <Building2 className="w-5 h-5 text-primary" />}
+              <span className={`text-[17px] font-bold ${lockedMode === "guard" ? "text-green-400" : "text-primary"}`}>
+                {lockedMode === "guard" ? "ورود نگهبان" : "ورود مدیر / ادمین"}
+              </span>
+            </div>
+          )}
 
           <div className="p-5">
             {/* ── Manager form ── */}

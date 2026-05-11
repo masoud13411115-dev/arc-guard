@@ -686,55 +686,61 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col select-none" dir="rtl">
 
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-4 pt-5 pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-primary" />
+      <header className="flex items-center justify-between px-5 pt-6 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+            <Shield className="w-7 h-7 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-bold text-foreground leading-none">{guardName}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">نگهبان</p>
+            <p className="text-[19px] font-bold text-foreground leading-tight">{guardName}</p>
+            <p className="text-[14px] text-muted-foreground mt-0.5">نگهبان</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium ${
-            online ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"
+        <div className="flex items-center gap-2.5">
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[14px] font-semibold ${
+            online ? "bg-green-500/12 border-green-500/35 text-green-400" : "bg-red-500/12 border-red-500/35 text-red-400"
           }`}>
-            {online ? <><Wifi className="w-3 h-3" />آنلاین</> : <><WifiOff className="w-3 h-3" />آفلاین</>}
+            {online
+              ? <><Wifi className="w-4 h-4" />آنلاین</>
+              : <><WifiOff className="w-4 h-4" />آفلاین</>}
           </div>
-          <button onClick={onLogout}
-            className="w-8 h-8 rounded-xl border border-border flex items-center justify-center text-muted-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors">
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-muted-foreground
+              hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors"
+          >
             <LogOut className="w-4 h-4" />
+            <span className="text-[13px] font-medium">خروج</span>
           </button>
         </div>
       </header>
 
       {/* ── Status bar ── */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium ${gpsChipColor}`}>
-          <MapPin className="w-3 h-3" />
+      <div className="flex flex-wrap items-center gap-2 px-5 pb-5">
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[14px] font-semibold ${gpsChipColor}`}>
+          <MapPin className="w-4 h-4" />
           {gpsError ? "GPS خطا"
             : gpsAccuracy === null ? "GPS در حال دریافت…"
             : `دقت GPS ±${gpsAccuracy}م`}
         </div>
         {!checkpointsLoaded ? (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-primary/10 border-primary/30 text-primary text-[11px]">
-            <Loader2 className="w-3 h-3 animate-spin" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-primary/10 border-primary/30 text-primary text-[14px] font-semibold">
+            <Loader2 className="w-4 h-4 animate-spin" />
             بارگذاری ایستگاه‌ها…
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-muted border-border text-muted-foreground text-[11px]">
-            <MapPin className="w-3 h-3" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-muted border-border text-muted-foreground text-[14px] font-semibold">
+            <MapPin className="w-4 h-4" />
             {checkpoints.length} ایستگاه بارگذاری شد
           </div>
         )}
         {queueCount > 0 && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-yellow-500/10 border-yellow-500/30 text-yellow-400 text-[11px] font-medium">
-            <Clock className="w-3 h-3" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-yellow-500/10 border-yellow-500/30 text-yellow-400 text-[14px] font-semibold">
+            <Clock className="w-4 h-4" />
             {queueCount} در انتظار ارسال
             {online && (
               <button onClick={doSync} disabled={syncing} className="mr-1 opacity-70 hover:opacity-100">
-                {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : "ارسال"}
+                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : "ارسال"}
               </button>
             )}
           </div>
@@ -742,45 +748,47 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       </div>
 
       {/* ── Main ── */}
-      <main className="flex-1 flex flex-col items-center px-4 gap-5">
+      <main className="flex-1 flex flex-col items-center px-5 gap-6">
 
         {/* BIG SCAN BUTTON */}
-        <div className="flex flex-col items-center gap-3 mt-2">
+        <div className="flex flex-col items-center gap-4 mt-2">
           <button
             onClick={startScanner}
             disabled={scanPhase !== "idle"}
-            className="w-44 h-44 rounded-full bg-primary/10 border-4 border-primary/40 flex flex-col items-center justify-center gap-3
-              hover:bg-primary/20 hover:border-primary/60 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
-              transition-all duration-150 shadow-[0_0_40px_rgba(14,165,233,0.15)]"
+            className="w-60 h-60 rounded-full bg-primary/10 border-4 border-primary/40 flex flex-col items-center justify-center gap-4
+              hover:bg-primary/20 hover:border-primary/65 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
+              transition-all duration-150 shadow-[0_0_60px_rgba(14,165,233,0.18)] arc-glow"
             style={{ touchAction: "manipulation" }}
           >
-            <QrCode className="w-16 h-16 text-primary" />
-            <span className="text-base font-bold text-primary">اسکن ایستگاه</span>
+            <QrCode className="w-24 h-24 text-primary" />
+            <span className="text-[22px] font-bold text-primary tracking-wide">اسکن ایستگاه</span>
           </button>
-          <p className="text-xs text-muted-foreground">برای اسکن کد QR ایستگاه بزنید</p>
+          <p className="text-[16px] text-muted-foreground">برای اسکن کد QR ایستگاه بزنید</p>
         </div>
 
         {/* Next checkpoint card */}
         {nextCheckpoint && (
-          <div className={`w-full max-w-sm rounded-2xl border p-4 ${
-            nextCheckpoint.overdue ? "border-orange-500/40 bg-orange-500/[0.07]" : "border-border bg-card/60"
+          <div className={`w-full max-w-sm rounded-2xl border p-5 ${
+            nextCheckpoint.overdue ? "border-orange-500/45 bg-orange-500/[0.08]" : "border-border bg-card/60"
           }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
                   nextCheckpoint.overdue ? "bg-orange-500/20" : "bg-muted"
                 }`}>
-                  <MapPin className={`w-4 h-4 ${nextCheckpoint.overdue ? "text-orange-400" : "text-muted-foreground"}`} />
+                  <MapPin className={`w-6 h-6 ${nextCheckpoint.overdue ? "text-orange-400" : "text-muted-foreground"}`} />
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">{nextCheckpoint.overdue ? "⚠ سر رسیده" : "ایستگاه بعدی"}</p>
-                  <p className={`text-sm font-bold ${nextCheckpoint.overdue ? "text-orange-400" : "text-foreground"}`}>
+                  <p className="text-[14px] font-medium text-muted-foreground">
+                    {nextCheckpoint.overdue ? "⚠ سر رسیده" : "ایستگاه بعدی"}
+                  </p>
+                  <p className={`text-[18px] font-bold leading-tight ${nextCheckpoint.overdue ? "text-orange-400" : "text-foreground"}`}>
                     {nextCheckpoint.cp.name}
                   </p>
                 </div>
               </div>
               {!nextCheckpoint.overdue && nextCheckpoint.secsLeft > 0 && (
-                <span className="text-xs text-muted-foreground font-mono">
+                <span className="text-[15px] text-muted-foreground font-mono shrink-0">
                   {Math.ceil(nextCheckpoint.secsLeft / 60)} د
                 </span>
               )}
@@ -789,22 +797,22 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
         )}
 
         {/* SOS button */}
-        <div className="w-full max-w-sm space-y-2">
+        <div className="w-full max-w-sm space-y-3">
           {sosSent ? (
-            <div className="rounded-2xl border border-green-500/40 bg-green-500/10 py-4 flex items-center justify-center gap-2">
-              <PhoneOff className="w-5 h-5 text-green-400" />
-              <span className="text-sm font-bold text-green-400">✓ اضطراری ارسال شد — مدیر مطلع شد</span>
+            <div className="rounded-2xl border border-green-500/45 bg-green-500/10 py-5 px-5 flex items-center justify-center gap-3">
+              <CheckCircle className="w-7 h-7 text-green-400 shrink-0" />
+              <span className="text-[18px] font-bold text-green-400">اضطراری ارسال شد — مدیر مطلع شد</span>
             </div>
           ) : sosError ? (
-            <div className="rounded-2xl border border-red-500/60 bg-red-950/50 p-4 space-y-2">
-              <div className="flex items-start gap-2">
-                <XCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-sm font-bold text-red-400">SOS ارسال نشد</p>
+            <div className="rounded-2xl border border-red-500/60 bg-red-950/40 p-5 space-y-3">
+              <div className="flex items-start gap-3">
+                <XCircle className="w-7 h-7 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-[18px] font-bold text-red-400 leading-tight">SOS ارسال نشد</p>
               </div>
-              <p className="text-xs text-red-300/70 leading-relaxed">{sosError}</p>
+              <p className="text-[15px] text-red-300/80 leading-relaxed">{sosError}</p>
               <button
                 onClick={() => { setSosError(null); setSosSent(false); }}
-                className="text-xs text-red-400 hover:text-red-300 underline"
+                className="text-[15px] font-semibold text-red-400 hover:text-red-300 underline"
               >
                 تلاش مجدد
               </button>
@@ -813,7 +821,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
             <div className="relative rounded-2xl overflow-hidden">
               {sosHolding && (
                 <div
-                  className="absolute inset-0 bg-red-500/30 rounded-2xl"
+                  className="absolute inset-0 bg-red-500/30 rounded-2xl transition-all"
                   style={{ width: `${sosProgress}%` }}
                 />
               )}
@@ -823,16 +831,16 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
                 onPointerLeave={cancelSosHold}
                 onContextMenu={(e) => e.preventDefault()}
                 disabled={sosSending}
-                className="relative w-full py-4 rounded-2xl border border-red-500/40 bg-red-500/[0.07]
-                  flex items-center justify-center gap-2 select-none touch-none
+                className="relative w-full py-5 rounded-2xl border border-red-500/45 bg-red-500/[0.08]
+                  flex items-center justify-center gap-3 select-none touch-none
                   active:bg-red-500/20 transition-colors"
                 style={{ touchAction: "none" }}
               >
                 {sosSending
-                  ? <Loader2 className="w-5 h-5 text-red-400 animate-spin" />
-                  : <PhoneOff className="w-5 h-5 text-red-400" />}
-                <span className="text-sm font-bold text-red-400">
-                  {sosSending ? "در حال ارسال به سرور..." : sosHolding ? "نگه دارید..." : "SOS اضطراری — نگه دارید"}
+                  ? <Loader2 className="w-7 h-7 text-red-400 animate-spin" />
+                  : <PhoneOff className="w-7 h-7 text-red-400" />}
+                <span className="text-[19px] font-bold text-red-400">
+                  {sosSending ? "در حال ارسال..." : sosHolding ? "نگه دارید..." : "SOS اضطراری — نگه دارید"}
                 </span>
               </button>
             </div>
@@ -843,7 +851,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
             <div>
               <button
                 onClick={() => setShowSosDebug(v => !v)}
-                className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors"
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors"
               >
                 {showSosDebug ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 <span className="font-mono">دیباگ SOS</span>
@@ -887,29 +895,29 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
 
         {/* Recent scans */}
         {recentLogs.length > 0 && (
-          <div className="w-full max-w-sm pb-6">
-            <p className="text-xs text-muted-foreground mb-2 px-1">اسکن‌های اخیر</p>
-            <div className="space-y-2">
+          <div className="w-full max-w-sm pb-8">
+            <p className="text-[15px] font-semibold text-muted-foreground mb-3 px-1">اسکن‌های اخیر</p>
+            <div className="space-y-2.5">
               {recentLogs.map((log, i) => (
-                <div key={i} className={`rounded-xl border px-4 py-3 flex items-center gap-3 ${
+                <div key={i} className={`rounded-xl border px-4 py-3.5 flex items-center gap-3 ${
                   log.status === "valid"
-                    ? "border-green-500/25 bg-green-500/[0.06]"
+                    ? "border-green-500/28 bg-green-500/[0.07]"
                     : log.status === "outside"
-                    ? "border-orange-500/25 bg-orange-500/[0.06]"
-                    : "border-red-500/25 bg-red-500/[0.06]"
+                    ? "border-orange-500/28 bg-orange-500/[0.07]"
+                    : "border-red-500/28 bg-red-500/[0.07]"
                 }`}>
                   {log.status === "valid"
-                    ? <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
+                    ? <CheckCircle className="w-6 h-6 text-green-400 shrink-0" />
                     : log.status === "outside"
-                    ? <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0" />
-                    : <XCircle className="w-5 h-5 text-red-400 shrink-0" />}
+                    ? <AlertTriangle className="w-6 h-6 text-orange-400 shrink-0" />
+                    : <XCircle className="w-6 h-6 text-red-400 shrink-0" />}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{log.checkpointName}</p>
+                    <p className="text-[16px] font-semibold text-foreground truncate">{log.checkpointName}</p>
                     {log.distanceMeters !== null && (
-                      <p className="text-[11px] text-muted-foreground">{log.distanceMeters} متر</p>
+                      <p className="text-[13px] text-muted-foreground mt-0.5">{log.distanceMeters} متر</p>
                     )}
                   </div>
-                  <span className="text-[11px] text-muted-foreground font-mono shrink-0">{log.scannedAtText}</span>
+                  <span className="text-[13px] text-muted-foreground font-mono shrink-0">{log.scannedAtText}</span>
                 </div>
               ))}
             </div>
@@ -920,38 +928,40 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       {/* ── QR Scanner overlay ── */}
       {scanPhase === "scanning" && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col" dir="rtl">
-          <div className="flex items-center justify-between px-4 py-4 bg-black/80">
+          <div className="flex items-center justify-between px-5 py-5 bg-black/85">
             <button
               onClick={async () => { await stopScanner(); setScanPhase("idle"); }}
-              className="flex items-center gap-2 text-white/70 hover:text-white transition-colors text-sm"
+              className="flex items-center gap-2 text-white/75 hover:text-white transition-colors text-[16px] font-medium"
             >
-              <XCircle className="w-5 h-5" />لغو
+              <XCircle className="w-6 h-6" />لغو
             </button>
-            <div className="flex items-center gap-2 text-white/70 text-sm">
-              <Camera className="w-4 h-4" />
+            <div className="flex items-center gap-2 text-white/75 text-[16px]">
+              <Camera className="w-5 h-5" />
               <span>کد QR ایستگاه را اسکن کنید</span>
             </div>
           </div>
           <div className="flex-1 flex items-center justify-center bg-black">
             <div id="qr-reader-guard" style={{ width: "100%", maxWidth: 380, background: "white" }} />
           </div>
-          <div className="px-4 py-5 bg-black/80 flex items-center justify-center">
-            <p className="text-white/50 text-sm text-center">دوربین را روی کد QR روی تابلوی ایستگاه بگیرید</p>
+          <div className="px-5 py-6 bg-black/85 flex items-center justify-center">
+            <p className="text-white/55 text-[15px] text-center leading-relaxed">
+              دوربین را روی کد QR روی تابلوی ایستگاه بگیرید
+            </p>
           </div>
         </div>
       )}
 
       {/* ── GPS Wait overlay ── */}
       {scanPhase === "gps-wait" && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 bg-black/90" dir="rtl">
-          <div className="w-24 h-24 rounded-full bg-primary/15 border-2 border-primary/40 flex items-center justify-center mb-6 animate-pulse">
-            <Navigation className="w-12 h-12 text-primary" />
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 bg-black/92" dir="rtl">
+          <div className="w-28 h-28 rounded-full bg-primary/15 border-2 border-primary/40 flex items-center justify-center mb-7 animate-pulse">
+            <Navigation className="w-14 h-14 text-primary" />
           </div>
-          <p className="text-lg font-bold text-white mb-2">دریافت موقعیت GPS</p>
-          <p className="text-sm text-white/50 text-center">
+          <p className="text-[22px] font-bold text-white mb-3">دریافت موقعیت GPS</p>
+          <p className="text-[16px] text-white/60 text-center leading-relaxed">
             لطفاً صبر کنید — موقعیت مکانی شما در حال دریافت است…
           </p>
-          <p className="text-xs text-white/30 mt-3">حداکثر ۲۰ ثانیه</p>
+          <p className="text-[14px] text-white/35 mt-4">حداکثر ۲۰ ثانیه</p>
         </div>
       )}
 
@@ -961,37 +971,37 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
           className="fixed inset-0 z-50 flex flex-col items-center justify-center px-5 overflow-y-auto py-8"
           style={{
             background: scanResult.ok
-              ? "radial-gradient(ellipse at center, rgba(34,197,94,0.15) 0%, rgba(0,0,0,0.94) 70%)"
+              ? "radial-gradient(ellipse at center, rgba(34,197,94,0.18) 0%, rgba(7,16,32,0.96) 70%)"
               : scanResult.status === "outside"
-              ? "radial-gradient(ellipse at center, rgba(249,115,22,0.15) 0%, rgba(0,0,0,0.94) 70%)"
+              ? "radial-gradient(ellipse at center, rgba(249,115,22,0.18) 0%, rgba(7,16,32,0.96) 70%)"
               : scanResult.status === "gps-error"
-              ? "radial-gradient(ellipse at center, rgba(168,85,247,0.15) 0%, rgba(0,0,0,0.94) 70%)"
-              : "radial-gradient(ellipse at center, rgba(239,68,68,0.15) 0%, rgba(0,0,0,0.94) 70%)",
+              ? "radial-gradient(ellipse at center, rgba(168,85,247,0.18) 0%, rgba(7,16,32,0.96) 70%)"
+              : "radial-gradient(ellipse at center, rgba(239,68,68,0.18) 0%, rgba(7,16,32,0.96) 70%)",
           }}
           onClick={(e) => { if (e.target === e.currentTarget) dismissResult(); }}
         >
           <div className="flex flex-col items-center w-full max-w-sm" dir="rtl">
 
             {/* Icon */}
-            <div className={`w-28 h-28 rounded-full flex items-center justify-center mb-5 ${
-              scanResult.ok               ? "bg-green-500/20 border-2 border-green-500/40"
-              : scanResult.status === "outside"  ? "bg-orange-500/20 border-2 border-orange-500/40"
-              : scanResult.status === "gps-error" ? "bg-purple-500/20 border-2 border-purple-500/40"
-              : "bg-red-500/20 border-2 border-red-500/40"
+            <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 ${
+              scanResult.ok               ? "bg-green-500/20 border-2 border-green-500/45"
+              : scanResult.status === "outside"  ? "bg-orange-500/20 border-2 border-orange-500/45"
+              : scanResult.status === "gps-error" ? "bg-purple-500/20 border-2 border-purple-500/45"
+              : "bg-red-500/20 border-2 border-red-500/45"
             }`}>
-              {scanResult.ok              ? <CheckCircle  className="w-16 h-16 text-green-400" />
-              : scanResult.status === "outside"  ? <AlertTriangle className="w-16 h-16 text-orange-400" />
-              : scanResult.status === "gps-error" ? <Navigation    className="w-16 h-16 text-purple-400" />
-              : <XCircle className="w-16 h-16 text-red-400" />}
+              {scanResult.ok              ? <CheckCircle  className="w-18 h-18 text-green-400" style={{width:72,height:72}} />
+              : scanResult.status === "outside"  ? <AlertTriangle className="w-18 h-18 text-orange-400" style={{width:72,height:72}} />
+              : scanResult.status === "gps-error" ? <Navigation    className="w-18 h-18 text-purple-400" style={{width:72,height:72}} />
+              : <XCircle className="w-18 h-18 text-red-400" style={{width:72,height:72}} />}
             </div>
 
             {/* Checkpoint name */}
             {scanResult.checkpoint && (
-              <p className="text-xl font-bold text-white mb-1">{scanResult.checkpoint}</p>
+              <p className="text-[24px] font-bold text-white mb-2 text-center">{scanResult.checkpoint}</p>
             )}
 
             {/* Status title */}
-            <p className={`text-base font-bold mb-2 text-center ${
+            <p className={`text-[20px] font-bold mb-3 text-center leading-snug ${
               scanResult.ok               ? "text-green-400"
               : scanResult.status === "outside"  ? "text-orange-400"
               : scanResult.status === "gps-error" ? "text-purple-400"
@@ -1001,37 +1011,37 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
             </p>
 
             {/* Message */}
-            <p className="text-sm text-white/60 text-center leading-relaxed whitespace-pre-line">
+            <p className="text-[16px] text-white/70 text-center leading-relaxed whitespace-pre-line">
               {scanResult.msg}
             </p>
 
-            {/* Coordinates card (shown for valid + outside) */}
+            {/* Coordinates card */}
             {(scanResult.guardCoords || scanResult.checkpointCoords) && (
-              <div className="mt-4 w-full rounded-xl border border-white/10 bg-white/5 divide-y divide-white/10">
+              <div className="mt-5 w-full rounded-xl border border-white/12 bg-white/5 divide-y divide-white/10">
                 {scanResult.guardCoords && (
-                  <div className="px-4 py-2.5 flex items-center justify-between gap-3">
-                    <span className="text-xs text-white/40 shrink-0 flex items-center gap-1.5">
-                      <Navigation className="w-3 h-3" />موقعیت شما
+                  <div className="px-4 py-3 flex items-center justify-between gap-3">
+                    <span className="text-[13px] text-white/45 shrink-0 flex items-center gap-1.5">
+                      <Navigation className="w-3.5 h-3.5" />موقعیت شما
                     </span>
-                    <span className="text-xs font-mono text-white/70 text-left">
+                    <span className="text-[12px] font-mono text-white/70 text-left" dir="ltr">
                       {scanResult.guardCoords.lat.toFixed(6)}, {scanResult.guardCoords.lng.toFixed(6)}
                     </span>
                   </div>
                 )}
                 {scanResult.checkpointCoords && (
-                  <div className="px-4 py-2.5 flex items-center justify-between gap-3">
-                    <span className="text-xs text-white/40 shrink-0 flex items-center gap-1.5">
-                      <MapPin className="w-3 h-3" />ایستگاه
+                  <div className="px-4 py-3 flex items-center justify-between gap-3">
+                    <span className="text-[13px] text-white/45 shrink-0 flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5" />ایستگاه
                     </span>
-                    <span className="text-xs font-mono text-white/70 text-left">
+                    <span className="text-[12px] font-mono text-white/70 text-left" dir="ltr">
                       {scanResult.checkpointCoords.lat.toFixed(6)}, {scanResult.checkpointCoords.lng.toFixed(6)}
                     </span>
                   </div>
                 )}
                 {scanResult.distance !== undefined && (
-                  <div className="px-4 py-2.5 flex items-center justify-between gap-3">
-                    <span className="text-xs text-white/40">فاصله محاسبه‌شده</span>
-                    <span className={`text-sm font-bold font-mono ${
+                  <div className="px-4 py-3 flex items-center justify-between gap-3">
+                    <span className="text-[13px] text-white/45">فاصله محاسبه‌شده</span>
+                    <span className={`text-[16px] font-bold font-mono ${
                       scanResult.ok ? "text-green-400" : "text-orange-400"
                     }`}>{scanResult.distance} متر</span>
                   </div>
@@ -1043,19 +1053,19 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
             {scanResult.status === "gps-error" && (
               <button
                 onClick={(e) => { e.stopPropagation(); retryGps(); }}
-                className="mt-4 flex items-center gap-2 px-5 py-3 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-300 text-sm font-bold hover:bg-purple-500/30 active:scale-95 transition-all"
+                className="mt-5 flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-purple-500/20 border border-purple-500/45 text-purple-300 text-[17px] font-bold hover:bg-purple-500/30 active:scale-95 transition-all"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-5 h-5" />
                 دریافت مجدد GPS
               </button>
             )}
 
-            {/* Debug panel */}
-            {scanDebug && (
+            {/* Debug panel — DEV only */}
+            {import.meta.env.DEV && scanDebug && (
               <div className="mt-4 w-full">
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowDebug(v => !v); }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-white/35 hover:text-white/55 hover:bg-white/8 transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[11px] text-white/35 hover:text-white/55 transition-colors"
                 >
                   <span className="font-mono">🔍 اطلاعات دیباگ اسکن</span>
                   {showDebug ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -1094,14 +1104,16 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
               </div>
             )}
 
-            <div className="flex items-center gap-3 mt-5">
-              <button onClick={dismissResult}
-                className="px-6 py-2.5 rounded-xl bg-white/10 hover:bg-white/18 border border-white/10 text-white/60 text-sm font-medium transition-colors">
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={dismissResult}
+                className="px-7 py-3 rounded-xl bg-white/10 hover:bg-white/18 border border-white/15 text-white/70 text-[17px] font-semibold transition-colors"
+              >
                 بستن
               </button>
             </div>
             {scanResult.status !== "gps-error" && (
-              <p className="text-xs text-white/25 mt-3">یا صبر کنید — خودکار بسته می‌شود</p>
+              <p className="text-[13px] text-white/30 mt-3">یا صبر کنید — خودکار بسته می‌شود</p>
             )}
           </div>
         </div>

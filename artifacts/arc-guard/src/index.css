@@ -74,34 +74,35 @@
   --elevate-1: rgba(14, 165, 233, 0.05);
   --elevate-2: rgba(14, 165, 233, 0.10);
 
-  --background: 214 60% 5%;
-  --foreground: 204 80% 92%;
-  --border: 213 50% 18%;
-  --card: 214 55% 8%;
-  --card-foreground: 204 80% 92%;
-  --card-border: 213 50% 18%;
-  --sidebar: 214 58% 6%;
-  --sidebar-foreground: 204 80% 92%;
-  --sidebar-border: 213 50% 18%;
+  /* Dark navy — not pure black for better readability */
+  --background: 214 55% 11%;
+  --foreground: 204 85% 95%;
+  --border: 213 46% 26%;
+  --card: 214 52% 16%;
+  --card-foreground: 204 85% 95%;
+  --card-border: 213 46% 26%;
+  --sidebar: 214 56% 9%;
+  --sidebar-foreground: 204 85% 95%;
+  --sidebar-border: 213 46% 26%;
   --sidebar-primary: 199 89% 48%;
-  --sidebar-primary-foreground: 214 60% 5%;
-  --sidebar-accent: 213 50% 14%;
-  --sidebar-accent-foreground: 204 80% 92%;
+  --sidebar-primary-foreground: 214 55% 11%;
+  --sidebar-accent: 213 46% 22%;
+  --sidebar-accent-foreground: 204 85% 95%;
   --sidebar-ring: 199 89% 48%;
-  --popover: 214 55% 8%;
-  --popover-foreground: 204 80% 92%;
-  --popover-border: 213 50% 18%;
+  --popover: 214 52% 16%;
+  --popover-foreground: 204 85% 95%;
+  --popover-border: 213 46% 26%;
   --primary: 199 89% 48%;
-  --primary-foreground: 214 60% 5%;
-  --secondary: 213 50% 14%;
-  --secondary-foreground: 204 80% 92%;
-  --muted: 213 50% 12%;
-  --muted-foreground: 210 40% 55%;
-  --accent: 213 50% 16%;
-  --accent-foreground: 204 80% 92%;
+  --primary-foreground: 214 55% 11%;
+  --secondary: 213 46% 22%;
+  --secondary-foreground: 204 85% 95%;
+  --muted: 213 46% 20%;
+  --muted-foreground: 210 45% 72%;
+  --accent: 213 46% 24%;
+  --accent-foreground: 204 85% 95%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --input: 213 50% 18%;
+  --input: 213 46% 26%;
   --ring: 199 89% 48%;
   --chart-1: 199 89% 48%;
   --chart-2: 217 91% 60%;
@@ -291,6 +292,8 @@ html {
   text-rendering: optimizeLegibility;
   /* Prevent font-size inflation on iOS rotation */
   -webkit-text-size-adjust: 100%;
+  /* Base font size — 17px so rem units scale up everywhere */
+  font-size: 17px;
 }
 
 /* RTL base layout */

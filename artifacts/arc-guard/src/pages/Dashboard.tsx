@@ -4,6 +4,8 @@ import {
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
   BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon,
 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
+import LanguageSelector from "@/components/LanguageSelector";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
 import LiveMonitor from "./LiveMonitor";
@@ -112,6 +114,7 @@ function NotificationPermissionCard() {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
+  const { t, dir } = useI18n();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
@@ -179,20 +182,20 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   }).length;
 
   const stats = [
-    { label: "کل نگهبانان", value: String(sessions.length), icon: Users, color: "text-primary", bg: "bg-primary/10" },
-    { label: "فعال اکنون", value: String(activeGuards), icon: CheckCircle, color: "text-green-400", bg: "bg-green-400/10" },
-    { label: "هشدار باز", value: String(openAlerts.length), icon: AlertTriangle, color: openAlerts.length > 0 ? "text-red-400" : "text-yellow-400", bg: openAlerts.length > 0 ? "bg-red-400/10" : "bg-yellow-400/10" },
-    { label: "اسکن‌های امروز", value: String(scansToday), icon: QrCode, color: "text-purple-400", bg: "bg-purple-400/10" },
+    { label: t("dash.stat.total"),  value: String(sessions.length),   icon: Users,         color: "text-primary",                                                    bg: "bg-primary/10" },
+    { label: t("dash.stat.active"), value: String(activeGuards),       icon: CheckCircle,   color: "text-green-400",                                                  bg: "bg-green-400/10" },
+    { label: t("dash.stat.alerts"), value: String(openAlerts.length),  icon: AlertTriangle, color: openAlerts.length > 0 ? "text-red-400" : "text-yellow-400",        bg: openAlerts.length > 0 ? "bg-red-400/10" : "bg-yellow-400/10" },
+    { label: t("dash.stat.scans"),  value: String(scansToday),         icon: QrCode,        color: "text-purple-400",                                                 bg: "bg-purple-400/10" },
   ];
 
   const navItems: { tab: Tab; label: string; icon: React.ElementType; badge?: number }[] = [
-    { tab: "overview",    label: "داشبورد",      icon: Activity },
-    { tab: "map",         label: "نقشه زنده",     icon: Map },
-    { tab: "monitor",     label: "مانیتور زنده",  icon: Monitor },
-    { tab: "alerts",      label: "هشدارها",       icon: Bell, badge: unseenOpenCount },
-    { tab: "checkpoints", label: "ایستگاه‌ها",    icon: MapPin },
-    { tab: "logs",        label: "گزارش گشت",     icon: FileText },
-    { tab: "settings",    label: "تنظیمات",       icon: Settings },
+    { tab: "overview",    label: t("dash.tab.overview"),     icon: Activity },
+    { tab: "map",         label: t("dash.tab.map"),          icon: Map },
+    { tab: "monitor",     label: t("dash.tab.monitor"),      icon: Monitor },
+    { tab: "alerts",      label: t("dash.tab.alerts"),       icon: Bell, badge: unseenOpenCount },
+    { tab: "checkpoints", label: t("dash.tab.checkpoints"),  icon: MapPin },
+    { tab: "logs",        label: t("dash.tab.logs"),         icon: FileText },
+    { tab: "settings",    label: t("dash.tab.settings"),     icon: Settings },
   ];
 
   const SidebarContent = () => (
@@ -202,7 +205,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
           style={{ filter: "drop-shadow(0 0 10px rgba(14,165,233,0.4))" }} />
         <div>
           <p className="text-xs font-bold text-primary tracking-wider">ARC Guard</p>
-          <p className="text-[10px] text-muted-foreground truncate max-w-28">{profile.companyName ?? "مدیریت"}</p>
+          <p className="text-[10px] text-muted-foreground truncate max-w-28">{profile.companyName ?? t("dash.management")}</p>
         </div>
       </div>
 
@@ -248,14 +251,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         </div>
         <button onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors">
-          <LogOut className="w-4 h-4" />خروج از سیستم
+          <LogOut className="w-4 h-4" />{t("common.logout.system")}
         </button>
       </div>
     </>
   );
 
   return (
-    <div className="min-h-screen bg-background arc-grid-bg flex flex-col" dir="rtl">
+    <div className="min-h-screen bg-background arc-grid-bg flex flex-col" dir={dir}>
       <AlertPopup alerts={openAlerts} onResolve={handleResolveAlert} />
 
       <MobileHeader
@@ -350,13 +353,13 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-sm font-semibold text-foreground">آخرین اسکن‌های گشت</span>
+                    <span className="text-sm font-semibold text-foreground">{t("dash.recent.title")}</span>
                   </div>
-                  <button onClick={() => handleTabChange("logs")} className="text-xs text-primary hover:underline">همه</button>
+                  <button onClick={() => handleTabChange("logs")} className="text-xs text-primary hover:underline">{t("dash.recent.all")}</button>
                 </div>
                 {recentLogs.length === 0 ? (
                   <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-                    هنوز هیچ اسکنی ثبت نشده است.
+                    {t("dash.recent.empty")}
                   </div>
                 ) : (
                   <div className="divide-y divide-border">
@@ -383,7 +386,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                             : s === "outside" ? "bg-yellow-400/10 text-yellow-400"
                             : "bg-destructive/10 text-destructive"
                           }`}>
-                            {s === "valid" ? "معتبر" : s === "outside" ? "خارج" : "ناموفق"}
+                            {s === "valid" ? t("status.valid") : s === "outside" ? t("status.outside") : t("status.failed")}
                           </span>
                         </div>
                       );
@@ -394,17 +397,17 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { label: "نقشه زنده",    tab: "map" as Tab,         icon: Map,      color: "text-green-400",   bg: "bg-green-400/10 border-green-500/20" },
-                  { label: "هشدارها",      tab: "alerts" as Tab,      icon: Bell,     color: "text-red-400",     bg: "bg-red-400/10 border-red-500/20" },
-                  { label: "مانیتور زنده", tab: "monitor" as Tab,     icon: Monitor,  color: "text-primary",     bg: "bg-primary/10 border-primary/20" },
-                  { label: "ایستگاه‌ها",   tab: "checkpoints" as Tab, icon: MapPin,   color: "text-sky-400",     bg: "bg-sky-400/10 border-sky-500/20" },
-                  { label: "گزارش گشت",   tab: "logs" as Tab,        icon: FileText, color: "text-purple-400",  bg: "bg-purple-400/10 border-purple-500/20" },
-                  { label: "تنظیمات",     tab: "settings" as Tab,    icon: Settings, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
-                ].map(({ label, tab, icon: Icon, color, bg }) => (
+                  { labelKey: "dash.tab.map",         tab: "map" as Tab,         icon: Map,      color: "text-green-400",        bg: "bg-green-400/10 border-green-500/20" },
+                  { labelKey: "dash.tab.alerts",      tab: "alerts" as Tab,      icon: Bell,     color: "text-red-400",          bg: "bg-red-400/10 border-red-500/20" },
+                  { labelKey: "dash.tab.monitor",     tab: "monitor" as Tab,     icon: Monitor,  color: "text-primary",          bg: "bg-primary/10 border-primary/20" },
+                  { labelKey: "dash.tab.checkpoints", tab: "checkpoints" as Tab, icon: MapPin,   color: "text-sky-400",          bg: "bg-sky-400/10 border-sky-500/20" },
+                  { labelKey: "dash.tab.logs",        tab: "logs" as Tab,        icon: FileText, color: "text-purple-400",       bg: "bg-purple-400/10 border-purple-500/20" },
+                  { labelKey: "dash.tab.settings",    tab: "settings" as Tab,    icon: Settings, color: "text-muted-foreground", bg: "bg-muted/30 border-border" },
+                ].map(({ labelKey, tab, icon: Icon, color, bg }) => (
                   <button key={tab} onClick={() => handleTabChange(tab)}
                     className={`rounded-xl border ${bg} p-4 flex flex-col items-center gap-2 hover:opacity-80 transition-opacity`}>
                     <Icon className={`w-6 h-6 ${color}`} />
-                    <span className="text-xs font-medium text-foreground">{label}</span>
+                    <span className="text-xs font-medium text-foreground">{t(labelKey)}</span>
                   </button>
                 ))}
               </div>

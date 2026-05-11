@@ -5,6 +5,8 @@ import {
   PhoneOff, Loader2, ChevronDown, ChevronUp, RefreshCw,
   Navigation,
 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
+import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
 import { haversineDistance } from "@/lib/gps";
 import { addToQueue, getQueueCount } from "@/lib/offline";
@@ -683,34 +685,39 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     : gpsAccuracy <= 30 ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
     : "bg-red-500/15 text-red-400 border-red-500/30";
 
+  // ── i18n ──────────────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const { t, dir } = useI18n();
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background arc-grid-bg flex flex-col select-none" dir="rtl">
+    <div className="min-h-screen bg-background arc-grid-bg flex flex-col select-none" dir={dir}>
 
       {/* ── Header ── */}
       <header className="px-5 pt-5 pb-3 space-y-3">
 
-        {/* Top row: company + mode badge + logout */}
+        {/* Top row: company + mode badge + logout + language */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {/* Guard mode badge */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/12 border border-green-500/30">
               <Shield className="w-3.5 h-3.5 text-green-400" />
-              <span className="text-[12px] font-bold text-green-400 tracking-wide">حالت نگهبان</span>
+              <span className="text-[12px] font-bold text-green-400 tracking-wide">{t("guard.role")}</span>
             </div>
-            {/* Company name */}
             {companyName && (
-              <span className="text-[12px] text-muted-foreground truncate max-w-[120px]">{companyName}</span>
+              <span className="text-[12px] text-muted-foreground truncate max-w-[100px]">{companyName}</span>
             )}
           </div>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-muted-foreground
-              hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="text-[13px] font-medium">خروج</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <LanguageSelector variant="compact" />
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-muted-foreground
+                hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-[13px] font-medium">{t("common.logout")}</span>
+            </button>
+          </div>
         </div>
 
         {/* Bottom row: guard identity + online status */}
@@ -727,7 +734,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                     {guardCode}
                   </span>
                 )}
-                <span className="text-[13px] text-muted-foreground">نگهبان</span>
+                <span className="text-[13px] text-muted-foreground">{t("guard.role")}</span>
               </div>
             </div>
           </div>
@@ -737,8 +744,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
               : "bg-red-500/12 border-red-500/35 text-red-400"
           }`}>
             {online
-              ? <><Wifi className="w-4 h-4" />آنلاین</>
-              : <><WifiOff className="w-4 h-4" />آفلاین</>}
+              ? <><Wifi className="w-4 h-4" />{t("common.status.online")}</>
+              : <><WifiOff className="w-4 h-4" />{t("common.status.offline")}</>}
           </div>
         </div>
       </header>
@@ -747,28 +754,28 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       <div className="flex flex-wrap items-center gap-2 px-5 pb-5">
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[14px] font-semibold ${gpsChipColor}`}>
           <MapPin className="w-4 h-4" />
-          {gpsError ? "GPS خطا"
-            : gpsAccuracy === null ? "GPS در حال دریافت…"
-            : `دقت GPS ±${gpsAccuracy}م`}
+          {gpsError ? t("guard.gps.error")
+            : gpsAccuracy === null ? t("guard.gps.loading")
+            : t("guard.gps.accuracy", { n: gpsAccuracy })}
         </div>
         {!checkpointsLoaded ? (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-primary/10 border-primary/30 text-primary text-[14px] font-semibold">
             <Loader2 className="w-4 h-4 animate-spin" />
-            بارگذاری ایستگاه‌ها…
+            {t("guard.checkpoints.loading")}
           </div>
         ) : (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-muted border-border text-muted-foreground text-[14px] font-semibold">
             <MapPin className="w-4 h-4" />
-            {checkpoints.length} ایستگاه بارگذاری شد
+            {t("guard.checkpoints.loaded", { n: checkpoints.length })}
           </div>
         )}
         {queueCount > 0 && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-yellow-500/10 border-yellow-500/30 text-yellow-400 text-[14px] font-semibold">
             <Clock className="w-4 h-4" />
-            {queueCount} در انتظار ارسال
+            {t("guard.queue", { n: queueCount })}
             {online && (
               <button onClick={doSync} disabled={syncing} className="mr-1 opacity-70 hover:opacity-100">
-                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : "ارسال"}
+                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : t("guard.queue.send")}
               </button>
             )}
           </div>
@@ -789,9 +796,9 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             style={{ touchAction: "manipulation" }}
           >
             <QrCode className="w-24 h-24 text-primary" />
-            <span className="text-[22px] font-bold text-primary tracking-wide">اسکن ایستگاه</span>
+            <span className="text-[22px] font-bold text-primary tracking-wide">{t("guard.scan.btn")}</span>
           </button>
-          <p className="text-[16px] text-muted-foreground">برای اسکن کد QR ایستگاه بزنید</p>
+          <p className="text-[16px] text-muted-foreground">{t("guard.scan.hint")}</p>
         </div>
 
         {/* Next checkpoint card */}
@@ -808,7 +815,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 </div>
                 <div>
                   <p className="text-[14px] font-medium text-muted-foreground">
-                    {nextCheckpoint.overdue ? "⚠ سر رسیده" : "ایستگاه بعدی"}
+                    {nextCheckpoint.overdue ? t("guard.next.overdue") : t("guard.next.next")}
                   </p>
                   <p className={`text-[18px] font-bold leading-tight ${nextCheckpoint.overdue ? "text-orange-400" : "text-foreground"}`}>
                     {nextCheckpoint.cp.name}
@@ -829,20 +836,20 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           {sosSent ? (
             <div className="rounded-2xl border border-green-500/45 bg-green-500/10 py-5 px-5 flex items-center justify-center gap-3">
               <CheckCircle className="w-7 h-7 text-green-400 shrink-0" />
-              <span className="text-[18px] font-bold text-green-400">اضطراری ارسال شد — مدیر مطلع شد</span>
+              <span className="text-[18px] font-bold text-green-400">{t("guard.sos.sent")}</span>
             </div>
           ) : sosError ? (
             <div className="rounded-2xl border border-red-500/60 bg-red-950/40 p-5 space-y-3">
               <div className="flex items-start gap-3">
                 <XCircle className="w-7 h-7 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-[18px] font-bold text-red-400 leading-tight">SOS ارسال نشد</p>
+                <p className="text-[18px] font-bold text-red-400 leading-tight">{t("guard.sos.failed")}</p>
               </div>
               <p className="text-[15px] text-red-300/80 leading-relaxed">{sosError}</p>
               <button
                 onClick={() => { setSosError(null); setSosSent(false); }}
                 className="text-[15px] font-semibold text-red-400 hover:text-red-300 underline"
               >
-                تلاش مجدد
+                {t("common.retry")}
               </button>
             </div>
           ) : (
@@ -868,7 +875,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                   ? <Loader2 className="w-7 h-7 text-red-400 animate-spin" />
                   : <PhoneOff className="w-7 h-7 text-red-400" />}
                 <span className="text-[19px] font-bold text-red-400">
-                  {sosSending ? "در حال ارسال..." : sosHolding ? "نگه دارید..." : "SOS اضطراری — نگه دارید"}
+                  {sosSending ? t("guard.sos.sending") : sosHolding ? t("guard.sos.holding") : t("guard.sos.hold")}
                 </span>
               </button>
             </div>
@@ -924,7 +931,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
         {/* Recent scans */}
         {recentLogs.length > 0 && (
           <div className="w-full max-w-sm pb-8">
-            <p className="text-[15px] font-semibold text-muted-foreground mb-3 px-1">اسکن‌های اخیر</p>
+            <p className="text-[15px] font-semibold text-muted-foreground mb-3 px-1">{t("guard.recent.title")}</p>
             <div className="space-y-2.5">
               {recentLogs.map((log, i) => (
                 <div key={i} className={`rounded-xl border px-4 py-3.5 flex items-center gap-3 ${

@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   QrCode, MapPin, CheckCircle, AlertTriangle, XCircle,
   Shield, LogOut, Wifi, WifiOff, Clock, Camera,
-  PhoneOff, Loader2,
+  PhoneOff, Loader2, ChevronDown, ChevronUp,
 } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
 import { haversineDistance } from "@/lib/gps";
 import { addToQueue, getQueueCount } from "@/lib/offline";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue, saveAlert } from "@/lib/firestore";
@@ -30,31 +31,48 @@ type ScanResult = {
   distance?: number;
 };
 
+/** Debug info captured per scan — shown in result overlay */
+type ScanDebug = {
+  qrText: string;
+  qrFormat: "v2" | "v1" | "invalid";
+  qrCompanyId: string | null;
+  qrCheckpointId: string | null;
+  guardCompanyId: string;
+  firestorePath: string | null;
+  localCheckpointsCount: number;
+  foundInLocal: boolean;
+  foundInFirestore: boolean | null;
+  failReason: string | null;
+};
+
 const SOS_HOLD_MS = 3000;
 
 export default function GuardPatrol({ guardId, guardName, companyId, onLogout }: GuardPatrolProps) {
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
-  const [gps, setGps] = useState<GpsCoords | null>(null);
-  const [gpsError, setGpsError] = useState(false);
-  const [online, setOnline] = useState(navigator.onLine);
-  const [queueCount, setQueueCount] = useState(getQueueCount());
-  const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
-  const [scanPhase, setScanPhase] = useState<ScanPhase>("idle");
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [syncing, setSyncing] = useState(false);
+  const [checkpoints, setCheckpoints]           = useState<Checkpoint[]>([]);
+  const [checkpointsLoaded, setCheckpointsLoaded] = useState(false);
+  const [gps, setGps]                           = useState<GpsCoords | null>(null);
+  const [gpsError, setGpsError]                 = useState(false);
+  const [online, setOnline]                     = useState(navigator.onLine);
+  const [queueCount, setQueueCount]             = useState(getQueueCount());
+  const [recentLogs, setRecentLogs]             = useState<PatrolLog[]>([]);
+  const [scanPhase, setScanPhase]               = useState<ScanPhase>("idle");
+  const [scanResult, setScanResult]             = useState<ScanResult | null>(null);
+  const [scanDebug, setScanDebug]               = useState<ScanDebug | null>(null);
+  const [showDebug, setShowDebug]               = useState(false);
+  const [syncing, setSyncing]                   = useState(false);
 
   // SOS
-  const [sosHolding, setSosHolding] = useState(false);
+  const [sosHolding, setSosHolding]   = useState(false);
   const [sosProgress, setSosProgress] = useState(0);
-  const [sosSent, setSosSent] = useState(false);
-  const [sosSending, setSosSending] = useState(false);
+  const [sosSent, setSosSent]         = useState(false);
+  const [sosSending, setSosSending]   = useState(false);
 
-  const scannerRef = useRef<any>(null);
-  const sosTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sosStartRef = useRef(0);
-  const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scannerRef      = useRef<any>(null);
+  const sosTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sosStartRef     = useRef(0);
+  const resultTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── GPS watch (continuous, auto-update) ────────────────────────────────────
+  // ── GPS watch (continuous background) ──────────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) { setGpsError(true); return; }
     const id = navigator.geolocation.watchPosition(
@@ -82,12 +100,22 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     return () => navigator.geolocation.clearWatch(id);
   }, [guardId, guardName, companyId, recentLogs]);
 
-  // ── Load checkpoints ────────────────────────────────────────────────────────
-  useEffect(() => subscribeCheckpoints(
-    companyId,
-    setCheckpoints,
-    (err) => console.error("[GuardPatrol] checkpoints:", err.message),
-  ), [companyId]);
+  // ── Load checkpoints (real-time) ────────────────────────────────────────────
+  useEffect(() => {
+    console.log(`[GuardPatrol] subscribing checkpoints → companies/${companyId}/checkpoints`);
+    return subscribeCheckpoints(
+      companyId,
+      (cps) => {
+        setCheckpoints(cps);
+        setCheckpointsLoaded(true);
+        console.log(`[GuardPatrol] checkpoints loaded: ${cps.length} active`);
+      },
+      (err) => {
+        console.error("[GuardPatrol] checkpoints error:", (err as {code?:string}).code, err.message);
+        setCheckpointsLoaded(true); // mark loaded even on error so UI doesn't stay in limbo
+      },
+    );
+  }, [companyId]);
 
   // ── Online/offline + auto-sync ──────────────────────────────────────────────
   const doSync = useCallback(async () => {
@@ -113,7 +141,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   const startScanner = useCallback(async () => {
     setScanPhase("scanning");
     setScanResult(null);
-    // Scanner div needs a tick to render before we attach
+    setScanDebug(null);
     setTimeout(async () => {
       try {
         const { Html5Qrcode } = await import("html5-qrcode");
@@ -153,8 +181,23 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     await stopScanner();
     setScanPhase("result");
 
-    // Unknown format
+    console.log("[scan] QR scanned:", qrText);
+    console.log("[scan] guard companyId:", companyId);
+    console.log("[scan] local checkpoints count:", checkpoints.length);
+
+    // ── 1. Validate format ──────────────────────────────────────────────────
     if (!isValidQrFormat(qrText)) {
+      const debug: ScanDebug = {
+        qrText, qrFormat: "invalid",
+        qrCompanyId: null, qrCheckpointId: null,
+        guardCompanyId: companyId,
+        firestorePath: null,
+        localCheckpointsCount: checkpoints.length,
+        foundInLocal: false, foundInFirestore: null,
+        failReason: "فرمت QR نامعتبر — توسط ARC Guard صادر نشده",
+      };
+      setScanDebug(debug);
+      console.warn("[scan] invalid QR format", debug);
       showResult({
         ok: false, status: "failed",
         title: "این QR در سیستم تعریف نشده است",
@@ -165,32 +208,100 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       return;
     }
 
-    // Parse QR
+    // ── 2. Parse QR ─────────────────────────────────────────────────────────
     const parsed = parseQrCode(qrText);
-    let checkpoint: Checkpoint | null = null;
+    const qrFormat: ScanDebug["qrFormat"] = parsed ? "v2" : "v1";
+    const qrCompanyId   = parsed?.companyId    ?? null;
+    const qrCheckpointId = parsed?.checkpointId ?? null;
 
-    if (parsed) {
-      const { companyId: qrCid, checkpointId: qrCpId } = parsed;
-      if (qrCid !== companyId) {
-        showResult({
-          ok: false, status: "failed",
-          title: "این QR در سیستم تعریف نشده است",
-          msg: "این ایستگاه متعلق به شرکت دیگری است.",
-        });
-        playFail();
-        return;
-      }
-      checkpoint = checkpoints.find((c) => c.id === qrCpId) ?? null;
-    } else {
-      checkpoint = checkpoints.find((c) => c.qrCode === qrText) ?? null;
-    }
+    console.log("[scan] parsed →", { qrFormat, qrCompanyId, qrCheckpointId });
 
-    if (!checkpoint) {
+    // ── 3. Company ID check (v2 only) ────────────────────────────────────────
+    if (parsed && qrCompanyId !== companyId) {
+      const debug: ScanDebug = {
+        qrText, qrFormat,
+        qrCompanyId, qrCheckpointId,
+        guardCompanyId: companyId,
+        firestorePath: null,
+        localCheckpointsCount: checkpoints.length,
+        foundInLocal: false, foundInFirestore: null,
+        failReason: `شرکت QR (${qrCompanyId}) با شرکت نگهبان (${companyId}) مطابقت ندارد`,
+      };
+      setScanDebug(debug);
+      console.warn("[scan] companyId mismatch", debug);
       showResult({
         ok: false, status: "failed",
         title: "این QR در سیستم تعریف نشده است",
-        msg: checkpoints.length === 0
-          ? "لیست ایستگاه‌ها هنوز بارگذاری نشده. اینترنت را بررسی کنید."
+        msg: `این ایستگاه متعلق به شرکت دیگری است.\nقرارداد شما: …${companyId.slice(-6)}\nQR کد: …${qrCompanyId?.slice(-6) ?? "?"}`,
+      });
+      playFail();
+      return;
+    }
+
+    // ── 4. Find checkpoint ───────────────────────────────────────────────────
+    let checkpoint: Checkpoint | null = null;
+    let foundInLocal = false;
+    let foundInFirestore: boolean | null = null;
+    const firestorePath = qrCheckpointId
+      ? `companies/${companyId}/checkpoints/${qrCheckpointId}`
+      : null;
+
+    // 4a. Try local state first
+    if (parsed && qrCheckpointId) {
+      checkpoint = checkpoints.find((c) => c.id === qrCheckpointId) ?? null;
+    } else {
+      checkpoint = checkpoints.find((c) => c.qrCode === qrText) ?? null;
+    }
+    foundInLocal = checkpoint !== null;
+
+    console.log(`[scan] local lookup (${checkpoints.length} items): found=${foundInLocal}`, checkpoint?.name ?? "—");
+
+    // 4b. If not in local list, try direct Firestore lookup (handles timing / subscription delay)
+    if (!checkpoint && qrCheckpointId && db) {
+      console.log(`[scan] not in local list → Firestore direct lookup: ${firestorePath}`);
+      try {
+        const cpDoc = await getDoc(doc(db, "companies", companyId, "checkpoints", qrCheckpointId));
+        if (cpDoc.exists()) {
+          checkpoint = { id: cpDoc.id, ...cpDoc.data() } as Checkpoint;
+          foundInFirestore = true;
+          console.log("[scan] Firestore direct lookup ✓ →", checkpoint.name);
+        } else {
+          foundInFirestore = false;
+          console.warn("[scan] Firestore direct lookup: document does not exist at", firestorePath);
+        }
+      } catch (err) {
+        foundInFirestore = false;
+        console.error("[scan] Firestore direct lookup error:", err);
+      }
+    }
+
+    if (!checkpoint) {
+      let failReason = "";
+      if (!checkpointsLoaded && checkpoints.length === 0) {
+        failReason = "لیست ایستگاه‌ها هنوز بارگذاری نشده";
+      } else if (foundInFirestore === false) {
+        failReason = `ایستگاه در Firestore پیدا نشد (path: ${firestorePath ?? "?"})`;
+      } else {
+        failReason = `ایستگاه در لیست ${checkpoints.length} ایستگاه‌ یافت نشد`;
+      }
+
+      const debug: ScanDebug = {
+        qrText, qrFormat,
+        qrCompanyId, qrCheckpointId,
+        guardCompanyId: companyId,
+        firestorePath,
+        localCheckpointsCount: checkpoints.length,
+        foundInLocal, foundInFirestore,
+        failReason,
+      };
+      setScanDebug(debug);
+      console.warn("[scan] checkpoint not found", debug);
+
+      showResult({
+        ok: false, status: "failed",
+        title: "این QR در سیستم تعریف نشده است",
+        msg: !checkpointsLoaded && checkpoints.length === 0
+          ? "لیست ایستگاه‌ها هنوز بارگذاری نشده. چند ثانیه صبر کنید و دوباره اسکن کنید."
           : "ایستگاه در سیستم پیدا نشد. با مدیر تماس بگیرید.",
       });
       playFail();
@@ -198,9 +309,19 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       return;
     }
 
-    // Cooldown check
+    // ── 5. Cooldown ─────────────────────────────────────────────────────────
     if (!canScan(checkpoint.id)) {
       const secs = secondsUntilNextScan(checkpoint.id);
+      setScanDebug({
+        qrText, qrFormat,
+        qrCompanyId, qrCheckpointId,
+        guardCompanyId: companyId,
+        firestorePath,
+        localCheckpointsCount: checkpoints.length,
+        foundInLocal: foundInLocal || foundInFirestore === true,
+        foundInFirestore,
+        failReason: `cooldown: ${secs} ثانیه باقی مانده`,
+      });
       showResult({
         ok: false, status: "cooldown",
         title: "اسکن مجدد زود است",
@@ -211,8 +332,18 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       return;
     }
 
-    // GPS check
+    // ── 6. GPS check ─────────────────────────────────────────────────────────
     if (!gps) {
+      setScanDebug({
+        qrText, qrFormat,
+        qrCompanyId, qrCheckpointId,
+        guardCompanyId: companyId,
+        firestorePath,
+        localCheckpointsCount: checkpoints.length,
+        foundInLocal: foundInLocal || foundInFirestore === true,
+        foundInFirestore,
+        failReason: "GPS در دسترس نیست",
+      });
       showResult({
         ok: false, status: "failed",
         title: "موقعیت GPS دریافت نشد",
@@ -223,12 +354,23 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       return;
     }
 
-    // Distance check
+    // ── 7. Distance ──────────────────────────────────────────────────────────
     const distance = Math.round(haversineDistance(gps.lat, gps.lng, checkpoint.lat, checkpoint.lng));
     const withinRadius = distance <= checkpoint.radiusMeters;
     const status: ScanStatus = withinRadius ? "valid" : "outside";
-    const log = buildLog(qrText, checkpoint, gps, distance, withinRadius, status);
 
+    setScanDebug({
+      qrText, qrFormat,
+      qrCompanyId, qrCheckpointId,
+      guardCompanyId: companyId,
+      firestorePath,
+      localCheckpointsCount: checkpoints.length,
+      foundInLocal: foundInLocal || foundInFirestore === true,
+      foundInFirestore,
+      failReason: null,
+    });
+
+    const log = buildLog(qrText, checkpoint, gps, distance, withinRadius, status);
     recordScan(checkpoint.id);
     setRecentLogs((prev) => [log, ...prev.slice(0, 4)]);
 
@@ -261,12 +403,13 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
 
     persistLog(log);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkpoints, gps, companyId, guardId, guardName]);
+  }, [checkpoints, checkpointsLoaded, gps, companyId, guardId, guardName]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   const showResult = (result: ScanResult) => {
     setScanResult(result);
     setScanPhase("result");
+    setShowDebug(false);
     if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
     resultTimerRef.current = setTimeout(() => {
       setScanPhase("idle");
@@ -313,7 +456,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     }
   };
 
-  // ── Next checkpoint (most overdue or soonest due) ──────────────────────────
+  // ── Next checkpoint ──────────────────────────────────────────────────────────
   const nextCheckpoint = (() => {
     if (checkpoints.length === 0) return null;
     const now = Date.now();
@@ -332,7 +475,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     return best;
   })();
 
-  // ── SOS hold logic ─────────────────────────────────────────────────────────
+  // ── SOS ─────────────────────────────────────────────────────────────────────
   const startSosHold = () => {
     if (sosSent || sosSending) return;
     setSosHolding(true);
@@ -374,7 +517,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     setTimeout(() => setSosSent(false), 15_000);
   };
 
-  // ── Status chips ────────────────────────────────────────────────────────────
+  // ── GPS chip color ───────────────────────────────────────────────────────────
   const gpsAccuracy = gps ? Math.round(gps.accuracy) : null;
   const gpsChipColor = gpsAccuracy === null
     ? "bg-muted text-muted-foreground"
@@ -382,7 +525,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     : gpsAccuracy <= 30 ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
     : "bg-red-500/15 text-red-400 border-red-500/30";
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background arc-grid-bg flex flex-col select-none" dir="rtl">
 
@@ -398,13 +541,10 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Online indicator */}
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium ${
             online ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"
           }`}>
-            {online
-              ? <><Wifi className="w-3 h-3" />آنلاین</>
-              : <><WifiOff className="w-3 h-3" />آفلاین</>}
+            {online ? <><Wifi className="w-3 h-3" />آنلاین</> : <><WifiOff className="w-3 h-3" />آفلاین</>}
           </div>
           <button onClick={onLogout}
             className="w-8 h-8 rounded-xl border border-border flex items-center justify-center text-muted-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors">
@@ -415,12 +555,23 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
 
       {/* ── Status bar ── */}
       <div className="flex items-center gap-2 px-4 pb-4">
-        {/* GPS chip */}
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium ${gpsChipColor}`}>
           <MapPin className="w-3 h-3" />
           {gpsError ? "GPS خطا" : gpsAccuracy === null ? "GPS..." : `دقت ±${gpsAccuracy}م`}
         </div>
-        {/* Offline queue chip */}
+        {/* Checkpoints loading indicator */}
+        {!checkpointsLoaded && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-primary/10 border-primary/30 text-primary text-[11px] font-medium">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            بارگذاری ایستگاه‌ها…
+          </div>
+        )}
+        {checkpointsLoaded && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-muted border-border text-muted-foreground text-[11px]">
+            <MapPin className="w-3 h-3" />
+            {checkpoints.length} ایستگاه
+          </div>
+        )}
         {queueCount > 0 && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-yellow-500/10 border-yellow-500/30 text-yellow-400 text-[11px] font-medium">
             <Clock className="w-3 h-3" />
@@ -456,9 +607,7 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
         {/* ── Next checkpoint card ── */}
         {nextCheckpoint && (
           <div className={`w-full max-w-sm rounded-2xl border p-4 ${
-            nextCheckpoint.overdue
-              ? "border-orange-500/40 bg-orange-500/[0.07]"
-              : "border-border bg-card/60"
+            nextCheckpoint.overdue ? "border-orange-500/40 bg-orange-500/[0.07]" : "border-border bg-card/60"
           }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -492,7 +641,6 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
             </div>
           ) : (
             <div className="relative rounded-2xl overflow-hidden">
-              {/* Progress fill */}
               {sosHolding && (
                 <div
                   className="absolute inset-0 bg-red-500/30 rounded-2xl transition-none"
@@ -554,7 +702,6 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       {/* ── QR Scanner overlay ── */}
       {scanPhase === "scanning" && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col" dir="rtl">
-          {/* Top bar */}
           <div className="flex items-center justify-between px-4 py-4 bg-black/80">
             <button
               onClick={async () => { await stopScanner(); setScanPhase("idle"); }}
@@ -568,16 +715,9 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
               <span>کد QR ایستگاه را اسکن کنید</span>
             </div>
           </div>
-
-          {/* Camera view */}
           <div className="flex-1 flex items-center justify-center bg-black">
-            <div
-              id="qr-reader-guard"
-              style={{ width: "100%", maxWidth: 380, background: "white" }}
-            />
+            <div id="qr-reader-guard" style={{ width: "100%", maxWidth: 380, background: "white" }} />
           </div>
-
-          {/* Bottom hint */}
           <div className="px-4 py-5 bg-black/80 flex items-center justify-center">
             <p className="text-white/50 text-sm text-center">
               دوربین را روی کد QR روی تابلوی ایستگاه بگیرید
@@ -589,53 +729,115 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
       {/* ── Scan Result overlay ── */}
       {scanPhase === "result" && scanResult && (
         <div
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 overflow-y-auto"
           style={{
             background: scanResult.ok
-              ? "radial-gradient(ellipse at center, rgba(34,197,94,0.15) 0%, rgba(0,0,0,0.92) 70%)"
+              ? "radial-gradient(ellipse at center, rgba(34,197,94,0.15) 0%, rgba(0,0,0,0.93) 70%)"
               : scanResult.status === "outside"
-              ? "radial-gradient(ellipse at center, rgba(249,115,22,0.15) 0%, rgba(0,0,0,0.92) 70%)"
-              : "radial-gradient(ellipse at center, rgba(239,68,68,0.15) 0%, rgba(0,0,0,0.92) 70%)",
+              ? "radial-gradient(ellipse at center, rgba(249,115,22,0.15) 0%, rgba(0,0,0,0.93) 70%)"
+              : "radial-gradient(ellipse at center, rgba(239,68,68,0.15) 0%, rgba(0,0,0,0.93) 70%)",
           }}
-          onClick={dismissResult}
+          onClick={(e) => { if (e.target === e.currentTarget) dismissResult(); }}
         >
-          {/* Icon */}
-          <div className={`w-28 h-28 rounded-full flex items-center justify-center mb-6 ${
-            scanResult.ok
-              ? "bg-green-500/20 border-2 border-green-500/40"
-              : scanResult.status === "outside"
-              ? "bg-orange-500/20 border-2 border-orange-500/40"
-              : "bg-red-500/20 border-2 border-red-500/40"
-          }`}>
-            {scanResult.ok
-              ? <CheckCircle className="w-16 h-16 text-green-400" />
-              : scanResult.status === "outside"
-              ? <AlertTriangle className="w-16 h-16 text-orange-400" />
-              : <XCircle className="w-16 h-16 text-red-400" />}
+          <div className="flex flex-col items-center w-full max-w-sm" dir="rtl">
+            {/* Icon */}
+            <div className={`w-28 h-28 rounded-full flex items-center justify-center mb-6 ${
+              scanResult.ok
+                ? "bg-green-500/20 border-2 border-green-500/40"
+                : scanResult.status === "outside"
+                ? "bg-orange-500/20 border-2 border-orange-500/40"
+                : "bg-red-500/20 border-2 border-red-500/40"
+            }`}>
+              {scanResult.ok
+                ? <CheckCircle className="w-16 h-16 text-green-400" />
+                : scanResult.status === "outside"
+                ? <AlertTriangle className="w-16 h-16 text-orange-400" />
+                : <XCircle className="w-16 h-16 text-red-400" />}
+            </div>
+
+            {scanResult.checkpoint && (
+              <p className="text-lg font-bold text-white mb-1">{scanResult.checkpoint}</p>
+            )}
+            <p className={`text-base font-bold mb-2 text-center ${
+              scanResult.ok ? "text-green-400"
+                : scanResult.status === "outside" ? "text-orange-400"
+                : "text-red-400"
+            }`}>
+              {scanResult.title}
+            </p>
+            <p className="text-sm text-white/60 text-center leading-relaxed max-w-xs whitespace-pre-line">
+              {scanResult.msg}
+            </p>
+
+            {/* ── Debug panel ── */}
+            {scanDebug && (
+              <div className="mt-5 w-full">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowDebug(v => !v); }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-white/40 hover:text-white/60 hover:bg-white/10 transition-colors"
+                >
+                  <span className="font-mono">🔍 اطلاعات دیباگ اسکن</span>
+                  {showDebug ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                {showDebug && (
+                  <div className="mt-1.5 rounded-lg bg-black/70 border border-white/10 p-3 space-y-1.5 text-left" dir="ltr">
+                    <DebugRow label="QR Format"         value={scanDebug.qrFormat} />
+                    <DebugRow label="QR Company ID"     value={scanDebug.qrCompanyId    ?? "—"} mono />
+                    <DebugRow label="QR Checkpoint ID"  value={scanDebug.qrCheckpointId ?? "—"} mono />
+                    <DebugRow label="Guard Company ID"  value={scanDebug.guardCompanyId} mono
+                      match={scanDebug.qrCompanyId ? scanDebug.qrCompanyId === scanDebug.guardCompanyId : null} />
+                    <DebugRow label="Firestore Path"    value={scanDebug.firestorePath   ?? "—"} mono />
+                    <DebugRow label="Local checkpoints" value={String(scanDebug.localCheckpointsCount)} />
+                    <DebugRow label="Found in local"    value={scanDebug.foundInLocal    ? "✓ YES" : "✗ NO"}
+                      ok={scanDebug.foundInLocal} />
+                    {scanDebug.foundInFirestore !== null && (
+                      <DebugRow label="Found in Firestore" value={scanDebug.foundInFirestore ? "✓ YES" : "✗ NO"}
+                        ok={scanDebug.foundInFirestore} />
+                    )}
+                    {scanDebug.failReason && (
+                      <DebugRow label="Fail reason" value={scanDebug.failReason} warn />
+                    )}
+                    <div className="border-t border-white/10 pt-1.5 mt-1.5">
+                      <p className="text-[10px] text-white/20 font-mono break-all">{scanDebug.qrText}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-white/30 mt-6">برای بستن بزنید</p>
+            <button onClick={dismissResult}
+              className="mt-2 px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white/60 text-sm transition-colors">
+              بستن
+            </button>
           </div>
-
-          {/* Checkpoint name */}
-          {scanResult.checkpoint && (
-            <p className="text-lg font-bold text-white mb-1">{scanResult.checkpoint}</p>
-          )}
-
-          {/* Title */}
-          <p className={`text-base font-bold mb-2 text-center ${
-            scanResult.ok ? "text-green-400"
-              : scanResult.status === "outside" ? "text-orange-400"
-              : "text-red-400"
-          }`}>
-            {scanResult.title}
-          </p>
-
-          {/* Detail */}
-          <p className="text-sm text-white/60 text-center leading-relaxed max-w-xs">
-            {scanResult.msg}
-          </p>
-
-          <p className="text-xs text-white/30 mt-8">برای بستن بزنید</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function DebugRow({
+  label, value, mono, ok, warn, match,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  ok?: boolean;
+  warn?: boolean;
+  match?: boolean | null;
+}) {
+  const valueColor = ok === true ? "text-green-400"
+    : ok === false ? "text-red-400"
+    : warn ? "text-yellow-400"
+    : match === true ? "text-green-400"
+    : match === false ? "text-red-400"
+    : "text-white/60";
+
+  return (
+    <div className="flex justify-between gap-3 text-[11px]">
+      <span className="text-white/30 shrink-0">{label}</span>
+      <span className={`${mono ? "font-mono" : ""} ${valueColor} break-all text-right`}>{value}</span>
     </div>
   );
 }

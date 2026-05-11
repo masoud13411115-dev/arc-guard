@@ -72,10 +72,12 @@ export async function signInWithUsername(username: string, password: string): Pr
   }
 }
 
-// ── Guard login (guardCode + companyId + PIN) ─────────────────────────────────
+// ── Guard login helpers ────────────────────────────────────────────────────────
+
 /**
  * Look up a company document by its inviteCode.
  * Returns { id, name } or throws if not found.
+ * Used ONLY during guard *registration* (not login).
  */
 export async function resolveCompanyByInviteCode(
   inviteCode: string,
@@ -90,7 +92,32 @@ export async function resolveCompanyByInviteCode(
 }
 
 /**
- * Guard login using guardCode + inviteCode (to find companyId) + PIN.
+ * Look up a guard's companyId from Firestore by their guardCode.
+ * Used at login so the guard does NOT need to enter the invite code again.
+ * Returns companyId string or null if guard not found.
+ */
+export async function lookupGuardCompanyId(guardCode: string): Promise<string | null> {
+  if (!db) return null;
+  const normalized = guardCode.trim().toUpperCase();
+  console.log('[auth] lookupGuardCompanyId →', normalized);
+  const snap = await getDocs(
+    query(
+      collection(db, 'users'),
+      where('guardCode', '==', normalized),
+      where('role', '==', 'guard'),
+    ),
+  );
+  if (snap.empty) {
+    console.warn('[auth] lookupGuardCompanyId: no guard found for code', normalized);
+    return null;
+  }
+  const profile = snap.docs[0].data() as UserProfile;
+  console.log('[auth] lookupGuardCompanyId ✓ companyId:', profile.companyId);
+  return profile.companyId;
+}
+
+/**
+ * Guard login using guardCode + companyId (looked up from Firestore) + PIN.
  * The guard never needs to know their synthetic email.
  */
 export async function signInWithGuardCode(
@@ -100,11 +127,15 @@ export async function signInWithGuardCode(
 ): Promise<User> {
   if (!auth) throw new Error('Firebase پیکربندی نشده است.');
   const email = guardSyntheticEmail(guardCode, companyId);
+  console.log('[auth] signInWithGuardCode →', { guardCode, companyId });
   try {
     const cred = await signInWithEmailAndPassword(auth, email, pin);
+    console.log('[auth] signInWithGuardCode ✓ uid:', cred.user.uid);
     return cred.user;
   } catch (err: unknown) {
-    const code = (err as { code?: string })?.code ?? '';
+    const code    = (err as { code?: string })?.code    ?? '';
+    const message = (err as Error).message ?? '';
+    console.error('[auth] signInWithGuardCode ✗', { code, message, online: navigator.onLine });
     if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
       throw Object.assign(new Error('کد نگهبان یا PIN اشتباه است.'), { code });
     }

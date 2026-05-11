@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import {
-  signInWithUsername, signInWithGuardCode, resolveCompanyByInviteCode,
+  signInWithUsername, signInWithGuardCode, lookupGuardCompanyId,
   getUserProfile,
 } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
@@ -147,9 +147,8 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
   const [password, setPassword] = useState("");
 
   // Guard fields
-  const [guardCode, setGuardCode]   = useState("");
-  const [inviteCode, setInviteCode] = useState("");
-  const [pin, setPin]               = useState("");
+  const [guardCode, setGuardCode] = useState("");
+  const [pin, setPin]             = useState("");
 
   const [showPw, setShowPw]       = useState(false);
   const [loading, setLoading]     = useState(false);
@@ -208,25 +207,33 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
       setError("Firebase پیکربندی نشده است. کلیدهای VITE_ARC_GUARD_* را در Secrets اضافه کنید.");
       return;
     }
-    if (!guardCode.trim())  { setError("کد نگهبان الزامی است."); return; }
-    if (!inviteCode.trim()) { setError("کد دعوت شرکت الزامی است."); return; }
-    if (!pin)               { setError("PIN الزامی است."); return; }
+    if (!guardCode.trim()) { setError("کد نگهبان الزامی است."); return; }
+    if (!pin)              { setError("PIN الزامی است."); return; }
 
-    console.log("[login] guard attempt →", { guardCode: guardCode.trim(), inviteCode: inviteCode.trim(), online: navigator.onLine });
+    const normalizedCode = guardCode.trim().toUpperCase();
+    console.log("[login] guard attempt →", { guardCode: normalizedCode, online: navigator.onLine });
     setLoading(true);
     try {
-      console.log("[login] resolving company by invite code…");
-      const company = await resolveCompanyByInviteCode(inviteCode.trim().toUpperCase());
-      console.log("[login] company resolved →", { id: company.id, name: company.name });
+      // Step 1: look up companyId from Firestore by guardCode (no invite code needed at login)
+      console.log("[login] looking up companyId for guard code…");
+      const companyId = await lookupGuardCompanyId(normalizedCode);
+      console.log("[login] companyId lookup →", companyId ?? "NOT FOUND");
 
-      const user = await signInWithGuardCode(guardCode.trim().toUpperCase(), company.id, pin);
+      if (!companyId) {
+        setError("کد نگهبان ثبت نشده است. ابتدا با کد دعوت شرکت ثبت‌نام کنید.");
+        return;
+      }
+
+      // Step 2: Firebase Auth with derived synthetic email
+      const user = await signInWithGuardCode(normalizedCode, companyId, pin);
       console.log("[login] Firebase Auth ✓ uid:", user.uid, "— loading guard profile…");
 
+      // Step 3: Load Firestore profile
       const profile = await getUserProfile(user.uid);
-      console.log("[login] guard profile →", profile ? { role: profile.role, active: profile.active } : null);
+      console.log("[login] guard profile →", profile ? { role: profile.role, active: profile.active, companyId: profile.companyId } : null);
 
       if (!profile) {
-        setError("پروفایل نگهبان یافت نشد. ابتدا با کد دعوت ثبت‌نام کنید.");
+        setError("پروفایل نگهبان یافت نشد. ابتدا با کد دعوت شرکت ثبت‌نام کنید.");
         return;
       }
       if (!profile.active) {
@@ -238,10 +245,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
       onLogin(profile);
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? "";
-      // Guard-specific messages take priority
-      if (msg.includes("کد دعوت") || msg.includes("شرکت")) {
-        setError(msg);
-      } else if (msg.includes("کد نگهبان") || msg.includes("PIN")) {
+      if (msg.includes("کد نگهبان") || msg.includes("PIN")) {
         setError(msg);
       } else {
         setError(resolveAuthError(err));
@@ -412,25 +416,7 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                       className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors tracking-wider"
                     />
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">کد اختصاصی نگهبان (از مدیر دریافت کنید)</p>
-                </div>
-
-                <div>
-                  <label htmlFor="arc-invite" className="text-xs text-muted-foreground block mb-1">کد دعوت شرکت</label>
-                  <div className="relative">
-                    <Building2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    <input
-                      id="arc-invite"
-                      type="text"
-                      value={inviteCode}
-                      onChange={e => setInviteCode(e.target.value.toUpperCase())}
-                      placeholder="مثال: ARC-X9F2"
-                      autoCapitalize="characters"
-                      spellCheck={false}
-                      disabled={!isFirebaseReady}
-                      className="w-full bg-muted border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors tracking-widest"
-                    />
-                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">کد اختصاصی نگهبان — از مدیر دریافت کنید</p>
                 </div>
 
                 <div>
@@ -464,9 +450,9 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
                 </button>
 
                 <p className="text-center text-[11px] text-muted-foreground pt-1">
-                  نگهبان جدید؟{" "}
+                  اولین بار است؟{" "}
                   <button type="button" onClick={onRegister} className="text-primary hover:underline font-medium">
-                    ثبت‌نام با کد دعوت
+                    ثبت‌نام با کد دعوت شرکت
                   </button>
                 </p>
               </form>

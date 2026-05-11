@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing,
+  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
@@ -117,9 +117,11 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
   const [sessions, setSessions] = useState<GuardSession[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenAlertIds());
   const [currentPlanId, setCurrentPlanId] = useState<string>("basic");
+  const [showAlertsDebug, setShowAlertsDebug] = useState(false);
 
   const currentPlan = PLANS[currentPlanId as keyof typeof PLANS] ?? PLANS.basic;
   const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
@@ -134,7 +136,14 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   useEffect(() => {
     const u1 = subscribePatrolLogs(profile.companyId, setRecentLogs, 100);
     const u2 = subscribeGuardSessions(profile.companyId, setSessions);
-    const u3 = subscribeAlerts(profile.companyId, setAlerts);
+    const u3 = subscribeAlerts(
+      profile.companyId,
+      (newAlerts) => { setAlerts(newAlerts); setAlertsError(null); },
+      (err) => {
+        console.error("[Dashboard] subscribeAlerts failed:", (err as {code?:string}).code, err.message);
+        setAlertsError(`خطای دریافت هشدارها از Firestore: ${err.message}`);
+      },
+    );
     const u4 = subscribeCheckpoints(profile.companyId, setCheckpoints);
     return () => { u1(); u2(); u3(); u4(); };
   }, [profile.companyId]);
@@ -450,6 +459,71 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">SOS نگهبانان، ایستگاه‌های از دست رفته، تخلفات GPS</p>
               </div>
+
+              {/* ── Firestore listener error banner ── */}
+              {alertsError && (
+                <div className="mb-4 rounded-xl border-2 border-red-500/60 bg-red-950/50 p-4 flex items-start gap-3" dir="rtl">
+                  <AlertOctagon className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-red-400">خطا در دریافت هشدارها از Firestore</p>
+                    <p className="text-xs text-red-300/70 mt-1 font-mono break-all">{alertsError}</p>
+                    <p className="text-xs text-red-300/50 mt-1">مسیر listener: companies/{profile.companyId}/alerts</p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── SOS Debug panel (DEV only) ── */}
+              {import.meta.env.DEV && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setShowAlertsDebug(v => !v)}
+                    className="flex items-center gap-2 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  >
+                    {showAlertsDebug ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    <span className="font-mono">دیباگ Firestore هشدارها</span>
+                  </button>
+                  {showAlertsDebug && (
+                    <div className="mt-1 rounded-xl border border-white/10 bg-black/70 p-3 space-y-1.5 text-left font-mono text-[11px]" dir="ltr">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">Manager companyId</span>
+                        <span className="text-white/60 break-all text-right">{profile.companyId}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">Firestore listener path</span>
+                        <span className="text-primary/80 break-all text-right">companies/{profile.companyId}/alerts</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">Query</span>
+                        <span className="text-white/60 text-right">orderBy(alertedAt, desc) limit(50)</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">Alerts loaded</span>
+                        <span className={`${alerts.length > 0 ? "text-green-400" : "text-yellow-400"}`}>
+                          {alerts.length} {alertsError ? "⚠ (error)" : "✓"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">Open / SOS</span>
+                        <span className="text-white/60">{openAlerts.length} / {sosAlerts.length}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">SOS write path</span>
+                        <span className="text-white/50 text-right">companies/{profile.companyId}/alerts/{"{autoId}"}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-white/30">Composite index</span>
+                        <span className="text-green-400">✓ NOT needed (filtered client-side)</span>
+                      </div>
+                      {alertsError && (
+                        <div className="border-t border-white/10 pt-2">
+                          <span className="text-red-400 break-all">{alertsError}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <AlertHistory
                 alerts={alerts}
                 companyId={profile.companyId}

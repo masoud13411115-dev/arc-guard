@@ -79,15 +79,23 @@ export interface PatrolLog {
 }
 
 export type AlertKind = 'sos' | 'missed' | 'outside';
+export type AlertStatus = 'unread' | 'read' | 'resolved';
 
 export interface Alert {
   id?: string;
   kind: AlertKind;
+  /** read/unread/resolved — separate from resolved boolean for compatibility */
+  status?: AlertStatus;
   guardId: string;
   guardName: string;
   checkpointId?: string;
   checkpointName?: string;
+  /** Nested GPS object (legacy) */
   gps?: GpsCoords | null;
+  /** Flat GPS fields — written alongside gps object so Firestore rules can index them */
+  gpsLat?: number | null;
+  gpsLng?: number | null;
+  gpsAccuracy?: number | null;
   distanceMeters?: number | null;
   scheduledAt?: number;
   alertedAt: number;

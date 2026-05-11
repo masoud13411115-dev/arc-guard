@@ -176,11 +176,24 @@ export async function saveMissedAlert(alert: Omit<Alert, 'id'>): Promise<void> {
 export function subscribeAlerts(
   companyId: string,
   cb: (alerts: Alert[]) => void,
+  onError?: (err: Error) => void,
 ): () => void {
   if (!db) return () => {};
+  const path = `companies/${companyId}/alerts`;
+  console.log(`[firestore] subscribeAlerts → ${path}`);
   return onSnapshot(
-    query(col(companyId, 'alerts'), where('resolved', '==', false), orderBy('alertedAt', 'desc'), limit(30)),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Alert))),
+    // Only orderBy — NO where clause → no composite index needed.
+    // Filtering resolved/unread is done client-side to avoid silent index errors.
+    query(col(companyId, 'alerts'), orderBy('alertedAt', 'desc'), limit(50)),
+    (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Alert));
+      console.log(`[firestore] subscribeAlerts snapshot: ${all.length} docs — ${path}`);
+      cb(all);
+    },
+    (err) => {
+      console.error(`[firestore] subscribeAlerts ERROR at ${path}:`, err.code, err.message);
+      onError?.(err);
+    },
   );
 }
 

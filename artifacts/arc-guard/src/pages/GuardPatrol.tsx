@@ -110,6 +110,9 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
   const [sosProgress, setSosProgress] = useState(0);
   const [sosSent, setSosSent]         = useState(false);
   const [sosSending, setSosSending]   = useState(false);
+  const [sosError, setSosError]       = useState<string | null>(null);
+  const [sosWritePath, setSosWritePath] = useState<string | null>(null);
+  const [showSosDebug, setShowSosDebug] = useState(false);
 
   const scannerRef     = useRef<any>(null);
   const sosTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -628,19 +631,46 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
     setSosHolding(false);
     setSosProgress(0);
     setSosSending(true);
+    setSosError(null);
     playEmergency();
-    if (db) {
-      try {
-        await saveAlert({
-          kind: "sos", guardId, guardName, gps: gps ?? undefined,
-          alertedAt: Date.now(), companyId, resolved: false,
-          message: "اضطراری توسط نگهبان فعال شد",
-        });
-      } catch {}
+
+    const writePath = `companies/${companyId}/alerts/{autoId}`;
+    setSosWritePath(writePath);
+    console.log(`[SOS] writing to ${writePath} — guardId=${guardId} companyId=${companyId}`);
+
+    if (!db) {
+      setSosError("Firebase پیکربندی نشده — SOS ارسال نشد. با مدیر سیستم تماس بگیرید.");
+      setSosSending(false);
+      return;
     }
+
+    try {
+      const alertId = await saveAlert({
+        kind: "sos",
+        status: "unread",
+        guardId,
+        guardName,
+        companyId,
+        gps: gps ?? undefined,
+        // Flat GPS fields for easier Firestore queries
+        gpsLat: gps?.lat ?? null,
+        gpsLng: gps?.lng ?? null,
+        gpsAccuracy: gps?.accuracy ?? null,
+        alertedAt: Date.now(),
+        resolved: false,
+        message: "اضطراری توسط نگهبان فعال شد",
+      });
+      console.log(`[SOS] ✓ saved — alertId=${alertId} path=companies/${companyId}/alerts/${alertId}`);
+      setSosWritePath(`companies/${companyId}/alerts/${alertId}`);
+      setSosSent(true);
+      setTimeout(() => setSosSent(false), 15_000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[SOS] ✗ saveAlert failed:`, err);
+      setSosError(`خطا در ارسال SOS به سرور: ${msg}`);
+    }
+
     setSosSending(false);
-    setSosSent(true);
-    setTimeout(() => setSosSent(false), 15_000);
   };
 
   // ── GPS chip ──────────────────────────────────────────────────────────────
@@ -759,11 +789,25 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
         )}
 
         {/* SOS button */}
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm space-y-2">
           {sosSent ? (
-            <div className="rounded-2xl border border-red-500/40 bg-red-500/10 py-4 flex items-center justify-center gap-2">
-              <PhoneOff className="w-5 h-5 text-red-400" />
-              <span className="text-sm font-bold text-red-400">اضطراری ارسال شد — مدیر مطلع شد</span>
+            <div className="rounded-2xl border border-green-500/40 bg-green-500/10 py-4 flex items-center justify-center gap-2">
+              <PhoneOff className="w-5 h-5 text-green-400" />
+              <span className="text-sm font-bold text-green-400">✓ اضطراری ارسال شد — مدیر مطلع شد</span>
+            </div>
+          ) : sosError ? (
+            <div className="rounded-2xl border border-red-500/60 bg-red-950/50 p-4 space-y-2">
+              <div className="flex items-start gap-2">
+                <XCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-sm font-bold text-red-400">SOS ارسال نشد</p>
+              </div>
+              <p className="text-xs text-red-300/70 leading-relaxed">{sosError}</p>
+              <button
+                onClick={() => { setSosError(null); setSosSent(false); }}
+                className="text-xs text-red-400 hover:text-red-300 underline"
+              >
+                تلاش مجدد
+              </button>
             </div>
           ) : (
             <div className="relative rounded-2xl overflow-hidden">
@@ -784,11 +828,59 @@ export default function GuardPatrol({ guardId, guardName, companyId, onLogout }:
                   active:bg-red-500/20 transition-colors"
                 style={{ touchAction: "none" }}
               >
-                <PhoneOff className="w-5 h-5 text-red-400" />
+                {sosSending
+                  ? <Loader2 className="w-5 h-5 text-red-400 animate-spin" />
+                  : <PhoneOff className="w-5 h-5 text-red-400" />}
                 <span className="text-sm font-bold text-red-400">
-                  {sosSending ? "در حال ارسال..." : sosHolding ? "نگه دارید..." : "SOS اضطراری — نگه دارید"}
+                  {sosSending ? "در حال ارسال به سرور..." : sosHolding ? "نگه دارید..." : "SOS اضطراری — نگه دارید"}
                 </span>
               </button>
+            </div>
+          )}
+
+          {/* SOS debug panel — DEV only */}
+          {import.meta.env.DEV && (
+            <div>
+              <button
+                onClick={() => setShowSosDebug(v => !v)}
+                className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors"
+              >
+                {showSosDebug ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                <span className="font-mono">دیباگ SOS</span>
+              </button>
+              {showSosDebug && (
+                <div className="mt-1 rounded-xl border border-white/10 bg-black/70 p-3 space-y-1.5 font-mono text-[10px]" dir="ltr">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/30">Guard companyId</span>
+                    <span className="text-white/60 break-all text-right">{companyId}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/30">Guard ID</span>
+                    <span className="text-white/60 break-all text-right">{guardId}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/30">SOS write path</span>
+                    <span className="text-primary/80 break-all text-right">
+                      {sosWritePath ?? `companies/${companyId}/alerts/{autoId}`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/30">GPS available</span>
+                    <span className={gps ? "text-green-400" : "text-yellow-400"}>
+                      {gps ? `✓ lat=${gps.lat.toFixed(5)} lng=${gps.lng.toFixed(5)}` : "✗ not yet"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/30">Firebase db</span>
+                    <span className={db ? "text-green-400" : "text-red-400"}>{db ? "✓ ready" : "✗ null"}</span>
+                  </div>
+                  {sosError && (
+                    <div className="border-t border-white/10 pt-2">
+                      <span className="text-red-400 break-all">{sosError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

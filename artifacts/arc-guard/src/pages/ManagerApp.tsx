@@ -79,7 +79,7 @@ export default function ManagerApp() {
     if (isFirebaseReady) await signOut().catch(() => {});
     setProfile(null);
     setScreen("login");
-    navigate("/");
+    navigate("/manager");
   }, [navigate]);
 
   if (screen === "loading") {

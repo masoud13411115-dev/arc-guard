@@ -62,7 +62,7 @@ export default function GuardApp() {
     if (isFirebaseReady) await signOut().catch(() => {});
     setProfile(null);
     setScreen("login");
-    navigate("/");
+    navigate("/guard");
   }, [navigate]);
 
   if (screen === "loading") {

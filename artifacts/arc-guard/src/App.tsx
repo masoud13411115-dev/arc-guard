@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router, Route, Switch } from "wouter";
-import { useHashLocation } from "wouter/use-hash-location";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import LandingPage from "@/pages/LandingPage";
@@ -17,13 +16,12 @@ import { onNetworkChange, type NetworkState } from "@/lib/network";
 import { logger } from "@/lib/logger";
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 2,
-      staleTime: 30_000,
-    },
-  },
+  defaultOptions: { queries: { retry: 2, staleTime: 30_000 } },
 });
+
+// Strip trailing slash from Vite BASE_URL for wouter base prop
+// e.g. "/arc-guard/" → "/arc-guard"
+const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
 
 function NetworkBanner({ state }: { state: NetworkState }) {
   if (state === "online") return null;
@@ -40,26 +38,21 @@ function NetworkBanner({ state }: { state: NetworkState }) {
 }
 
 function AppContent() {
-  const [splashDone, setSplashDone]       = useState(false);
+  const [splashDone, setSplashDone]         = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [offlineCount, setOfflineCount]   = useState(0);
-  const [networkState, setNetworkState]   = useState<NetworkState>("online");
-  const [isStandalone]                    = useState(isPWAInstalled);
+  const [offlineCount, setOfflineCount]     = useState(0);
+  const [networkState, setNetworkState]     = useState<NetworkState>("online");
+  const [isStandalone]                      = useState(isPWAInstalled);
 
   useEffect(() => {
     initPWA(() => setUpdateAvailable(true));
     logger.info("app", "ARC Guard starting", { pwa: isPWAInstalled(), firebase: isFirebaseReady });
-
     const unsub = listenForSyncTrigger(async () => {
       if (isFirebaseReady) {
         const synced = await syncOfflineQueue();
-        if (synced > 0) {
-          setOfflineCount(getQueueCount());
-          logger.info("app", `Synced ${synced} offline items`);
-        }
+        if (synced > 0) { setOfflineCount(getQueueCount()); }
       }
     });
-
     setOfflineCount(getQueueCount());
     return unsub;
   }, []);
@@ -68,20 +61,15 @@ function AppContent() {
     return onNetworkChange((state) => {
       setNetworkState(state);
       if (state === "online" && isFirebaseReady && getQueueCount() > 0) {
-        syncOfflineQueue()
-          .then((synced) => { if (synced > 0) setOfflineCount(getQueueCount()); })
-          .catch(() => {});
+        syncOfflineQueue().then((n) => { if (n > 0) setOfflineCount(getQueueCount()); }).catch(() => {});
       }
     });
   }, []);
 
   const handleSplashComplete = useCallback(() => setSplashDone(true), []);
-
   const topOffset = networkState !== "online" || offlineCount > 0 ? "pt-8" : "";
 
-  if (!splashDone) {
-    return <SplashScreen onComplete={handleSplashComplete} />;
-  }
+  if (!splashDone) return <SplashScreen onComplete={handleSplashComplete} />;
 
   return (
     <>
@@ -105,10 +93,11 @@ function AppContent() {
       {!isStandalone && <InstallPrompt />}
 
       <div className={topOffset}>
-        <Router hook={useHashLocation}>
+        {/* Browser-location router with Vite base path as prefix */}
+        <Router base={routerBase}>
           <Switch>
             <Route path="/manager" component={ManagerApp} />
-            <Route path="/guard" component={GuardApp} />
+            <Route path="/guard"   component={GuardApp} />
             <Route component={LandingPage} />
           </Switch>
         </Router>

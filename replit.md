@@ -100,6 +100,19 @@ _Populate as you build — explicit user instructions worth remembering across s
 - If not found: shows exact reason (companyId mismatch, or checkpoint not in loaded list of N items).
 - DEV debug panel: after each scan shows qrCompanyId, qrCheckpointId, guardCompanyId, lookup path, error reason. Hidden in production (`import.meta.env.DEV`).
 
+## ARC Guard — Guard UX (Simple One-Tap Flow)
+
+- **One big button**: Guard sees a single large "اسکن ایستگاه" circle button (144px) on their screen.
+- **Auto GPS**: `navigator.geolocation.watchPosition` runs continuously in background — GPS is always fresh when scan happens. Guard never manually refreshes GPS.
+- **Scan → auto-process**: Camera opens as full-screen overlay → QR scanned → camera closes → GPS distance computed → log saved → result shown automatically.
+- **Full-screen result overlay**: Green (valid) / Orange (outside) / Red (failed) with auto-dismiss after 4.5s. Guard can tap to dismiss early.
+- **Next checkpoint card**: Shows the most overdue checkpoint or the soonest due one. Color-coded orange if overdue.
+- **SOS**: Hold-to-activate button (3 seconds) with animated progress fill. Saves alert to Firestore instantly.
+- **Recent scans**: Last 5 scans shown as color-coded list (green/orange/red) with checkpoint name, distance, and time.
+- **Offline queue**: Yellow chip shows count of unsynced logs. Auto-syncs when back online.
+- **Guard inputs nothing**: Checkpoint name, GPS, radius, interval — all defined by manager. Guard only taps scan.
+- Guard page: `artifacts/arc-guard/src/pages/GuardPatrol.tsx` (~350 lines, no tabs, no complex state machines).
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

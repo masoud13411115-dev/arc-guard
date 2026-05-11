@@ -277,16 +277,18 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       )}
 
       {/* Mobile tab bar */}
-      <div className="md:hidden flex overflow-x-auto border-b border-border bg-card/80 backdrop-blur shrink-0 scrollbar-none">
+      <div className="md:hidden flex overflow-x-auto border-b border-border bg-card/90 backdrop-blur shrink-0 scrollbar-none">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => handleTabChange(tab)}
-            className={`relative flex flex-col items-center gap-0.5 px-3 py-2 shrink-0 text-[9px] font-medium transition-colors border-b-2 ${
-              activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground"
+            className={`relative flex flex-col items-center gap-1 px-3.5 py-2.5 shrink-0 text-[12px] font-semibold transition-colors border-b-[3px] ${
+              activeTab === tab
+                ? "border-primary text-foreground bg-primary/[0.07]"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}>
-            <Icon className="w-4 h-4" />
+            <Icon className={`w-5 h-5 ${activeTab === tab ? "text-primary" : ""}`} />
             {label}
             {badge != null && badge > 0 && (
-              <span className={`absolute top-1 right-1 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold rounded-full ${
+              <span className={`absolute top-1.5 right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold rounded-full ${
                 tab === "alerts" && sosAlerts.length > 0 ? "bg-red-500 text-white animate-pulse" : "bg-yellow-500 text-black"
               }`}>{badge > 9 ? "9+" : badge}</span>
             )}

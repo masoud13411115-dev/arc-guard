@@ -328,14 +328,15 @@ export default function LoginPage({ onLogin, onRegister }: Props) {
             {(["manager", "guard"] as const).map((m) => (
               <button key={m} type="button"
                 onClick={() => { setMode(m); setError(""); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-[15px] font-bold transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 py-4 text-[16px] font-bold transition-colors border-b-[3px] ${
                   mode === m
-                    ? "bg-primary/[0.08] text-foreground border-b-[3px] border-primary"
-                    : "text-muted-foreground border-b-[3px] border-transparent hover:text-foreground hover:bg-accent/60"
-                }`}>
+                    ? "bg-primary/15 text-white border-primary [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]"
+                    : "text-gray-400 border-transparent hover:text-gray-200 hover:bg-white/[0.04]"
+                }`}
+                style={mode === m ? { color: '#ffffff' } : {}}>
                 {m === "manager"
-                  ? <><Building2 className="w-4 h-4" />مدیر / ادمین</>
-                  : <><Shield   className="w-4 h-4" />نگهبان</>}
+                  ? <><Building2 className="w-[18px] h-[18px]" />مدیر / ادمین</>
+                  : <><Shield   className="w-[18px] h-[18px]" />نگهبان</>}
               </button>
             ))}
           </div>

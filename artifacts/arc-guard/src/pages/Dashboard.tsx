@@ -280,12 +280,13 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       <div className="md:hidden flex overflow-x-auto border-b border-border bg-card/90 backdrop-blur shrink-0 scrollbar-none">
         {navItems.map(({ tab, label, icon: Icon, badge }) => (
           <button key={tab} onClick={() => handleTabChange(tab)}
-            className={`relative flex flex-col items-center gap-1 px-3.5 py-2.5 shrink-0 text-[12px] font-semibold transition-colors border-b-[3px] ${
+            style={activeTab === tab ? { color: '#ffffff' } : {}}
+            className={`relative flex flex-col items-center gap-1 px-3.5 py-3 shrink-0 text-[13px] font-bold transition-colors border-b-[3px] ${
               activeTab === tab
-                ? "border-primary text-foreground bg-primary/[0.07]"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                ? "border-primary text-white bg-primary/[0.12] [text-shadow:0_1px_2px_rgba(0,0,0,0.6)]"
+                : "border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]"
             }`}>
-            <Icon className={`w-5 h-5 ${activeTab === tab ? "text-primary" : ""}`} />
+            <Icon className={`w-5 h-5 ${activeTab === tab ? "text-white" : "text-gray-400"}`} />
             {label}
             {badge != null && badge > 0 && (
               <span className={`absolute top-1.5 right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold rounded-full ${

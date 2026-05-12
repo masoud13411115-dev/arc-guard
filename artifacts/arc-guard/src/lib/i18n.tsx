@@ -366,6 +366,12 @@ const dict: Record<Lang, Record<string, string>> = {
     "scan.result.distance.value": "{n} متر",
     "scan.sos.firebase.error": "Firebase پیکربندی نشده — SOS ارسال نشد. با مدیر سیستم تماس بگیرید.",
     "scan.sos.error": "خطا در ارسال SOS به سرور: {msg}",
+    "app.offline.banner": "اتصال قطع است — اسکن‌ها در صف ذخیره می‌شوند",
+    "app.syncing": "{n} اسکن در حال همگام‌سازی...",
+    "guard.time.min": "د",
+    "login.firebase.connected": "Firebase {name} متصل",
+    "login.firebase.disconnected": "Firebase متصل نیست",
+    "dash.alerts.error": "خطای دریافت هشدارها از Firestore: {msg}",
   },
 
   en: {
@@ -700,6 +706,12 @@ const dict: Record<Lang, Record<string, string>> = {
     "scan.result.distance.value": "{n} m",
     "scan.sos.firebase.error": "Firebase not configured — SOS not sent. Contact system administrator.",
     "scan.sos.error": "Error sending SOS to server: {msg}",
+    "app.offline.banner": "Connection lost — scans queued",
+    "app.syncing": "{n} scans syncing...",
+    "guard.time.min": "m",
+    "login.firebase.connected": "Firebase {name} connected",
+    "login.firebase.disconnected": "Firebase not connected",
+    "dash.alerts.error": "Firestore alerts error: {msg}",
   },
 
   tr: {
@@ -1034,6 +1046,12 @@ const dict: Record<Lang, Record<string, string>> = {
     "scan.result.distance.value": "{n} m",
     "scan.sos.firebase.error": "Firebase yapılandırılmamış — SOS gönderilmedi. Sistem yöneticisiyle iletişime geçin.",
     "scan.sos.error": "Sunucuya SOS gönderilirken hata: {msg}",
+    "app.offline.banner": "Bağlantı kesildi — taramalar kuyruğa alındı",
+    "app.syncing": "{n} tarama senkronize ediliyor...",
+    "guard.time.min": "d",
+    "login.firebase.connected": "Firebase {name} bağlandı",
+    "login.firebase.disconnected": "Firebase bağlı değil",
+    "dash.alerts.error": "Firestore uyarı hatası: {msg}",
   },
 
   "zh-CN": {
@@ -1368,6 +1386,12 @@ const dict: Record<Lang, Record<string, string>> = {
     "scan.result.distance.value": "{n}米",
     "scan.sos.firebase.error": "Firebase未配置 — SOS未发送。请联系系统管理员。",
     "scan.sos.error": "向服务器发送SOS时出错：{msg}",
+    "app.offline.banner": "连接断开 — 扫描已排队",
+    "app.syncing": "{n}条扫描同步中...",
+    "guard.time.min": "分",
+    "login.firebase.connected": "Firebase {name} 已连接",
+    "login.firebase.disconnected": "Firebase 未连接",
+    "dash.alerts.error": "Firestore警报错误：{msg}",
   },
 };
 

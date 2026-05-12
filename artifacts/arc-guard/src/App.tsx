@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router, Route, Switch } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, useI18n } from "@/lib/i18n";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import LandingPage from "@/pages/LandingPage";
 import ManagerApp from "@/pages/ManagerApp";
 import GuardApp from "@/pages/GuardApp";
 import SplashScreen from "@/pages/SplashScreen";
+import QAPage from "@/pages/QAPage";
 import InstallPrompt, { UpdateBanner } from "@/components/InstallPrompt";
 import { isFirebaseReady } from "@/firebase";
 import { initPWA, applyUpdate, isPWAInstalled } from "@/lib/pwa";
@@ -25,20 +26,22 @@ const queryClient = new QueryClient({
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
 
 function NetworkBanner({ state }: { state: NetworkState }) {
+  const { t, dir } = useI18n();
   if (state === "online") return null;
   return (
     <div
       className="fixed top-0 left-0 right-0 z-[70] flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-medium"
       style={{ background: "rgba(239,68,68,0.15)", borderBottom: "1px solid rgba(239,68,68,0.3)" }}
-      dir="rtl"
+      dir={dir}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-      <span className="text-red-400">اتصال قطع است — اسکن‌ها در صف ذخیره می‌شوند</span>
+      <span className="text-red-400">{t("app.offline.banner")}</span>
     </div>
   );
 }
 
 function AppContent() {
+  const { t, dir } = useI18n();
   const [splashDone, setSplashDone]         = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [offlineCount, setOfflineCount]     = useState(0);
@@ -80,10 +83,10 @@ function AppContent() {
         <div
           className="fixed top-0 left-0 right-0 z-[65] flex items-center justify-center gap-2 px-4 py-1.5 text-xs text-yellow-400"
           style={{ background: "rgba(234,179,8,0.12)", borderBottom: "1px solid rgba(234,179,8,0.25)" }}
-          dir="rtl"
+          dir={dir}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-          {offlineCount} اسکن در حال همگام‌سازی...
+          {t("app.syncing", { n: offlineCount })}
         </div>
       )}
 
@@ -99,6 +102,7 @@ function AppContent() {
           <Switch>
             <Route path="/manager" component={ManagerApp} />
             <Route path="/guard"   component={GuardApp} />
+            <Route path="/qa"      component={QAPage} />
             <Route component={LandingPage} />
           </Switch>
         </Router>

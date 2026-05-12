@@ -113,7 +113,8 @@ function NotificationPermissionCard() {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ profile, onLogout }: DashboardProps) {
-  const { t, dir } = useI18n();
+  const { t, dir, lang } = useI18n();
+  const DATE_LOCALES: Record<string, string> = { fa: "fa-IR", en: "en-US", tr: "tr-TR", "zh-CN": "zh-CN" };
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [recentLogs, setRecentLogs] = useState<PatrolLog[]>([]);
@@ -143,7 +144,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       (newAlerts) => { setAlerts(newAlerts); setAlertsError(null); },
       (err) => {
         console.error("[Dashboard] subscribeAlerts failed:", (err as {code?:string}).code, err.message);
-        setAlertsError(`خطای دریافت هشدارها از Firestore: ${err.message}`);
+        setAlertsError(err.message);
       },
     );
     const u4 = subscribeCheckpoints(profile.companyId, setCheckpoints);
@@ -232,7 +233,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
             }`}>
             <Icon className="w-4 h-4" />
-            <span className="flex-1 text-right">{label}</span>
+            <span className="flex-1 text-start">{label}</span>
             {badge != null && badge > 0 && (
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                 tab === "alerts" && sosAlerts.length > 0
@@ -262,7 +263,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
       <MobileHeader
         title="ARC Guard"
-        subtitle={profile.companyName ?? "مدیریت"}
+        subtitle={profile.companyName ?? t("dash.management")}
         onMenuClick={() => setSidebarOpen(!sidebarOpen)}
         notificationCount={unseenOpenCount}
       />
@@ -312,7 +313,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
               <div>
                 <h2 className="text-lg font-bold text-foreground">{t("dash.section.overview")}</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {new Date().toLocaleDateString("fa-IR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                  {new Date().toLocaleDateString(DATE_LOCALES[lang] ?? "en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                 </p>
               </div>
 
@@ -467,12 +468,11 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
               {/* ── Firestore listener error banner ── */}
               {alertsError && (
-                <div className="mb-4 rounded-xl border-2 border-red-500/60 bg-red-950/50 p-4 flex items-start gap-3" dir="rtl">
+                <div className="mb-4 rounded-xl border-2 border-red-500/60 bg-red-950/50 p-4 flex items-start gap-3">
                   <AlertOctagon className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="text-sm font-bold text-red-400">{t("dash.firestore.error")}</p>
-                    <p className="text-xs text-red-300/70 mt-1 font-mono break-all">{alertsError}</p>
-                    <p className="text-xs text-red-300/50 mt-1">مسیر listener: companies/{profile.companyId}/alerts</p>
+                    <p className="text-xs text-red-300/70 mt-1 font-mono break-all">{t("dash.alerts.error", { msg: alertsError })}</p>
                   </div>
                 </div>
               )}

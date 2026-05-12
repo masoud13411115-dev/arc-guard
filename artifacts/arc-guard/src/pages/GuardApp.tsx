@@ -6,11 +6,13 @@ import GuardPatrol from "@/pages/GuardPatrol";
 import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
+import { useI18n } from "@/lib/i18n";
 import type { UserProfile } from "@/types";
 
 type Screen = "loading" | "login" | "patrol";
 
 export default function GuardApp() {
+  const { t, dir } = useI18n();
   const [, navigate] = useLocation();
   const [screen, setScreen] = useState<Screen>("loading");
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -67,10 +69,10 @@ export default function GuardApp() {
 
   if (screen === "loading") {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-background" dir="rtl">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background" dir={dir}>
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
-          <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>
+          <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         </div>
       </div>
     );

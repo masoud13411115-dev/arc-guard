@@ -382,7 +382,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
             {/* Firebase status */}
             <p className="text-[11px] text-center text-muted-foreground/60 flex items-center justify-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full ${isFirebaseReady ? "bg-green-400" : "bg-yellow-400"}`} />
-              {isFirebaseReady ? `Firebase ${t("app.name")} متصل` : "Firebase متصل نیست"}
+              {isFirebaseReady ? t("login.firebase.connected", { name: t("app.name") }) : t("login.firebase.disconnected")}
             </p>
 
             {/* Register link — guard mode */}

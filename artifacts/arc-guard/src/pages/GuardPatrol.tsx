@@ -826,7 +826,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
               </div>
               {!nextCheckpoint.overdue && nextCheckpoint.secsLeft > 0 && (
                 <span className="text-[15px] text-muted-foreground font-mono shrink-0">
-                  {Math.ceil(nextCheckpoint.secsLeft / 60)} د
+                  {Math.ceil(nextCheckpoint.secsLeft / 60)}{t("guard.time.min")}
                 </span>
               )}
             </div>
@@ -951,7 +951,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                   <div className="flex-1 min-w-0">
                     <p className="text-[16px] font-semibold text-foreground truncate">{log.checkpointName}</p>
                     {log.distanceMeters !== null && (
-                      <p className="text-[13px] text-muted-foreground mt-0.5">{log.distanceMeters} متر</p>
+                      <p className="text-[13px] text-muted-foreground mt-0.5">{t("scan.result.distance.value", { n: String(log.distanceMeters) })}</p>
                     )}
                   </div>
                   <span className="text-[13px] text-muted-foreground font-mono shrink-0">{log.scannedAtText}</span>

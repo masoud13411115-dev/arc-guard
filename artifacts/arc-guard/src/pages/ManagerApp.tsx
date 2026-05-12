@@ -8,6 +8,7 @@ import SuperAdminPanel from "@/pages/SuperAdminPanel";
 import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
+import { useI18n } from "@/lib/i18n";
 import type { UserProfile } from "@/types";
 
 type Screen = "loading" | "login" | "setup" | "dashboard" | "super-admin";
@@ -19,6 +20,7 @@ function screenForRole(role: UserProfile["role"]): Screen {
 }
 
 export default function ManagerApp() {
+  const { dir } = useI18n();
   const [, navigate] = useLocation();
   const [screen, setScreen] = useState<Screen>("loading");
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -84,7 +86,7 @@ export default function ManagerApp() {
 
   if (screen === "loading") {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-background" dir="rtl">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background" dir={dir}>
         <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );

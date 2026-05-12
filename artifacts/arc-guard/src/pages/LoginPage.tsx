@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
-  Shield, Eye, EyeOff, Lock, AlertCircle, Info,
+  Shield, Eye, EyeOff, Lock, AlertCircle, Info, CheckCircle, WifiOff,
   ChevronDown, ChevronUp, Hash, Building2, AtSign,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
@@ -8,6 +8,10 @@ import {
   signInWithUsername, signInWithGuardCode, lookupGuardCompanyId,
   getUserProfile,
 } from "@/lib/auth";
+import {
+  saveOfflineManagerCred, verifyOfflineManagerCred, hasOfflineManagerCred,
+  saveProfileCache, loadProfileCache,
+} from "@/lib/offlineAuth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
 import type { UserProfile } from "@/types";
@@ -113,22 +117,71 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
   const { t, dir, isRTL } = useI18n();
   const [mode, setMode] = useState<LoginMode>(lockedMode ?? "manager");
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [guardCode, setGuardCode] = useState("");
-  const [pin, setPin]             = useState("");
-  const [showPw, setShowPw]       = useState(false);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState("");
-  const [showGuide, setShowGuide] = useState(false);
+  const [username, setUsername]         = useState("");
+  const [password, setPassword]         = useState("");
+  const [guardCode, setGuardCode]       = useState("");
+  const [pin, setPin]                   = useState("");
+  const [showPw, setShowPw]             = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState("");
+  const [showGuide, setShowGuide]       = useState(false);
+  const [offlineSuccess, setOfflineSuccess] = useState(false);
+  const [online, setOnline]             = useState(navigator.onLine);
 
+  // Track network state so form enables/disables dynamically
+  useEffect(() => {
+    const onOnline  = () => { setOnline(true);  setError(""); setOfflineSuccess(false); };
+    const onOffline = () => { setOnline(false); setError(""); setOfflineSuccess(false); };
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online",  onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  // ── Manager login ─────────────────────────────────────────────────────────
   const handleManagerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است."); return; }
+    setOfflineSuccess(false);
     if (!username.trim()) { setError("نام کاربری الزامی است."); return; }
     if (!password)        { setError("رمز عبور الزامی است."); return; }
-    console.log("[login] manager attempt →", { username: username.trim(), online: navigator.onLine });
+
+    // ── Offline path ───────────────────────────────────────────────────────
+    if (!online) {
+      setLoading(true);
+      try {
+        const uid = await verifyOfflineManagerCred(username.trim(), password);
+        if (uid === null) {
+          // Distinguish: no cached session vs wrong password
+          setError(
+            hasOfflineManagerCred(username.trim())
+              ? "نام کاربری یا رمز عبور اشتباه است."
+              : t("login.offline.firstTime"),
+          );
+          return;
+        }
+        const profile = loadProfileCache(uid);
+        if (!profile) {
+          setError(t("login.offline.firstTime"));
+          return;
+        }
+        logger.info("login", "Offline manager login success");
+        setOfflineSuccess(true);
+        // Brief delay so user sees the success banner before navigating
+        setTimeout(() => onLogin(profile), 900);
+      } catch {
+        setError("خطا در تأیید هویت آفلاین. دوباره تلاش کنید.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // ── Online path (Firebase) ─────────────────────────────────────────────
+    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است."); return; }
+    console.log("[login] manager attempt →", { username: username.trim(), online });
     setLoading(true);
     try {
       const user    = await signInWithUsername(username.trim(), password);
@@ -136,12 +189,18 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
       if (!profile) { setError("پروفایل کاربری یافت نشد."); return; }
       if (!profile.active) { setError("حساب شما غیرفعال است. با مدیر تماس بگیرید."); return; }
       if (profile.role === "guard") { setError("این حساب نگهبان است. برای ورود از تب «نگهبان» استفاده کنید."); return; }
+
+      // Persist credential + profile for future offline logins
+      saveProfileCache(profile);
+      saveOfflineManagerCred(username.trim(), password, user.uid).catch(() => {});
+
       logger.info("login", `Manager success: ${profile.role}`);
       onLogin(profile);
     } catch (err: unknown) { setError(resolveAuthError(err)); }
     finally { setLoading(false); }
   };
 
+  // ── Guard login (unchanged) ────────────────────────────────────────────────
   const handleGuardLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -172,6 +231,10 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
     </svg>
   );
 
+  // Form inputs for manager are disabled only when Firebase isn't ready AND we're online
+  // (i.e. demo mode). When offline, inputs are always enabled so offline login works.
+  const managerInputsDisabled = !isFirebaseReady && online;
+
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background arc-grid-bg" dir={dir}>
       <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
@@ -195,8 +258,16 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
           <p className="text-xs text-muted-foreground mt-1">{t("app.saas")}</p>
         </div>
 
-        {/* Firebase not configured warning */}
-        {!isFirebaseReady && (
+        {/* Offline mode indicator */}
+        {!online && (
+          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-yellow-500/35 bg-yellow-500/10">
+            <WifiOff className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+            <p className="text-[12px] text-yellow-300 font-medium">{t("login.offline.badge")}</p>
+          </div>
+        )}
+
+        {/* Firebase not configured warning (only when online — offline we rely on cache) */}
+        {!isFirebaseReady && online && (
           <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/[0.06]">
             <div className="flex items-start gap-3 px-4 py-3">
               <Info className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
@@ -238,7 +309,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
             <div className="flex border-b border-border">
               {(["manager", "guard"] as const).map((m) => (
                 <button key={m} type="button"
-                  onClick={() => { setMode(m); setError(""); }}
+                  onClick={() => { setMode(m); setError(""); setOfflineSuccess(false); }}
                   className={`flex-1 flex items-center justify-center gap-2 py-4 text-[16px] font-bold transition-colors border-b-[3px] ${
                     mode === m
                       ? "bg-primary/15 text-white border-primary [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]"
@@ -285,7 +356,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
-                      disabled={!isFirebaseReady}
+                      disabled={managerInputsDisabled || offlineSuccess}
                       dir="ltr"
                       className={`w-full bg-muted border border-border rounded-lg ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"} py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
                     />
@@ -302,7 +373,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
                       onChange={e => setPassword(e.target.value)}
                       placeholder={t("login.password.placeholder")}
                       autoComplete="current-password"
-                      disabled={!isFirebaseReady}
+                      disabled={managerInputsDisabled || offlineSuccess}
                       dir="ltr"
                       className={`w-full bg-muted border border-border rounded-lg ${isRTL ? "pr-10 pl-10" : "pl-10 pr-10"} py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
                     />
@@ -312,11 +383,23 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
                     </button>
                   </div>
                 </div>
-                {error && <ErrorBanner msg={error} />}
-                <button type="submit" disabled={loading || !isFirebaseReady}
+
+                {/* Offline success banner */}
+                {offlineSuccess && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-green-500/40 bg-green-500/10 px-3.5 py-2.5">
+                    <CheckCircle className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
+                    <p className="text-[13px] text-green-400 leading-relaxed">{t("login.offline.success")}</p>
+                  </div>
+                )}
+
+                {error && !offlineSuccess && <ErrorBanner msg={error} />}
+
+                <button type="submit" disabled={loading || managerInputsDisabled || offlineSuccess}
                   className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
                   {loading
                     ? <span className="flex items-center justify-center gap-2">{spinnerSvg}{t("login.btn.loading")}</span>
+                    : !online
+                    ? <span className="flex items-center justify-center gap-2"><WifiOff className="w-4 h-4" />{t("login.btn.login")}</span>
                     : t("login.btn.login")}
                 </button>
               </form>
@@ -379,10 +462,16 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
 
           {/* Footer links */}
           <div className="px-5 pb-4 space-y-2 border-t border-border pt-4">
-            {/* Firebase status */}
+            {/* Firebase / network status */}
             <p className="text-[11px] text-center text-muted-foreground/60 flex items-center justify-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${isFirebaseReady ? "bg-green-400" : "bg-yellow-400"}`} />
-              {isFirebaseReady ? t("login.firebase.connected", { name: t("app.name") }) : t("login.firebase.disconnected")}
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                !online ? "bg-yellow-400 animate-pulse" : isFirebaseReady ? "bg-green-400" : "bg-yellow-400"
+              }`} />
+              {!online
+                ? t("login.offline.badge")
+                : isFirebaseReady
+                ? t("login.firebase.connected", { name: t("app.name") })
+                : t("login.firebase.disconnected")}
             </p>
 
             {/* Register link — guard mode */}

@@ -121,6 +121,27 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **BackupPage restore disabled offline**: `BackupPage` receives `online` prop from Dashboard. When offline, the restore section shows an amber warning and the file picker is disabled.
 - **localDB v5**: Added `cachedManagerData` store. Upgrade: oldVersion < 4 → drop-all; for v4→v5, only adds the new store (safe, doesn't wipe queue or checkpoints).
 
+## ARC Guard — Offline Manager Login
+
+- **`src/lib/offlineAuth.ts`** — central module for offline authentication and profile caching:
+  - `saveOfflineManagerCred(username, password, uid)` — SHA-256 hashes `arc_guard_offline_v1|{username}|{password}` and stores `{uid, hash, savedAt}` in `localStorage` at `arc_guard_offline_cred_{username}`. Called after every successful Firebase login so hash stays fresh.
+  - `hasOfflineManagerCred(username)` — checks whether any credential exists for this username (used to distinguish "wrong password" from "never logged in here").
+  - `verifyOfflineManagerCred(username, password)` — recomputes SHA-256 and compares. Returns `uid` on match, `null` on failure.
+  - `saveProfileCache(profile)` / `loadProfileCache(uid)` — shared profile persistence at `arc_guard_mgr_profile_{uid}` (replaces local helpers that were in `ManagerApp.tsx`).
+  - `clearOfflineManagerCred(username)` / `clearProfileCache(uid)` — cleanup on logout.
+- **Online login path** (unchanged security): Firebase Auth → `getUserProfile` → check active/role → call `onLogin`. After success, also calls `saveProfileCache` + `saveOfflineManagerCred` so the device is ready for future offline sessions.
+- **Offline login path** (in `LoginPage.tsx` `handleManagerLogin`):
+  1. Detect `!navigator.onLine` before attempting Firebase.
+  2. Call `verifyOfflineManagerCred(username, password)`.
+  3. Match → `loadProfileCache(uid)` → show green success banner → navigate to Dashboard after 900ms.
+  4. No credential for this username → show `login.offline.firstTime` ("برای اولین ورود، اتصال اینترنت لازم است").
+  5. Wrong password (credential exists but hash mismatch) → show generic "نام کاربری یا رمز عبور اشتباه است."
+- **Form inputs**: `disabled` only when `!isFirebaseReady && online` (demo mode). When offline, form is always enabled regardless of Firebase config.
+- **Offline badge**: Yellow "حالت آفلاین" chip above login card when `!online`.
+- **Footer status dot**: Pulses yellow when offline; green when Firebase connected; yellow static when Firebase disconnected.
+- **Guard login** (`handleGuardLogin`): unchanged — always requires Firebase Auth.
+- **i18n keys**: `login.offline.success`, `login.offline.firstTime`, `login.offline.badge` — all 4 languages (fa/en/tr/zh-CN).
+
 ## ARC Guard v4.0 — Offline-First Hybrid Architecture
 
 - **localDB.ts** (`src/lib/localDB.ts`) — IndexedDB layer via `idb`:

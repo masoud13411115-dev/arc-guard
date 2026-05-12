@@ -14,6 +14,9 @@ import {
   type BackupRecord, type BackupScheduleConfig, type BackupData, type RestoreResult,
   type BackupFormat, type BackupInterval,
 } from "@/lib/backup";
+import { useSyncManager } from "@/lib/syncManager";
+import { estimateLocalDBSize } from "@/lib/localDB";
+import SyncStatusBar from "@/components/SyncStatusBar";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,6 +93,16 @@ export default function BackupPage({ companyId, companyName }: BackupPageProps) 
   const [restoreError,      setRestoreError]      = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Sync status ────────────────────────────────────────────────────────────
+  const sync = useSyncManager(companyId);
+  const [dbSize, setDbSize] = useState("—");
+
+  useEffect(() => {
+    estimateLocalDBSize()
+      .then(({ formatted }) => setDbSize(formatted))
+      .catch(console.error);
+  }, []);
 
   // ── Schedule check on mount ────────────────────────────────────────────────
   useEffect(() => {
@@ -576,6 +589,9 @@ export default function BackupPage({ companyId, companyName }: BackupPageProps) 
         </div>
       </Card>
 
+      {/* ── Offline Sync Status ── */}
+      <SyncStatusBar sync={sync} dbSize={dbSize} compact={false} />
+
       {/* ── Diagnostics ── */}
       <Card>
         <CardHeader icon={Database} title={t("backup.diag.title")} />
@@ -586,6 +602,7 @@ export default function BackupPage({ companyId, companyName }: BackupPageProps) 
             { label: t("backup.diag.count"),     value: String(history.length) },
             { label: t("backup.diag.last.size"), value: lastRecord ? fmtSize(lastRecord.sizeBytes) : "—" },
             { label: t("backup.diag.schedule"),  value: cfg.enabled ? `${cfg.interval} · ${cfg.format.toUpperCase()}` : t("backup.status.disabled") },
+            { label: t("sync.local.size"),        value: dbSize },
           ].map(({ label, value, sub, ok }) => (
             <div key={label} className="flex items-start gap-3">
               <span className="text-xs text-muted-foreground flex-1">{label}</span>

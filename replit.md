@@ -113,6 +113,35 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **Guard inputs nothing**: Checkpoint name, GPS, radius, interval — all defined by manager. Guard only taps scan.
 - Guard page: `artifacts/arc-guard/src/pages/GuardPatrol.tsx` (~350 lines, no tabs, no complex state machines).
 
+## ARC Guard v4.0 — Offline-First Hybrid Architecture
+
+- **localDB.ts** (`src/lib/localDB.ts`) — IndexedDB layer via `idb`:
+  - `offlineQueue` store: queued patrol logs + SOS alerts (keyPath id, index byCompany/byType/byCreatedAt)
+  - `cachedCheckpoints` store: last-known checkpoints per companyId — powers offline QR scanning
+  - `getDBQueueCount(companyId?)` — async count from IndexedDB
+  - `enqueuePatrolLog / enqueueSosAlert` — add to IndexedDB queue
+  - `cacheCheckpoints / getCachedCheckpoints(companyId, { allowStale })` — checkpoint cache (24h freshness, stale=OK offline)
+  - `estimateLocalDBSize()` — uses StorageManager API, falls back to localStorage byte sum
+  - `migrateLocalStorageQueue()` — one-time migration from legacy `arc_guard_offline_queue` localStorage key
+  - DB version 4 — drops all prior stores on upgrade to ensure clean schema
+- **syncManager.ts** (`src/lib/syncManager.ts`):
+  - `queuePatrolLog / queueSosAlert` — delegate to localDB
+  - `syncAll(companyId)` — flush pending IndexedDB queue to Firebase directly (bypasses adapter mode)
+  - `useSyncManager(companyId)` hook — reactive `{online, pendingCount, lastSyncAt, isSyncing, syncNow}`
+  - Auto-syncs on reconnect; polls count every 30s; one-time localStorage migration on mount
+- **SyncStatusBar.tsx** (`src/components/SyncStatusBar.tsx`):
+  - `compact=true` — chips row (for GuardPatrol header area)
+  - `compact=false` — full card with 4 stat tiles (status/pending/last sync/local size) + sync button + offline warning banner
+- **GuardPatrol offline enhancements** (v4.0):
+  - Checkpoints cached in IndexedDB on every subscription update → offline QR scanning works
+  - On subscribe error or initial offline state: immediately loads cached checkpoints as fallback
+  - SOS offline fallback: if Firebase fails/unavailable, queues SOS to IndexedDB (shows "sent" not error)
+  - Patrol logs: `queuePatrolLog` (IndexedDB) replaces `addToQueue` (localStorage)
+  - Queue count sourced from IndexedDB (async) instead of localStorage (sync)
+- **BackupPage**: SyncStatusBar full card added; local DB size added to diagnostics row
+- **SW cache suffix**: bumped v1 → v4; PWA manifest name → "ARC Guard v4.0 — سیستم گشت امنیتی"
+- i18n: 14 new sync.* keys per language (×4 = 56 keys total)
+
 ## ARC Guard — Enterprise Backup & Restore
 
 - **backup.ts** (`src/lib/backup.ts`) — pure logic layer, adapter-compatible:

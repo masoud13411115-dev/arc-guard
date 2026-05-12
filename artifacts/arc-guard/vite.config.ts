@@ -57,7 +57,7 @@ export default defineConfig({
       devOptions: { enabled: false },
 
       manifest: {
-        name: "ARC Guard — سیستم گشت امنیتی",
+        name: "ARC Guard v4.0 — سیستم گشت امنیتی",
         short_name: "ARC Guard",
         description: "سیستم هوشمند گشت و نگهبانی با QR Code و GPS — پلتفرم SaaS امنیتی",
         theme_color: "#0c1829",

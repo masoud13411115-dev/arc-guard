@@ -9,8 +9,9 @@ import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
 import { haversineDistance } from "@/lib/gps";
-import { addToQueue, getQueueCount } from "@/lib/offline";
-import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue, saveAlert } from "@/lib/adapter";
+import { cacheCheckpoints, getCachedCheckpoints, getDBQueueCount } from "@/lib/localDB";
+import { queuePatrolLog, queueSosAlert, syncAll } from "@/lib/syncManager";
+import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert } from "@/lib/adapter";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
 import HelpPage from "@/pages/HelpPage";
@@ -102,7 +103,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   const [gps, setGps]                             = useState<GpsCoords | null>(null);
   const [gpsError, setGpsError]                   = useState(false);
   const [online, setOnline]                       = useState(navigator.onLine);
-  const [queueCount, setQueueCount]               = useState(getQueueCount());
+  const [queueCount, setQueueCount]               = useState(0);
   const [recentLogs, setRecentLogs]               = useState<PatrolLog[]>([]);
   const [scanPhase, setScanPhase]                 = useState<ScanPhase>("idle");
   const [scanResult, setScanResult]               = useState<ScanResult | null>(null);
@@ -159,19 +160,44 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     return () => navigator.geolocation.clearWatch(id);
   }, [guardId, guardName, companyId, recentLogs]);
 
-  // ── Load checkpoints (real-time) ──────────────────────────────────────────
+  // ── Initial queue count from IndexedDB ────────────────────────────────────
   useEffect(() => {
+    getDBQueueCount(companyId).then(setQueueCount).catch(console.error);
+  }, [companyId]);
+
+  // ── Load checkpoints (real-time + offline cache) ───────────────────────────
+  useEffect(() => {
+    // If offline, immediately load from IndexedDB cache so scanner works
+    if (!navigator.onLine) {
+      getCachedCheckpoints(companyId, { allowStale: true }).then((cached) => {
+        if (cached?.length) {
+          setCheckpoints(cached);
+          setCheckpointsLoaded(true);
+          console.log(`[GuardPatrol] offline: loaded ${cached.length} cached checkpoints`);
+        }
+      }).catch(console.error);
+    }
+
     console.log(`[GuardPatrol] subscribing checkpoints → companies/${companyId}/checkpoints`);
     return subscribeCheckpoints(
       companyId,
       (cps) => {
         setCheckpoints(cps);
         setCheckpointsLoaded(true);
+        // Persist to IndexedDB so guard can scan offline next time
+        cacheCheckpoints(companyId, cps).catch(console.error);
         console.log(`[GuardPatrol] checkpoints loaded: ${cps.length} active`);
       },
       (err) => {
         console.error("[GuardPatrol] checkpoints error:", (err as { code?: string }).code, err.message);
-        setCheckpointsLoaded(true);
+        // On subscribe error (likely offline), fall back to cached data
+        getCachedCheckpoints(companyId, { allowStale: true }).then((cached) => {
+          if (cached?.length) {
+            setCheckpoints(cached);
+            console.log(`[GuardPatrol] fallback: using ${cached.length} cached checkpoints`);
+          }
+          setCheckpointsLoaded(true);
+        }).catch(() => setCheckpointsLoaded(true));
       },
     );
   }, [companyId]);
@@ -180,10 +206,11 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   const doSync = useCallback(async () => {
     if (!online || !db) return;
     setSyncing(true);
-    await syncOfflineQueue();
-    setQueueCount(getQueueCount());
+    await syncAll(companyId);
+    const count = await getDBQueueCount(companyId).catch(() => 0);
+    setQueueCount(count);
     setSyncing(false);
-  }, [online]);
+  }, [online, companyId]);
 
   useEffect(() => {
     const onOnline  = () => { setOnline(true);  doSync(); };
@@ -582,14 +609,14 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   });
 
   const persistLog = (log: PatrolLog) => {
+    const refreshCount = () =>
+      getDBQueueCount(companyId).then(setQueueCount).catch(console.error);
     if (online && db) {
       savePatrolLog({ ...log, synced: true }).catch(() => {
-        addToQueue(log);
-        setQueueCount(getQueueCount());
+        queuePatrolLog(companyId, log).then(refreshCount).catch(console.error);
       });
     } else {
-      addToQueue(log);
-      setQueueCount(getQueueCount());
+      queuePatrolLog(companyId, log).then(refreshCount).catch(console.error);
     }
   };
 
@@ -644,36 +671,47 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     setSosWritePath(writePath);
     console.log(`[SOS] writing to ${writePath} — guardId=${guardId} companyId=${companyId}`);
 
+    // Build payload once — reused for Firebase and offline fallback
+    const sosPayload = {
+      kind:        "sos" as const,
+      status:      "unread" as const,
+      guardId, guardName, companyId,
+      gps:         gps ?? undefined,
+      gpsLat:      gps?.lat ?? null,
+      gpsLng:      gps?.lng ?? null,
+      gpsAccuracy: gps?.accuracy ?? null,
+      alertedAt:   Date.now(),
+      resolved:    false,
+      message:     "اضطراری توسط نگهبان فعال شد",
+    };
+
     if (!db) {
-      setSosError(tRef.current("scan.sos.firebase.error"));
+      // Firebase not configured — queue SOS offline, sync when connection returns
+      await queueSosAlert(companyId, sosPayload).catch(console.error);
+      const count = await getDBQueueCount(companyId).catch(() => 0);
+      setQueueCount(count);
+      setSosSent(true);
+      setSosWritePath("offline://queued");
       setSosSending(false);
+      setTimeout(() => setSosSent(false), 15_000);
       return;
     }
 
     try {
-      const alertId = await saveAlert({
-        kind: "sos",
-        status: "unread",
-        guardId,
-        guardName,
-        companyId,
-        gps: gps ?? undefined,
-        // Flat GPS fields for easier Firestore queries
-        gpsLat: gps?.lat ?? null,
-        gpsLng: gps?.lng ?? null,
-        gpsAccuracy: gps?.accuracy ?? null,
-        alertedAt: Date.now(),
-        resolved: false,
-        message: "اضطراری توسط نگهبان فعال شد",
-      });
+      const alertId = await saveAlert(sosPayload);
       console.log(`[SOS] ✓ saved — alertId=${alertId} path=companies/${companyId}/alerts/${alertId}`);
       setSosWritePath(`companies/${companyId}/alerts/${alertId}`);
       setSosSent(true);
       setTimeout(() => setSosSent(false), 15_000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[SOS] ✗ saveAlert failed:`, err);
-      setSosError(tRef.current("scan.sos.error", { msg }));
+      // Firebase error — queue offline instead of showing a failure
+      console.error(`[SOS] ✗ saveAlert failed — queuing offline:`, err);
+      await queueSosAlert(companyId, sosPayload).catch(console.error);
+      const count = await getDBQueueCount(companyId).catch(() => 0);
+      setQueueCount(count);
+      setSosSent(true);
+      setSosWritePath("offline://queued");
+      setTimeout(() => setSosSent(false), 15_000);
     }
 
     setSosSending(false);

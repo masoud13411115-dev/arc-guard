@@ -17,7 +17,7 @@ declare const self: ServiceWorkerGlobalScope & {
 self.skipWaiting();
 clientsClaim();
 
-setCacheNameDetails({ prefix: 'arc-guard', suffix: 'v1' });
+setCacheNameDetails({ prefix: 'arc-guard', suffix: 'v4' });
 
 // Precache all Vite-built assets (includes index.html + offline.html)
 precacheAndRoute(self.__WB_MANIFEST ?? []);

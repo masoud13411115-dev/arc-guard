@@ -80,6 +80,7 @@
     "firebase": "^12.13.0",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
+    "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "qrcode.react": "^4.2.0"
   }

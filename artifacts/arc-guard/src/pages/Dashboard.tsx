@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle, Terminal,
+  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle, Terminal, Database,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -17,6 +17,7 @@ import AlertHistory from "./AlertHistory";
 import CompanySettings from "./CompanySettings";
 import HelpPage from "@/pages/HelpPage";
 import DiagnosticsPage from "@/pages/DiagnosticsPage";
+import BackupPage from "@/pages/BackupPage";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
@@ -33,7 +34,7 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help" | "diagnostics";
+type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help" | "diagnostics" | "backup";
 
 const PLAN_ICON: Record<string, React.ElementType> = {
   basic: Shield,
@@ -198,6 +199,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     { tab: "checkpoints", label: t("dash.tab.checkpoints"),  icon: MapPin },
     { tab: "logs",        label: t("dash.tab.logs"),         icon: FileText },
     { tab: "settings",    label: t("dash.tab.settings"),      icon: Settings },
+    { tab: "backup",      label: t("dash.tab.backup"),        icon: Database },
     { tab: "help",        label: t("dash.tab.help"),          icon: HelpCircle },
     { tab: "diagnostics", label: t("dash.tab.diagnostics"),   icon: Terminal },
   ];
@@ -579,6 +581,13 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
               <CompanySettings profile={profile} />
             </div>
+          )}
+
+          {activeTab === "backup" && (
+            <BackupPage
+              companyId={profile.companyId}
+              companyName={profile.companyName ?? profile.companyId}
+            />
           )}
 
         </main>

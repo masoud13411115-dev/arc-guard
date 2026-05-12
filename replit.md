@@ -113,6 +113,30 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **Guard inputs nothing**: Checkpoint name, GPS, radius, interval — all defined by manager. Guard only taps scan.
 - Guard page: `artifacts/arc-guard/src/pages/GuardPatrol.tsx` (~350 lines, no tabs, no complex state machines).
 
+## ARC Guard — Enterprise Backup & Restore
+
+- **backup.ts** (`src/lib/backup.ts`) — pure logic layer, adapter-compatible:
+  - `runBackup(companyId, format, trigger)` → reads via adapter, exports JSON or ZIP (jszip), records history, returns blob + filename
+  - `downloadBlob(blob, filename)` → triggers browser download
+  - `parseBackupFile(file)` → reads .json or .zip (auto-detect), returns `BackupData`
+  - `validateBackupData(data, companyId)` → enforces company isolation (throws if companyId mismatch)
+  - `restoreBackup(companyId, data)` → direct Firestore `setDoc` with original document IDs (requires Firebase mode)
+  - `getScheduleConfig / setScheduleConfig` → localStorage `arc_guard_v2:backup_schedule_{companyId}`
+  - `getBackupHistory / addBackupRecord / deleteBackupRecord` → localStorage `arc_guard_v2:backup_history_{companyId}` (max 50 entries)
+  - `checkAndRunScheduledBackup(companyId)` → checks lastRunAt vs interval, auto-downloads if due
+- **BackupPage.tsx** (`src/pages/BackupPage.tsx`) — 6-section UI card layout:
+  1. Status — last backup, next scheduled, total count, adapter mode
+  2. Create — JSON / ZIP two-button panel with "what's included" list
+  3. Schedule — enable toggle, 4 interval options (1h/6h/12h/24h), format picker, save
+  4. History — last 50 records with expand/collapse, delete per entry
+  5. Restore — file upload (.json/.zip), parsed preview, confirmation modal with amber warning
+  6. Diagnostics — company, adapter, count, size, schedule status
+- **Backup tab** in Dashboard sidebar (Database icon) — renders `<BackupPage>` with companyId + companyName
+- **BackupData v2.0 format**: `{ version, createdAt, companyId, companyName, adapterMode, collections: { checkpoints, patrolLogs, alerts, guards } }`
+- Company isolation enforced on restore: `data.companyId !== companyId` → hard error (not a warning)
+- jszip added to `dependencies` in arc-guard package.json; dynamic import (`await import('jszip')`) used in export + restore paths
+- i18n: 52 new keys per language across fa/en/tr/zh-CN
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

@@ -34,7 +34,7 @@ import {
   type FcmDiagState,
 } from "@/lib/fcm";
 import { saveFcmToken } from "@/lib/firestore";
-import { messaging } from "@/firebase";
+import { initFcmMessaging } from "@/firebase";
 import firebaseConfig from "@/firebaseConfig";
 import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
 
@@ -169,21 +169,26 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       if (cancelled) return;
       const swActive = !!swReg;
 
-      if (messaging && swReg) {
+      // initFcmMessaging() uses isSupported() internally — safe on all browsers
+      const msgInstance = await initFcmMessaging();
+      const fcmSupported = msgInstance !== null;
+
+      if (fcmSupported && swReg) {
         try {
-          const token = await requestFcmToken(messaging, vapidKey, swReg);
+          const token = await requestFcmToken(msgInstance!, vapidKey, swReg);
           let tokenSaved = false;
           if (token) {
             await saveFcmToken(profile.companyId, profile.uid, token);
             tokenSaved = true;
           }
-          if (!cancelled) setFcmDiagState(buildFcmDiagState(tokenSaved, vapidKey, swActive));
+          if (!cancelled) setFcmDiagState(buildFcmDiagState(tokenSaved, vapidKey, swActive, true));
         } catch (err) {
           console.warn("[Dashboard] FCM setup error:", err);
-          if (!cancelled) setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive));
+          if (!cancelled) setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive, true));
         }
       } else {
-        if (!cancelled) setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive));
+        // FCM unsupported (iOS Safari, Firefox, etc.) or SW failed — degrade gracefully
+        if (!cancelled) setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive, fcmSupported));
       }
     })();
 

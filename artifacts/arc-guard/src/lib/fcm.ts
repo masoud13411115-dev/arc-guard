@@ -12,6 +12,10 @@
  *  to call the FCM HTTP v1 API with the manager's token.
  *  This module sets up the entire client side; add a Firestore-triggered
  *  Cloud Function to complete the loop for fully-closed-app delivery.
+ *
+ *  FCM is NOT supported on: iOS Safari (as a web app), Firefox, some older
+ *  Chromium builds.  Always use initFcmMessaging() from firebase.ts (which
+ *  calls isSupported()) before calling anything here.
  */
 
 import { getToken, deleteToken, onMessage } from 'firebase/messaging';
@@ -27,6 +31,9 @@ const TOKEN_KEY = 'arc_guard_fcm_token';
 /**
  * Register the Firebase Messaging service worker.
  * Returns the ServiceWorkerRegistration or null if unsupported / failed.
+ *
+ * Note: SW registration itself may succeed on browsers where FCM is not
+ * supported — that is OK; the SW simply won't receive FCM push events.
  */
 export async function registerFcmServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
@@ -117,17 +124,20 @@ export function onForegroundMessage(
 // ── Diagnostic state ──────────────────────────────────────────────────────────
 
 export interface FcmDiagState {
-  permission: 'granted' | 'denied' | 'default' | 'unsupported';
-  swActive:   boolean;
-  tokenSaved: boolean;
-  vapidSet:   boolean;
-  tokenHint:  string | null;  // first 24 chars for safe display
+  /** Whether FCM Web Push is supported in this browser (from isSupported()). */
+  fcmSupported: boolean;
+  permission:   'granted' | 'denied' | 'default' | 'unsupported';
+  swActive:     boolean;
+  tokenSaved:   boolean;
+  vapidSet:     boolean;
+  tokenHint:    string | null;  // first 24 chars for safe display
 }
 
 export function buildFcmDiagState(
-  tokenSaved: boolean,
-  vapidKey:   string,
-  swActive:   boolean,
+  tokenSaved:   boolean,
+  vapidKey:     string,
+  swActive:     boolean,
+  fcmSupported: boolean,
 ): FcmDiagState {
   const raw = getCachedFcmToken();
   const perm: FcmDiagState['permission'] =
@@ -136,6 +146,7 @@ export function buildFcmDiagState(
     : Notification.permission === 'denied'  ? 'denied'
     : 'default';
   return {
+    fcmSupported,
     permission: perm,
     swActive,
     tokenSaved,

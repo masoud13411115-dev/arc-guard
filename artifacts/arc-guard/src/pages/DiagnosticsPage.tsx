@@ -149,42 +149,62 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
 
       {/* ── FCM Push Notifications ── */}
       <Section title={t("push.fcm.section")} icon={Bell}>
+        {/* Browser support row — most important, shown first */}
         <DiagRow
-          label={t("push.permission")}
-          value={permLabel}
-          ok={permOk}
+          label={t("push.fcm.browser.support")}
+          value={
+            !fcm ? "—"
+            : fcm.fcmSupported ? t("push.fcm.browser.yes")
+            : t("push.fcm.browser.no")
+          }
+          ok={!fcm ? null : fcm.fcmSupported ? true : false}
         />
-        <DiagRow
-          label={t("push.sw.status")}
-          value={!fcm ? "—" : fcm.swActive ? t("push.sw.active") : t("push.sw.inactive")}
-          ok={!fcm ? null : fcm.swActive ? true : false}
-          mono={false}
-        />
-        <DiagRow
-          label={t("push.vapid.key")}
-          value={!fcm ? "—" : fcm.vapidSet ? t("push.vapid.set") : t("push.vapid.missing")}
-          ok={!fcm ? null : fcm.vapidSet ? true : "warn"}
-        />
-        <DiagRow
-          label={t("push.token.status")}
-          value={!fcm ? "—" : fcm.tokenSaved ? t("push.token.saved") : t("push.token.missing")}
-          ok={!fcm ? null : fcm.tokenSaved ? true : fcm.vapidSet ? false : "warn"}
-        />
-        {fcm?.tokenHint && (
-          <DiagRow
-            label={t("push.token.hint")}
-            value={fcm.tokenHint}
-            mono
-          />
-        )}
-        {!fcm?.vapidSet && (
-          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20 mt-1">
-            <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-300/80 leading-relaxed">{t("push.fcm.info")}</p>
+
+        {/* When unsupported, show a helpful callout and skip the rest */}
+        {fcm && !fcm.fcmSupported && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-500/8 border border-red-500/20">
+            <Info className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-red-300/80 leading-relaxed">{t("push.fcm.browser.fallback")}</p>
           </div>
         )}
-        <DiagRow label="SW path" value="/arc-guard/firebase-messaging-sw.js" mono />
-        <DiagRow label="Firestore path" value="companies/{id}/fcmTokens/{uid}" mono />
+
+        {/* Only show the rest when FCM is supported */}
+        {(!fcm || fcm.fcmSupported) && (
+          <>
+            <DiagRow
+              label={t("push.permission")}
+              value={permLabel}
+              ok={permOk}
+            />
+            <DiagRow
+              label={t("push.sw.status")}
+              value={!fcm ? "—" : fcm.swActive ? t("push.sw.active") : t("push.sw.inactive")}
+              ok={!fcm ? null : fcm.swActive ? true : false}
+            />
+            <DiagRow
+              label={t("push.vapid.key")}
+              value={!fcm ? "—" : fcm.vapidSet ? t("push.vapid.set") : t("push.vapid.missing")}
+              ok={!fcm ? null : fcm.vapidSet ? true : "warn"}
+            />
+            <DiagRow
+              label={t("push.token.status")}
+              value={!fcm ? "—" : fcm.tokenSaved ? t("push.token.saved") : t("push.token.missing")}
+              ok={!fcm ? null : fcm.tokenSaved ? true : fcm.vapidSet ? false : "warn"}
+            />
+            {fcm?.tokenHint && (
+              <DiagRow label={t("push.token.hint")} value={fcm.tokenHint} mono />
+            )}
+            {fcm && !fcm.vapidSet && (
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-300/80 leading-relaxed">{t("push.fcm.info")}</p>
+              </div>
+            )}
+          </>
+        )}
+
+        <DiagRow label="SW path"       value="/arc-guard/firebase-messaging-sw.js" mono />
+        <DiagRow label="Firestore path" value="companies/{id}/fcmTokens/{uid}"     mono />
       </Section>
 
       {/* ── Local server ── */}

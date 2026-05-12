@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Activity, MapPin, Clock, AlertTriangle, CheckCircle, Users, Shield, Bell } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { subscribeGuardSessions, subscribeMissedAlerts, subscribePatrolLogs, resolveAlert } from "@/lib/firestore";
+import { subscribeGuardSessions, subscribeMissedAlerts, subscribePatrolLogs, resolveAlert } from "@/lib/adapter";
 import { isFirebaseReady } from "@/firebase";
 import type { GuardSession, MissedAlert, PatrolLog, ScanStatus } from "@/types";
 

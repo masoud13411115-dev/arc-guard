@@ -5,7 +5,7 @@ import {
   BarChart3, Search, MoreVertical,
 } from "lucide-react";
 import arcGuardLogo from "/arc-guard-logo.png";
-import { getAllCompanies, setCompanyPlan, setCompanySuspended } from "@/lib/firestore";
+import { getAllCompanies, setCompanyPlan, setCompanySuspended } from "@/lib/adapter";
 import { PLANS, PLAN_ORDER, getLimitLabel } from "@/lib/plans";
 import type { CompanyRecord, UserProfile, PlanId } from "@/types";
 

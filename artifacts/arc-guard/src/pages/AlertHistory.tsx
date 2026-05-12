@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { Alert, AlertKind } from "@/types";
-import { resolveAlert } from "@/lib/firestore";
+import { resolveAlert } from "@/lib/adapter";
 
 interface AlertHistoryProps {
   alerts: Alert[];

@@ -12,7 +12,7 @@ import QAPage from "@/pages/QAPage";
 import InstallPrompt, { UpdateBanner } from "@/components/InstallPrompt";
 import { isFirebaseReady } from "@/firebase";
 import { initPWA, applyUpdate, isPWAInstalled } from "@/lib/pwa";
-import { syncOfflineQueue } from "@/lib/firestore";
+import { syncOfflineQueue } from "@/lib/adapter";
 import { listenForSyncTrigger, getQueueCount } from "@/lib/offline";
 import { onNetworkChange, type NetworkState } from "@/lib/network";
 import { logger } from "@/lib/logger";

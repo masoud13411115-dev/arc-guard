@@ -5,7 +5,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getPatrolLogs } from "@/lib/firestore";
+import { getPatrolLogs } from "@/lib/adapter";
 import { getQueue } from "@/lib/offline";
 import type { PatrolLog, ScanStatus } from "@/types";
 

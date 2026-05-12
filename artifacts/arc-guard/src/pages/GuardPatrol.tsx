@@ -10,7 +10,7 @@ import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
 import { haversineDistance } from "@/lib/gps";
 import { addToQueue, getQueueCount } from "@/lib/offline";
-import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue, saveAlert } from "@/lib/firestore";
+import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue, saveAlert } from "@/lib/adapter";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
 import HelpPage from "@/pages/HelpPage";

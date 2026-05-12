@@ -12,7 +12,7 @@ import {
   deleteCheckpoint as fbDeleteCheckpoint,
   subscribeCheckpoints as fbSubscribeCheckpoints,
   checkpointPath,
-} from "@/lib/firestore";
+} from "@/lib/adapter";
 import { getCurrentPosition } from "@/lib/gps";
 import type { Checkpoint } from "@/types";
 

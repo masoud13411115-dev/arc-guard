@@ -373,6 +373,14 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.disconnected": "Firebase متصل نیست",
     "dash.alerts.error": "خطای دریافت هشدارها از Firestore: {msg}",
     "dash.tab.help": "راهنما",
+    "adapter.mode": "حالت اتصال داده",
+    "adapter.cloud": "ابری (Firebase)",
+    "adapter.cloud.sub": "اتصال مستقیم به Firebase",
+    "adapter.local": "سرور محلی",
+    "adapter.local.sub": "شبکه LAN / آفلاین",
+    "adapter.local.placeholder": "سرور محلی در حال توسعه است (فاز ۲). در این حالت داده‌ای نمایش داده نمی‌شود.",
+    "adapter.mode.switch.confirm": "برای اعمال تغییر، صفحه مجدداً بارگذاری خواهد شد. ادامه می‌دهید؟",
+    "adapter.phase1": "فاز ۱",
   },
 
   en: {
@@ -714,6 +722,14 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.disconnected": "Firebase not connected",
     "dash.alerts.error": "Firestore alerts error: {msg}",
     "dash.tab.help": "Help",
+    "adapter.mode": "Data Connection Mode",
+    "adapter.cloud": "Cloud (Firebase)",
+    "adapter.cloud.sub": "Direct Firebase connection",
+    "adapter.local": "Local Server",
+    "adapter.local.sub": "LAN / offline network",
+    "adapter.local.placeholder": "Local server is under development (Phase 2). No data is displayed in this mode.",
+    "adapter.mode.switch.confirm": "The page will reload to apply the change. Continue?",
+    "adapter.phase1": "Phase 1",
   },
 
   tr: {
@@ -1055,6 +1071,14 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.disconnected": "Firebase bağlı değil",
     "dash.alerts.error": "Firestore uyarı hatası: {msg}",
     "dash.tab.help": "Yardım",
+    "adapter.mode": "Veri Bağlantı Modu",
+    "adapter.cloud": "Bulut (Firebase)",
+    "adapter.cloud.sub": "Doğrudan Firebase bağlantısı",
+    "adapter.local": "Yerel Sunucu",
+    "adapter.local.sub": "LAN / çevrimdışı ağ",
+    "adapter.local.placeholder": "Yerel sunucu geliştirme aşamasındadır (Aşama 2). Bu modda veri gösterilmez.",
+    "adapter.mode.switch.confirm": "Değişikliği uygulamak için sayfa yeniden yüklenecek. Devam edilsin mi?",
+    "adapter.phase1": "Aşama 1",
   },
 
   "zh-CN": {
@@ -1396,6 +1420,14 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.disconnected": "Firebase 未连接",
     "dash.alerts.error": "Firestore警报错误：{msg}",
     "dash.tab.help": "帮助",
+    "adapter.mode": "数据连接模式",
+    "adapter.cloud": "云端 (Firebase)",
+    "adapter.cloud.sub": "直连 Firebase",
+    "adapter.local": "本地服务器",
+    "adapter.local.sub": "局域网 / 离线",
+    "adapter.local.placeholder": "本地服务器正在开发中（阶段二）。此模式下不显示数据。",
+    "adapter.mode.switch.confirm": "页面将重新加载以应用更改。是否继续？",
+    "adapter.phase1": "阶段一",
   },
 };
 

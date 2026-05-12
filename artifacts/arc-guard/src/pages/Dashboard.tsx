@@ -19,7 +19,7 @@ import HelpPage from "@/pages/HelpPage";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
-} from "@/lib/firestore";
+} from "@/lib/adapter";
 import { PLANS } from "@/lib/plans";
 import {
   getPermissionStatus, requestPermission, markAlertsAsSeen, getSeenAlertIds,

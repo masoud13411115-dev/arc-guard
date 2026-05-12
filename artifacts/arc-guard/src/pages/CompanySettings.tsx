@@ -5,7 +5,8 @@ import {
   TrendingUp, Key, Info, Lock
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode } from "@/lib/firestore";
+import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode } from "@/lib/adapter";
+import AdapterModeSelector from "@/components/AdapterModeSelector";
 import {
   PLANS, PLAN_ORDER, FEATURE_LABELS, getUsagePct, getLimitLabel
 } from "@/lib/plans";
@@ -331,6 +332,9 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
           </div>
         ))}
       </div>
+
+      {/* ── Adapter / connection mode ── */}
+      <AdapterModeSelector />
     </div>
   );
 }

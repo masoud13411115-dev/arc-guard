@@ -67,9 +67,9 @@ function CardHeader({ icon: Icon, title, badge }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-interface BackupPageProps { companyId: string; companyName: string; }
+interface BackupPageProps { companyId: string; companyName: string; online?: boolean; }
 
-export default function BackupPage({ companyId, companyName }: BackupPageProps) {
+export default function BackupPage({ companyId, companyName, online = true }: BackupPageProps) {
   const { t, isRTL } = useI18n();
   const dir = isRTL ? "rtl" : "ltr";
 
@@ -472,6 +472,14 @@ export default function BackupPage({ companyId, companyName }: BackupPageProps) 
         <div className="p-4 space-y-3">
           <p className="text-xs text-muted-foreground">{t("backup.restore.sub")}</p>
 
+          {/* Offline warning */}
+          {!online && (
+            <div className="flex items-center gap-2 p-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 text-yellow-400 text-xs">
+              <span className="shrink-0">⚠</span>
+              <p>{t("manager.offline.banner")}</p>
+            </div>
+          )}
+
           {/* Upload button */}
           {!restoreParsed && !restoreResult && (
             <>
@@ -481,11 +489,12 @@ export default function BackupPage({ companyId, companyName }: BackupPageProps) 
                 accept=".json,.zip"
                 className="hidden"
                 onChange={handleFileSelect}
+                disabled={!online}
               />
               <button
                 onClick={() => fileRef.current?.click()}
-                disabled={restoreParsing}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+                disabled={restoreParsing || !online}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {restoreParsing
                   ? <><RefreshCw className="w-4 h-4 animate-spin" /> {t("backup.restore.parsing")}</>

@@ -113,6 +113,14 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **Guard inputs nothing**: Checkpoint name, GPS, radius, interval — all defined by manager. Guard only taps scan.
 - Guard page: `artifacts/arc-guard/src/pages/GuardPatrol.tsx` (~350 lines, no tabs, no complex state machines).
 
+## ARC Guard — Manager App Offline Access
+
+- **Profile cache**: After successful login, `UserProfile` is saved to `localStorage` as `arc_guard_mgr_profile_{uid}`. In `ManagerApp.tsx`, if `getUserProfile` throws and `!navigator.onLine`, the cached profile is restored → manager stays on Dashboard instead of being thrown to login.
+- **Dashboard offline banner**: `Dashboard.tsx` tracks `navigator.onLine` via window events and shows a yellow "Offline mode" banner (`manager.offline.banner` i18n key) at the top of the content area.
+- **Subscription caching**: Every `subscribePatrolLogs`, `subscribeGuardSessions`, `subscribeAlerts`, `subscribeCheckpoints` callback also writes data to `cachedManagerData` IndexedDB store (localDB v5). On mount if offline, data is pre-loaded from cache before subscriptions fire. On subscription error + offline, cache is loaded as fallback.
+- **BackupPage restore disabled offline**: `BackupPage` receives `online` prop from Dashboard. When offline, the restore section shows an amber warning and the file picker is disabled.
+- **localDB v5**: Added `cachedManagerData` store. Upgrade: oldVersion < 4 → drop-all; for v4→v5, only adds the new store (safe, doesn't wipe queue or checkpoints).
+
 ## ARC Guard v4.0 — Offline-First Hybrid Architecture
 
 - **localDB.ts** (`src/lib/localDB.ts`) — IndexedDB layer via `idb`:

@@ -13,6 +13,20 @@ import type { UserProfile } from "@/types";
 
 type Screen = "loading" | "login" | "setup" | "dashboard" | "super-admin";
 
+// ── Profile localStorage cache for offline auth restoration ───────────────────
+const profileCacheKey = (uid: string) => `arc_guard_mgr_profile_${uid}`;
+
+function saveProfileToCache(p: UserProfile): void {
+  try { localStorage.setItem(profileCacheKey(p.uid), JSON.stringify(p)); } catch { /* storage full */ }
+}
+
+function loadProfileFromCache(uid: string): UserProfile | null {
+  try {
+    const raw = localStorage.getItem(profileCacheKey(uid));
+    return raw ? (JSON.parse(raw) as UserProfile) : null;
+  } catch { return null; }
+}
+
 function screenForRole(role: UserProfile["role"]): Screen {
   if (role === "super_admin") return "super-admin";
   if (role === "manager") return "dashboard";
@@ -39,13 +53,34 @@ export default function ManagerApp() {
               navigate("/guard");
               return;
             }
+            saveProfileToCache(p);
             setProfile(p);
             setScreen(screenForRole(p.role));
             logger.info("manager-app", `Auth restored: ${p.role}`);
           } else {
+            // No profile in Firestore — check localStorage cache when offline
+            if (!navigator.onLine) {
+              const cached = loadProfileFromCache(user.uid);
+              if (cached) {
+                setProfile(cached);
+                setScreen(screenForRole(cached.role));
+                logger.info("manager-app", "Restored profile from localStorage cache (offline)");
+                return;
+              }
+            }
             setScreen("setup");
           }
         } catch (err) {
+          // Firestore failed — if offline, try to restore from localStorage cache
+          if (!navigator.onLine) {
+            const cached = loadProfileFromCache(user.uid);
+            if (cached) {
+              setProfile(cached);
+              setScreen(screenForRole(cached.role));
+              logger.info("manager-app", "Auth restored from cache (offline)");
+              return;
+            }
+          }
           logger.error("manager-app", "Failed to restore auth", err);
           setScreen("login");
         }

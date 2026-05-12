@@ -14,7 +14,7 @@ import type { Checkpoint, PatrolLog, Alert } from "@/types";
 
 // ── DB config ─────────────────────────────────────────────────────────────────
 const DB_NAME    = "arc-guard-offline";
-const DB_VERSION = 4; // v4 — new in ARC Guard v4.0
+const DB_VERSION = 5; // v5 — add cachedManagerData for manager dashboard offline
 
 export type QueueItemType = "patrol_log" | "sos_alert";
 
@@ -34,6 +34,14 @@ interface CachedCheckpointRecord {
   updatedAt: number;
 }
 
+interface CachedManagerDataRecord {
+  key:       string; // `{companyId}:{type}`
+  companyId: string;
+  type:      string;
+  data:      unknown[];
+  updatedAt: number;
+}
+
 // ── IDB schema type ───────────────────────────────────────────────────────────
 type ArcDB = {
   offlineQueue: {
@@ -44,6 +52,10 @@ type ArcDB = {
   cachedCheckpoints: {
     key:   string; // companyId
     value: CachedCheckpointRecord;
+  };
+  cachedManagerData: {
+    key:   string; // `{companyId}:{type}`
+    value: CachedManagerDataRecord;
   };
 };
 
@@ -70,6 +82,10 @@ function getDB(): Promise<IDBPDatabase<ArcDB>> {
         // cachedCheckpoints
         if (!db.objectStoreNames.contains("cachedCheckpoints")) {
           db.createObjectStore("cachedCheckpoints", { keyPath: "companyId" });
+        }
+        // v5: manager dashboard data cache (patrolLogs, sessions, alerts, checkpoints)
+        if (!db.objectStoreNames.contains("cachedManagerData")) {
+          db.createObjectStore("cachedManagerData", { keyPath: "key" });
         }
       },
     });
@@ -183,6 +199,32 @@ function fmtBytes(b: number): string {
   if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
   if (b >= 1_024)     return `${(b / 1_024).toFixed(0)} KB`;
   return `${b} B`;
+}
+
+// ── Manager dashboard data cache (v5) ─────────────────────────────────────────
+
+/** Persist manager dashboard collection data for offline access. */
+export async function cacheManagerData(
+  companyId: string,
+  type: string,
+  data: unknown[],
+): Promise<void> {
+  const db = await getDB();
+  const key = `${companyId}:${type}`;
+  await db.put("cachedManagerData", { key, companyId, type, data, updatedAt: Date.now() });
+}
+
+/**
+ * Load cached manager dashboard data for a given type.
+ * Returns null if no cache exists yet.
+ */
+export async function getCachedManagerData(
+  companyId: string,
+  type: string,
+): Promise<unknown[] | null> {
+  const db = await getDB();
+  const rec = await db.get("cachedManagerData", `${companyId}:${type}`);
+  return rec?.data ?? null;
 }
 
 // ── One-time migration from legacy localStorage queue ─────────────────────────

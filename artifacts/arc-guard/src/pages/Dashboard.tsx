@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle, Terminal, Database,
+  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle, Terminal, Database, WifiOff,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -22,6 +22,7 @@ import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
 } from "@/lib/adapter";
+import { cacheManagerData, getCachedManagerData } from "@/lib/localDB";
 import { PLANS } from "@/lib/plans";
 import {
   getPermissionStatus, requestPermission, markAlertsAsSeen, getSeenAlertIds,
@@ -128,9 +129,22 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenAlertIds());
   const [currentPlanId, setCurrentPlanId] = useState<string>("basic");
   const [showAlertsDebug, setShowAlertsDebug] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
 
   const currentPlan = PLANS[currentPlanId as keyof typeof PLANS] ?? PLANS.basic;
   const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
+
+  // ── Online / offline tracking ────────────────────────────────────────────────
+  useEffect(() => {
+    const onOnline  = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online",  onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   // ── Data loading ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -139,18 +153,60 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     }).catch(() => {});
   }, [profile.companyId]);
 
+  // If offline on mount, pre-load cached data so the dashboard isn't empty
   useEffect(() => {
-    const u1 = subscribePatrolLogs(profile.companyId, setRecentLogs, 100);
-    const u2 = subscribeGuardSessions(profile.companyId, setSessions);
+    if (navigator.onLine) return;
+    const cid = profile.companyId;
+    getCachedManagerData(cid, "patrolLogs").then((d)  => { if (d?.length) setRecentLogs(d  as typeof recentLogs);  }).catch(console.error);
+    getCachedManagerData(cid, "sessions"  ).then((d)  => { if (d?.length) setSessions(d    as typeof sessions);    }).catch(console.error);
+    getCachedManagerData(cid, "alerts"    ).then((d)  => { if (d?.length) setAlerts(d      as typeof alerts);      }).catch(console.error);
+    getCachedManagerData(cid, "checkpoints").then((d) => { if (d?.length) setCheckpoints(d as typeof checkpoints); }).catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.companyId]);
+
+  useEffect(() => {
+    const cid = profile.companyId;
+
+    const u1 = subscribePatrolLogs(cid, (logs) => {
+      setRecentLogs(logs);
+      cacheManagerData(cid, "patrolLogs", logs).catch(console.error);
+    }, 100);
+
+    const u2 = subscribeGuardSessions(cid, (s) => {
+      setSessions(s);
+      cacheManagerData(cid, "sessions", s).catch(console.error);
+    });
+
     const u3 = subscribeAlerts(
-      profile.companyId,
-      (newAlerts) => { setAlerts(newAlerts); setAlertsError(null); },
+      cid,
+      (newAlerts) => {
+        setAlerts(newAlerts);
+        setAlertsError(null);
+        cacheManagerData(cid, "alerts", newAlerts).catch(console.error);
+      },
       (err) => {
         console.error("[Dashboard] subscribeAlerts failed:", (err as {code?:string}).code, err.message);
         setAlertsError(err.message);
+        if (!navigator.onLine) {
+          getCachedManagerData(cid, "alerts").then((d) => { if (d?.length) setAlerts(d as typeof alerts); }).catch(console.error);
+        }
       },
     );
-    const u4 = subscribeCheckpoints(profile.companyId, setCheckpoints);
+
+    const u4 = subscribeCheckpoints(
+      cid,
+      (cps) => {
+        setCheckpoints(cps);
+        cacheManagerData(cid, "checkpoints", cps).catch(console.error);
+      },
+      (err) => {
+        console.error("[Dashboard] subscribeCheckpoints failed:", err.message);
+        if (!navigator.onLine) {
+          getCachedManagerData(cid, "checkpoints").then((d) => { if (d?.length) setCheckpoints(d as typeof checkpoints); }).catch(console.error);
+        }
+      },
+    );
+
     return () => { u1(); u2(); u3(); u4(); };
   }, [profile.companyId]);
 
@@ -322,6 +378,17 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         </aside>
 
         <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+
+          {/* ── Offline banner ── */}
+          {!online && (
+            <div
+              className="mb-5 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-yellow-300 animate-fade-in-up"
+              style={{ background: "rgba(234,179,8,0.10)", borderColor: "rgba(234,179,8,0.30)" }}
+            >
+              <WifiOff className="w-4 h-4 shrink-0 text-yellow-400" />
+              <p className="text-[13px] font-medium">{t("manager.offline.banner")}</p>
+            </div>
+          )}
 
           {/* ── Overview ── */}
           {activeTab === "overview" && (
@@ -597,6 +664,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             <BackupPage
               companyId={profile.companyId}
               companyName={profile.companyName ?? profile.companyId}
+              online={online}
             />
           )}
 

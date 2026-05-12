@@ -171,6 +171,20 @@ _Populate as you build — explicit user instructions worth remembering across s
 - **SW cache suffix**: bumped v1 → v4; PWA manifest name → "ARC Guard v4.0 — سیستم گشت امنیتی"
 - i18n: 14 new sync.* keys per language (×4 = 56 keys total)
 
+## ARC Guard — FCM Push Notifications
+
+- **`src/lib/fcm.ts`** — FCM client utilities: `registerFcmServiceWorker`, `requestFcmToken`, `revokeFcmToken`, `getCachedFcmToken`, `onForegroundMessage`, `buildFcmDiagState`, `FcmDiagState` interface.
+- **`src/firebase.ts`** — exports `messaging` (from `getMessaging(app)`) alongside `db` and `auth`. Try/catch handles browsers without FCM support (e.g. Safari iOS).
+- **`src/lib/firestore.ts`** — `saveFcmToken(companyId, uid, token)` / `deleteFcmToken(companyId, uid)` → `companies/{companyId}/fcmTokens/{uid}`. Called on each successful manager login.
+- **`vite.config.ts`** — `vapidKey: g("VITE_ARC_GUARD_VAPID_KEY")` added to `__ARC_GUARD_CONFIG__`. Vite plugin `arc-guard-fcm-sw` generates `firebase-messaging-sw.js` with Firebase config injected: `configureServer` middleware (dev) + `closeBundle` write (prod).
+- **`public/firebase-messaging-sw.js`** — Generated (NOT static). Uses CDN Firebase compat SDK (`importScripts`). Handles `onBackgroundMessage` → `showNotification`. Handles `notificationclick` → focuses existing `/arc-guard/` window + posts `NAVIGATE_TO_ALERTS`.
+- **`src/pages/Dashboard.tsx`** — FCM setup `useEffect` (managers only): registers SW → `requestFcmToken` → `saveFcmToken`. SW `message` listener: `NAVIGATE_TO_ALERTS` → sets `activeTab = 'alerts'`. `subscribeAlerts` callback: compares with `prevAlertIdsRef` to detect genuinely new alerts and calls `showAlertNotification` for each. Passes `fcm={fcmDiagState}` to `DiagnosticsPage`.
+- **`src/pages/DiagnosticsPage.tsx`** — Accepts optional `fcm?: FcmDiagState` prop. FCM section shows: permission status, SW active/inactive, VAPID key present, FCM token saved/missing, token hint (first 24 chars), Firestore path, SW path.
+- **i18n**: 15 new `push.*` keys per language (×4 = 60 keys total).
+- **VAPID key**: Required for token registration. Get from Firebase Console → Project Settings → Cloud Messaging → Web Push certificates. Set as `VITE_ARC_GUARD_VAPID_KEY` in Replit Secrets.
+- **Background push when app is CLOSED**: Requires a backend to call FCM HTTP v1 API with manager's token. Add a Firestore-triggered Cloud Function to `companies/{companyId}/alerts` for full closed-app delivery.
+- **In-app + backgrounded tab**: Already works via Firestore `subscribeAlerts` → `showAlertNotification` (service worker notification API).
+
 ## ARC Guard — Enterprise Backup & Restore
 
 - **backup.ts** (`src/lib/backup.ts`) — pure logic layer, adapter-compatible:

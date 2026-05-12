@@ -291,3 +291,40 @@ export async function syncOfflineQueue(): Promise<number> {
   }
   return synced;
 }
+
+// ── FCM Token management ──────────────────────────────────────────────────────
+// Stores manager FCM tokens at companies/{companyId}/fcmTokens/{uid}
+// so a Cloud Function can fan-out push notifications on new alerts.
+
+export interface FcmTokenRecord {
+  uid:       string;
+  token:     string;
+  savedAt:   number;
+  platform:  'web';
+}
+
+/** Upsert the FCM token for a manager. */
+export async function saveFcmToken(
+  companyId: string,
+  uid:       string,
+  token:     string,
+): Promise<void> {
+  if (!db) return;
+  const record: FcmTokenRecord = { uid, token, savedAt: Date.now(), platform: 'web' };
+  await setDoc(
+    doc(db, 'companies', companyId, 'fcmTokens', uid),
+    record,
+    { merge: true },
+  );
+}
+
+/** Remove the FCM token for a manager (call on logout). */
+export async function deleteFcmToken(
+  companyId: string,
+  uid:       string,
+): Promise<void> {
+  if (!db) return;
+  try {
+    await deleteDoc(doc(db, 'companies', companyId, 'fcmTokens', uid));
+  } catch { /* already removed — ok */ }
+}

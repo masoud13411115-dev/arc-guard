@@ -6,6 +6,7 @@ import {
   memoryLocalCache,
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { getMessaging } from 'firebase/messaging';
 import firebaseConfig from './firebaseConfig';
 import { logger } from './lib/logger';
 
@@ -22,6 +23,7 @@ export const isFirebaseReady = !!(
 
 let db: ReturnType<typeof initializeFirestore> | null = null;
 let auth: ReturnType<typeof getAuth> | null = null;
+let messaging: ReturnType<typeof getMessaging> | null = null;
 
 if (isFirebaseReady) {
   try {
@@ -56,13 +58,22 @@ if (isFirebaseReady) {
         logger.info('firebase', 'Initialized — memory cache (private browsing mode)');
       }
     }
+
+    // FCM — optional; may be unsupported in Safari or service-worker-less contexts
+    try {
+      messaging = getMessaging(app);
+      logger.info('firebase', 'FCM messaging initialized');
+    } catch (msgErr) {
+      logger.warn('firebase', 'FCM not supported in this browser', msgErr);
+    }
   } catch (e) {
     logger.error('firebase', 'Firebase init completely failed — running in demo mode', e);
     db = null;
     auth = null;
+    messaging = null;
   }
 } else {
   logger.warn('firebase', 'Missing VITE_ARC_GUARD_* env vars — demo mode active');
 }
 
-export { db, auth };
+export { db, auth, messaging };

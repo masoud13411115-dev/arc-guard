@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
@@ -26,8 +26,16 @@ import { cacheManagerData, getCachedManagerData } from "@/lib/localDB";
 import { PLANS } from "@/lib/plans";
 import {
   getPermissionStatus, requestPermission, markAlertsAsSeen, getSeenAlertIds,
+  showAlertNotification,
   type NotifPermission,
 } from "@/lib/notifications";
+import {
+  registerFcmServiceWorker, requestFcmToken, buildFcmDiagState,
+  type FcmDiagState,
+} from "@/lib/fcm";
+import { saveFcmToken } from "@/lib/firestore";
+import { messaging } from "@/firebase";
+import firebaseConfig from "@/firebaseConfig";
 import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
 
 interface DashboardProps {
@@ -130,6 +138,10 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
   const [currentPlanId, setCurrentPlanId] = useState<string>("basic");
   const [showAlertsDebug, setShowAlertsDebug] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const [fcmDiagState, setFcmDiagState] = useState<FcmDiagState | null>(null);
+
+  // Tracks alert IDs seen in the previous Firestore snapshot to detect truly new alerts
+  const prevAlertIdsRef = useRef<Set<string>>(new Set());
 
   const currentPlan = PLANS[currentPlanId as keyof typeof PLANS] ?? PLANS.basic;
   const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
@@ -144,6 +156,48 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       window.removeEventListener("online",  onOnline);
       window.removeEventListener("offline", onOffline);
     };
+  }, []);
+
+  // ── FCM push notification setup (managers / super_admin only) ───────────────
+  useEffect(() => {
+    if (profile.role === "guard") return;
+    const vapidKey = firebaseConfig.vapidKey;
+    let cancelled = false;
+
+    (async () => {
+      const swReg = await registerFcmServiceWorker();
+      if (cancelled) return;
+      const swActive = !!swReg;
+
+      if (messaging && swReg) {
+        try {
+          const token = await requestFcmToken(messaging, vapidKey, swReg);
+          let tokenSaved = false;
+          if (token) {
+            await saveFcmToken(profile.companyId, profile.uid, token);
+            tokenSaved = true;
+          }
+          if (!cancelled) setFcmDiagState(buildFcmDiagState(tokenSaved, vapidKey, swActive));
+        } catch (err) {
+          console.warn("[Dashboard] FCM setup error:", err);
+          if (!cancelled) setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive));
+        }
+      } else {
+        if (!cancelled) setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [profile.companyId, profile.uid, profile.role]);
+
+  // ── Service Worker → app message listener (notification click → alerts tab) ─
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handler = (evt: MessageEvent<{ type?: string }>) => {
+      if (evt.data?.type === "NAVIGATE_TO_ALERTS") setActiveTab("alerts");
+    };
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
   }, []);
 
   // ── Data loading ────────────────────────────────────────────────────────────
@@ -180,6 +234,16 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     const u3 = subscribeAlerts(
       cid,
       (newAlerts) => {
+        // Show browser notifications for genuinely new (just-arrived) alerts
+        const prevIds = prevAlertIdsRef.current;
+        if (prevIds.size > 0) {
+          newAlerts
+            .filter((a) => a.id && !prevIds.has(a.id) && !a.resolved)
+            .forEach((a) => { showAlertNotification(a).catch(() => {}); });
+        }
+        prevAlertIdsRef.current = new Set(
+          newAlerts.map((a) => a.id).filter((id): id is string => !!id),
+        );
         setAlerts(newAlerts);
         setAlertsError(null);
         cacheManagerData(cid, "alerts", newAlerts).catch(console.error);
@@ -688,7 +752,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
-            <DiagnosticsPage />
+            <DiagnosticsPage fcm={fcmDiagState ?? undefined} />
           </div>
         </div>
       )}

@@ -26,13 +26,14 @@ declare const __ARC_GUARD_CONFIG__: {
   messagingSenderId: string;
   appId: string;
   measurementId: string;
+  vapidKey: string;
 };
 
 // In tests / SSR contexts the global may not be injected — fall back to empty strings
 const injected: typeof __ARC_GUARD_CONFIG__ =
   typeof __ARC_GUARD_CONFIG__ !== "undefined"
     ? __ARC_GUARD_CONFIG__
-    : { apiKey: "", authDomain: "", projectId: "", storageBucket: "", messagingSenderId: "", appId: "", measurementId: "" };
+    : { apiKey: "", authDomain: "", projectId: "", storageBucket: "", messagingSenderId: "", appId: "", measurementId: "", vapidKey: "" };
 
 const firebaseConfig = injected;
 

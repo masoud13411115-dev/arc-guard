@@ -1,11 +1,12 @@
 import { useState, useEffect, type ReactNode } from "react";
 import {
   Database, Cloud, Server, CheckCircle, XCircle, Clock,
-  RefreshCw, Wifi, WifiOff, Terminal, Info,
+  RefreshCw, Wifi, WifiOff, Terminal, Info, Bell,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getAdapterMode } from "@/lib/adapter";
 import { isFirebaseReady } from "@/firebase";
+import type { FcmDiagState } from "@/lib/fcm";
 
 // ── Sub-components defined at module level to avoid reconciliation issues ──────
 
@@ -55,7 +56,11 @@ function DiagRow({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function DiagnosticsPage() {
+interface DiagnosticsPageProps {
+  fcm?: FcmDiagState;
+}
+
+export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
   const { t } = useI18n();
   const [mode]   = useState(getAdapterMode);
   const [fbReady]= useState(() => isFirebaseReady);
@@ -69,6 +74,20 @@ export default function DiagnosticsPage() {
 
   const isCloud   = mode === "firebase";
   const localStub = !isCloud;
+
+  // FCM permission label
+  const permLabel =
+    !fcm ? "—" :
+    fcm.permission === "granted" ? t("notif.granted") :
+    fcm.permission === "denied"  ? t("notif.denied")  :
+    fcm.permission === "default" ? t("notif.default") :
+    "unsupported";
+
+  const permOk: RowOk =
+    !fcm ? null :
+    fcm.permission === "granted" ? true :
+    fcm.permission === "denied"  ? false :
+    "warn";
 
   return (
     <div className="max-w-2xl animate-fade-in-up space-y-5">
@@ -128,6 +147,46 @@ export default function DiagnosticsPage() {
         <DiagRow label="Auth"  value="Firebase Auth (always)" mono ok={true} />
       </Section>
 
+      {/* ── FCM Push Notifications ── */}
+      <Section title={t("push.fcm.section")} icon={Bell}>
+        <DiagRow
+          label={t("push.permission")}
+          value={permLabel}
+          ok={permOk}
+        />
+        <DiagRow
+          label={t("push.sw.status")}
+          value={!fcm ? "—" : fcm.swActive ? t("push.sw.active") : t("push.sw.inactive")}
+          ok={!fcm ? null : fcm.swActive ? true : false}
+          mono={false}
+        />
+        <DiagRow
+          label={t("push.vapid.key")}
+          value={!fcm ? "—" : fcm.vapidSet ? t("push.vapid.set") : t("push.vapid.missing")}
+          ok={!fcm ? null : fcm.vapidSet ? true : "warn"}
+        />
+        <DiagRow
+          label={t("push.token.status")}
+          value={!fcm ? "—" : fcm.tokenSaved ? t("push.token.saved") : t("push.token.missing")}
+          ok={!fcm ? null : fcm.tokenSaved ? true : fcm.vapidSet ? false : "warn"}
+        />
+        {fcm?.tokenHint && (
+          <DiagRow
+            label={t("push.token.hint")}
+            value={fcm.tokenHint}
+            mono
+          />
+        )}
+        {!fcm?.vapidSet && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20 mt-1">
+            <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-300/80 leading-relaxed">{t("push.fcm.info")}</p>
+          </div>
+        )}
+        <DiagRow label="SW path" value="/arc-guard/firebase-messaging-sw.js" mono />
+        <DiagRow label="Firestore path" value="companies/{id}/fcmTokens/{uid}" mono />
+      </Section>
+
       {/* ── Local server ── */}
       <Section title={t("diag.local.section")} icon={Server}>
         <DiagRow
@@ -164,6 +223,10 @@ export default function DiagnosticsPage() {
             ["firebaseReady",String(fbReady)],
             ["isCloud",      String(isCloud)],
             ["tick",         String(tick)],
+            ["fcm.swActive",      String(fcm?.swActive  ?? "—")],
+            ["fcm.tokenSaved",    String(fcm?.tokenSaved ?? "—")],
+            ["fcm.vapidSet",      String(fcm?.vapidSet   ?? "—")],
+            ["fcm.permission",    fcm?.permission ?? "—"],
           ].map(([k, v]) => (
             <div key={k} className="flex gap-3">
               <span className="text-white/30 w-28 shrink-0">{k}</span>

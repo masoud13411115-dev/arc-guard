@@ -372,6 +372,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.connected": "Firebase {name} متصل",
     "login.firebase.disconnected": "Firebase متصل نیست",
     "dash.alerts.error": "خطای دریافت هشدارها از Firestore: {msg}",
+    "dash.tab.help": "راهنما",
   },
 
   en: {
@@ -712,6 +713,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.connected": "Firebase {name} connected",
     "login.firebase.disconnected": "Firebase not connected",
     "dash.alerts.error": "Firestore alerts error: {msg}",
+    "dash.tab.help": "Help",
   },
 
   tr: {
@@ -1052,6 +1054,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.connected": "Firebase {name} bağlandı",
     "login.firebase.disconnected": "Firebase bağlı değil",
     "dash.alerts.error": "Firestore uyarı hatası: {msg}",
+    "dash.tab.help": "Yardım",
   },
 
   "zh-CN": {
@@ -1392,6 +1395,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "login.firebase.connected": "Firebase {name} 已连接",
     "login.firebase.disconnected": "Firebase 未连接",
     "dash.alerts.error": "Firestore警报错误：{msg}",
+    "dash.tab.help": "帮助",
   },
 };
 

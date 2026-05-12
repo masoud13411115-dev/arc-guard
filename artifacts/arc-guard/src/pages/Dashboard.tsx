@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon,
+  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -15,6 +15,7 @@ import LiveMapView from "@/components/LiveMapView";
 import AlertPopup from "@/components/AlertPopup";
 import AlertHistory from "./AlertHistory";
 import CompanySettings from "./CompanySettings";
+import HelpPage from "@/pages/HelpPage";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
@@ -31,7 +32,7 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings";
+type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help";
 
 const PLAN_ICON: Record<string, React.ElementType> = {
   basic: Shield,
@@ -196,6 +197,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     { tab: "checkpoints", label: t("dash.tab.checkpoints"),  icon: MapPin },
     { tab: "logs",        label: t("dash.tab.logs"),         icon: FileText },
     { tab: "settings",    label: t("dash.tab.settings"),     icon: Settings },
+    { tab: "help",        label: t("dash.tab.help"),         icon: HelpCircle },
   ];
 
   const SidebarContent = () => (
@@ -579,6 +581,10 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
         </main>
       </div>
+
+      {activeTab === "help" && (
+        <HelpPage mode="manager" onBack={() => setActiveTab("overview")} />
+      )}
     </div>
   );
 }

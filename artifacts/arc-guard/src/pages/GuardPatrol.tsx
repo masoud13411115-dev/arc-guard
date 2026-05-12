@@ -3,7 +3,7 @@ import {
   QrCode, MapPin, CheckCircle, AlertTriangle, XCircle,
   Shield, LogOut, Wifi, WifiOff, Clock, Camera,
   PhoneOff, Loader2, ChevronDown, ChevronUp, RefreshCw,
-  Navigation,
+  Navigation, HelpCircle,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -13,6 +13,7 @@ import { addToQueue, getQueueCount } from "@/lib/offline";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, syncOfflineQueue, saveAlert } from "@/lib/firestore";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
+import HelpPage from "@/pages/HelpPage";
 import { db } from "@/firebase";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 
@@ -108,6 +109,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   const [scanDebug, setScanDebug]                 = useState<ScanDebug | null>(null);
   const [showDebug, setShowDebug]                 = useState(false);
   const [syncing, setSyncing]                     = useState(false);
+  const [showHelp, setShowHelp]                   = useState(false);
 
   // SOS
   const [sosHolding, setSosHolding]   = useState(false);
@@ -712,6 +714,13 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           <div className="flex items-center gap-2">
             <LanguageSelector variant="compact" />
             <button
+              onClick={() => setShowHelp(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-green-400 hover:border-green-400/40 hover:bg-green-400/10 transition-colors"
+              title="Help"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+            <button
               onClick={onLogout}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-muted-foreground
                 hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-colors"
@@ -1154,6 +1163,10 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             )}
           </div>
         </div>
+      )}
+
+      {showHelp && (
+        <HelpPage mode="guard" onBack={() => setShowHelp(false)} />
       )}
     </div>
   );

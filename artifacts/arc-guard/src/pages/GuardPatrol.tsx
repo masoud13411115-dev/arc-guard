@@ -42,6 +42,8 @@ type ScanResult = {
   checkpointCoords?: { lat: number; lng: number };
   // GPS error details
   gpsErrorCode?: number; // GeolocationPositionError code
+  // True when log was saved to IndexedDB offline queue instead of Firebase
+  offlineSaved?: boolean;
 };
 
 type ScanDebug = {
@@ -298,6 +300,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     recordScan(checkpoint.id);
     setRecentLogs((prev) => [log, ...prev.slice(0, 4)]);
 
+    const isOffline = !navigator.onLine;
+
     if (withinRadius) {
       showResult({
         ok: true, status: "valid",
@@ -307,9 +311,10 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
         distance,
         guardCoords: coords,
         checkpointCoords: { lat: checkpoint.lat, lng: checkpoint.lng },
+        offlineSaved: isOffline,
       });
       playSuccess();
-      if (db) {
+      if (db && !isOffline) {
         updateGuardSession({
           guardId, guardName, companyId,
           lastSeen: Date.now(), lastCheckpoint: checkpoint.name,
@@ -325,6 +330,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
         distance,
         guardCoords: coords,
         checkpointCoords: { lat: checkpoint.lat, lng: checkpoint.lng },
+        offlineSaved: isOffline,
       });
       playOutside();
     }
@@ -483,22 +489,35 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
     console.log(`[scan] local lookup (${checkpoints.length} items): found=${foundInLocal}`, checkpoint?.name ?? "—");
 
-    // 4b. Direct Firestore if not in local (subscription timing issue)
-    if (!checkpoint && qrCheckpointId && db) {
-      console.log(`[scan] Firestore direct lookup: ${firestorePath}`);
-      try {
-        const cpDoc = await getDoc(doc(db, "companies", companyId, "checkpoints", qrCheckpointId));
-        if (cpDoc.exists()) {
-          checkpoint = { id: cpDoc.id, ...cpDoc.data() } as Checkpoint;
-          foundInFirestore = true;
-          console.log("[scan] Firestore lookup ✓ →", checkpoint.name);
-        } else {
-          foundInFirestore = false;
-          console.warn("[scan] Firestore: document does not exist at", firestorePath);
+    // 4b. Direct lookup if not in local state (subscription timing or offline)
+    if (!checkpoint && qrCheckpointId) {
+      if (!navigator.onLine) {
+        // Offline: query IndexedDB cache directly — Firestore would hang/fail
+        console.log(`[scan] offline — trying IndexedDB cache for checkpoint ${qrCheckpointId}`);
+        const cached = await getCachedCheckpoints(companyId, { allowStale: true });
+        if (cached) {
+          checkpoint = cached.find((c) => c.id === qrCheckpointId) ?? null;
+          foundInLocal = checkpoint !== null;
+          foundInFirestore = null;
+          console.log(`[scan] IndexedDB cache lookup: found=${foundInLocal}`, checkpoint?.name ?? "—");
         }
-      } catch (err) {
-        foundInFirestore = false;
-        console.error("[scan] Firestore lookup error:", err);
+      } else if (db) {
+        // Online: try Firestore directly (handles subscription timing lag)
+        console.log(`[scan] Firestore direct lookup: ${firestorePath}`);
+        try {
+          const cpDoc = await getDoc(doc(db, "companies", companyId, "checkpoints", qrCheckpointId));
+          if (cpDoc.exists()) {
+            checkpoint = { id: cpDoc.id, ...cpDoc.data() } as Checkpoint;
+            foundInFirestore = true;
+            console.log("[scan] Firestore lookup ✓ →", checkpoint.name);
+          } else {
+            foundInFirestore = false;
+            console.warn("[scan] Firestore: document does not exist at", firestorePath);
+          }
+        } catch (err) {
+          foundInFirestore = false;
+          console.error("[scan] Firestore lookup error:", err);
+        }
       }
     }
 
@@ -685,8 +704,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       message:     "اضطراری توسط نگهبان فعال شد",
     };
 
-    if (!db) {
-      // Firebase not configured — queue SOS offline, sync when connection returns
+    if (!db || !navigator.onLine) {
+      // Firebase not configured or offline — queue SOS to IndexedDB, sync when back online
       await queueSosAlert(companyId, sosPayload).catch(console.error);
       const count = await getDBQueueCount(companyId).catch(() => 0);
       setQueueCount(count);
@@ -1112,6 +1131,17 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             <p className="text-[16px] text-white/70 text-center leading-relaxed whitespace-pre-line">
               {scanResult.msg}
             </p>
+
+            {/* Offline saved banner */}
+            {scanResult.offlineSaved && (
+              <div className="mt-4 w-full flex items-center gap-2.5 px-4 py-3 rounded-xl
+                             bg-yellow-500/15 border border-yellow-500/40">
+                <WifiOff className="w-4 h-4 text-yellow-400 shrink-0" />
+                <p className="text-[13px] font-medium text-yellow-300 leading-relaxed">
+                  {t("guard.offline.saved")}
+                </p>
+              </div>
+            )}
 
             {/* Coordinates card */}
             {(scanResult.guardCoords || scanResult.checkpointCoords) && (

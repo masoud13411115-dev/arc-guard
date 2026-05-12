@@ -304,10 +304,20 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             )}
           </button>
         ))}
+
+        {/* Mobile logout — always visible at end of tab bar */}
+        <button
+          onClick={onLogout}
+          className="relative flex flex-col items-center gap-1 px-3.5 py-3 shrink-0 text-[13px] font-bold
+                     text-red-400 border-b-[3px] border-transparent hover:bg-red-500/[0.10] transition-colors"
+        >
+          <LogOut className="w-5 h-5 text-red-400" />
+          {t("common.logout.system")}
+        </button>
       </div>
 
       <div className="flex-1 flex">
-        <aside className="hidden md:flex flex-col w-56 border-r border-border bg-card/50 p-4 shrink-0">
+        <aside className="hidden md:flex flex-col w-56 border-r border-border bg-card/50 p-4 shrink-0 sticky top-0 h-screen overflow-y-auto">
           <SidebarContent />
         </aside>
 

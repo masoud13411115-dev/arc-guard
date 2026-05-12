@@ -1007,6 +1007,20 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             </div>
           </div>
         )}
+
+        {/* ── Bottom logout bar ── */}
+        <div className="w-full max-w-sm pb-2 pt-4 border-t border-border/40 mt-2">
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-2xl
+                       border border-destructive/40 bg-destructive/[0.07] text-destructive
+                       hover:bg-destructive/15 hover:border-destructive/60 active:bg-destructive/20
+                       transition-colors text-[16px] font-bold select-none"
+          >
+            <LogOut className="w-5 h-5" />
+            {t("common.logout.system")}
+          </button>
+        </div>
       </main>
 
       {/* ── QR Scanner overlay ── */}

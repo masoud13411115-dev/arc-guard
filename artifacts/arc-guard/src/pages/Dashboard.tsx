@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
-  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle,
+  BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle, Terminal,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -16,6 +16,7 @@ import AlertPopup from "@/components/AlertPopup";
 import AlertHistory from "./AlertHistory";
 import CompanySettings from "./CompanySettings";
 import HelpPage from "@/pages/HelpPage";
+import DiagnosticsPage from "@/pages/DiagnosticsPage";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
@@ -32,7 +33,7 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help";
+type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help" | "diagnostics";
 
 const PLAN_ICON: Record<string, React.ElementType> = {
   basic: Shield,
@@ -196,8 +197,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     { tab: "alerts",      label: t("dash.tab.alerts"),       icon: Bell, badge: unseenOpenCount },
     { tab: "checkpoints", label: t("dash.tab.checkpoints"),  icon: MapPin },
     { tab: "logs",        label: t("dash.tab.logs"),         icon: FileText },
-    { tab: "settings",    label: t("dash.tab.settings"),     icon: Settings },
-    { tab: "help",        label: t("dash.tab.help"),         icon: HelpCircle },
+    { tab: "settings",    label: t("dash.tab.settings"),      icon: Settings },
+    { tab: "help",        label: t("dash.tab.help"),          icon: HelpCircle },
+    { tab: "diagnostics", label: t("dash.tab.diagnostics"),   icon: Terminal },
   ];
 
   const SidebarContent = () => (
@@ -584,6 +586,24 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
       {activeTab === "help" && (
         <HelpPage mode="manager" onBack={() => setActiveTab("overview")} />
+      )}
+
+      {activeTab === "diagnostics" && (
+        <div className="fixed inset-0 z-30 bg-background flex flex-col" dir="ltr">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/90 backdrop-blur shrink-0">
+            <Terminal className="w-4 h-4 text-primary" />
+            <span className="text-sm font-bold text-foreground flex-1">{t("dash.section.diagnostics")}</span>
+            <button
+              onClick={() => setActiveTab("settings")}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg hover:bg-accent transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 md:p-6">
+            <DiagnosticsPage />
+          </div>
+        </div>
       )}
     </div>
   );

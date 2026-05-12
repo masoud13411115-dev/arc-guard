@@ -61,7 +61,7 @@ export default function AdapterModeSelector() {
       <div className={`flex items-center gap-2 ${isRTL ? "flex-row-reverse" : ""}`}>
         <Server className="w-4 h-4 text-muted-foreground shrink-0" />
         <span className="text-sm font-semibold text-foreground flex-1">
-          {t("adapter.mode")}
+          {t("adapter.storage.mode")}
         </span>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-mono tracking-wide">
           {t("adapter.phase1")}

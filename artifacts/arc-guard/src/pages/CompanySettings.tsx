@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode } from "@/lib/adapter";
+import AdapterStatusBadge from "@/components/AdapterStatusBadge";
 import AdapterModeSelector from "@/components/AdapterModeSelector";
 import {
   PLANS, PLAN_ORDER, FEATURE_LABELS, getUsagePct, getLimitLabel
@@ -333,7 +334,8 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
         ))}
       </div>
 
-      {/* ── Adapter / connection mode ── */}
+      {/* ── Adapter status + mode selector ── */}
+      <AdapterStatusBadge />
       <AdapterModeSelector />
     </div>
   );

@@ -1,21 +1,15 @@
 /**
  * ARC Guard — Firebase Cloud Messaging (FCM) client utilities
  *
- * Handles:
- *  - Registering the firebase-messaging-sw.js service worker
- *  - Requesting an FCM push token (requires VAPID key from Firebase Console)
- *  - Persisting/revoking the token
- *  - Foreground message handler (in-app FCM messages while tab is focused)
+ * Background push delivery requires:
+ *  - Chrome / Edge / Samsung Browser (Android, Desktop): works without PWA install
+ *  - iOS Safari 16.4+: ONLY works when app is installed to home screen (standalone PWA)
+ *  - Firefox: FCM Web Push not supported (isSupported() returns false)
  *
  * Architecture note:
- *  Receiving pushes when the app is CLOSED requires a backend (Cloud Function)
- *  to call the FCM HTTP v1 API with the manager's token.
- *  This module sets up the entire client side; add a Firestore-triggered
- *  Cloud Function to complete the loop for fully-closed-app delivery.
- *
- *  FCM is NOT supported on: iOS Safari (as a web app), Firefox, some older
- *  Chromium builds.  Always use initFcmMessaging() from firebase.ts (which
- *  calls isSupported()) before calling anything here.
+ *  Closed-app push delivery requires a backend (Cloud Function / server) to
+ *  call the FCM HTTP v1 API with the manager's saved token.  This module
+ *  sets up the full client side; the server side completes the loop.
  */
 
 import { getToken, deleteToken, onMessage } from 'firebase/messaging';
@@ -26,14 +20,52 @@ import type { Messaging, MessagePayload } from 'firebase/messaging';
 const SW_PATH   = '/arc-guard/firebase-messaging-sw.js';
 const TOKEN_KEY = 'arc_guard_fcm_token';
 
+// ── PWA / platform detection ──────────────────────────────────────────────────
+
+/** Returns true when the app is running as an installed PWA (standalone display). */
+export function isPwaInstalled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    // iOS Safari sets navigator.standalone when added to home screen
+    (window.navigator as { standalone?: boolean }).standalone === true
+  );
+}
+
+/** Returns true when the current device is running iOS / iPadOS. */
+export function isIosDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iP(hone|ad|od)/.test(navigator.userAgent);
+}
+
+/**
+ * Returns true when background push (closed-tab/closed-app delivery) is
+ * likely to work on this device, based on platform heuristics:
+ *
+ *  - iOS: requires FCM support + standalone PWA installation
+ *  - Other: requires FCM support + ServiceWorker + PushManager + Notification
+ */
+export function isBgPushLikelySuppressed(): boolean {
+  if (typeof window === 'undefined') return true;
+  const ios = isIosDevice();
+  if (ios && !isPwaInstalled()) return true;   // iOS + not installed → suppressed
+  return false;
+}
+
+/** Whether this browser API set (SW + PushManager) can support background push. */
+export function hasBgPushApis(): boolean {
+  return (
+    'serviceWorker' in navigator &&
+    'PushManager'   in window &&
+    'Notification'  in window
+  );
+}
+
 // ── Service Worker registration ───────────────────────────────────────────────
 
 /**
  * Register the Firebase Messaging service worker.
  * Returns the ServiceWorkerRegistration or null if unsupported / failed.
- *
- * Note: SW registration itself may succeed on browsers where FCM is not
- * supported — that is OK; the SW simply won't receive FCM push events.
  */
 export async function registerFcmServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
@@ -49,7 +81,7 @@ export async function registerFcmServiceWorker(): Promise<ServiceWorkerRegistrat
   }
 }
 
-/** Check whether any service worker is active for the /arc-guard/ scope. */
+/** Check whether the FCM service worker is active for /arc-guard/ scope. */
 export async function isFcmSwActive(): Promise<boolean> {
   if (!('serviceWorker' in navigator)) return false;
   try {
@@ -125,12 +157,18 @@ export function onForegroundMessage(
 
 export interface FcmDiagState {
   /** Whether FCM Web Push is supported in this browser (from isSupported()). */
-  fcmSupported: boolean;
-  permission:   'granted' | 'denied' | 'default' | 'unsupported';
-  swActive:     boolean;
-  tokenSaved:   boolean;
-  vapidSet:     boolean;
-  tokenHint:    string | null;  // first 24 chars for safe display
+  fcmSupported:  boolean;
+  /** Whether app is running as installed PWA (standalone display mode). */
+  pwaInstalled:  boolean;
+  /** Whether background push is likely to work end-to-end on this device. */
+  bgPushActive:  boolean;
+  /** Whether this is an iOS device. */
+  iosDevice:     boolean;
+  permission:    'granted' | 'denied' | 'default' | 'unsupported';
+  swActive:      boolean;
+  tokenSaved:    boolean;
+  vapidSet:      boolean;
+  tokenHint:     string | null;  // first 24 chars for safe display
 }
 
 export function buildFcmDiagState(
@@ -139,14 +177,32 @@ export function buildFcmDiagState(
   swActive:     boolean,
   fcmSupported: boolean,
 ): FcmDiagState {
-  const raw = getCachedFcmToken();
+  const raw  = getCachedFcmToken();
   const perm: FcmDiagState['permission'] =
     !('Notification' in window) ? 'unsupported'
     : Notification.permission === 'granted' ? 'granted'
     : Notification.permission === 'denied'  ? 'denied'
     : 'default';
+
+  const pwaInstalled = isPwaInstalled();
+  const iosDevice    = isIosDevice();
+
+  // Background push is active when:
+  //  - FCM is supported in this browser
+  //  - The SW is registered
+  //  - Notification permission is granted
+  //  - On iOS: app must be installed as PWA
+  const bgPushActive =
+    fcmSupported &&
+    swActive &&
+    perm === 'granted' &&
+    !isBgPushLikelySuppressed();
+
   return {
     fcmSupported,
+    pwaInstalled,
+    bgPushActive,
+    iosDevice,
     permission: perm,
     swActive,
     tokenSaved,

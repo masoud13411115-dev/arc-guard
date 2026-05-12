@@ -31,6 +31,7 @@ import {
 } from "@/lib/notifications";
 import {
   registerFcmServiceWorker, requestFcmToken, buildFcmDiagState,
+  isPwaInstalled, isIosDevice,
   type FcmDiagState,
 } from "@/lib/fcm";
 import { saveFcmToken } from "@/lib/firestore";
@@ -52,71 +53,88 @@ const PLAN_ICON: Record<string, React.ElementType> = {
 };
 
 // ── Notification permission card ──────────────────────────────────────────────
-function NotificationPermissionCard() {
+interface NotifCardProps {
+  onPermissionGranted?: () => void;
+}
+
+function NotificationPermissionCard({ onPermissionGranted }: NotifCardProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<NotifPermission>(() => getPermissionStatus());
   const [requesting, setRequesting] = useState(false);
+  const pwaInstalled = isPwaInstalled();
+  const iosDevice    = isIosDevice();
 
   const handleRequest = async () => {
     setRequesting(true);
     const result = await requestPermission();
     setStatus(result);
     setRequesting(false);
+    if (result === "granted") onPermissionGranted?.();
   };
 
   if (status === "unsupported") return null;
 
   return (
-    <div className={`rounded-xl border p-4 space-y-3 ${
-      status === "granted" ? "border-green-500/20 bg-green-500/5"
-      : status === "denied"  ? "border-red-500/20 bg-red-500/5"
-      : "border-yellow-500/30 bg-yellow-500/8"
-    }`}>
-      <div className="flex items-center gap-3">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-          status === "granted" ? "bg-green-500/15" : status === "denied" ? "bg-red-500/15" : "bg-yellow-500/15"
-        }`}>
-          {status === "granted" ? <BellRing className="w-4 h-4 text-green-400" />
-           : status === "denied" ? <BellOff className="w-4 h-4 text-red-400" />
-           : <Bell className="w-4 h-4 text-yellow-400" />}
-        </div>
-        <div className="flex-1">
-          <p className={`text-sm font-bold ${
-            status === "granted" ? "text-green-400" : status === "denied" ? "text-red-400" : "text-yellow-400"
+    <div className="space-y-2">
+      <div className={`rounded-xl border p-4 space-y-3 ${
+        status === "granted" ? "border-green-500/20 bg-green-500/5"
+        : status === "denied"  ? "border-red-500/20 bg-red-500/5"
+        : "border-yellow-500/30 bg-yellow-500/8"
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+            status === "granted" ? "bg-green-500/15" : status === "denied" ? "bg-red-500/15" : "bg-yellow-500/15"
           }`}>
-            {status === "granted" ? t("notif.granted")
-             : status === "denied" ? t("notif.denied")
-             : t("notif.default")}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {status === "granted" ? t("notif.granted.desc")
-              : status === "denied" ? t("notif.denied.desc")
-              : t("notif.default.desc")}
-          </p>
+            {status === "granted" ? <BellRing className="w-4 h-4 text-green-400" />
+             : status === "denied" ? <BellOff className="w-4 h-4 text-red-400" />
+             : <Bell className="w-4 h-4 text-yellow-400" />}
+          </div>
+          <div className="flex-1">
+            <p className={`text-sm font-bold ${
+              status === "granted" ? "text-green-400" : status === "denied" ? "text-red-400" : "text-yellow-400"
+            }`}>
+              {status === "granted" ? t("notif.granted")
+               : status === "denied" ? t("notif.denied")
+               : t("notif.default")}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {status === "granted" ? t("notif.granted.desc")
+                : status === "denied" ? t("notif.denied.desc")
+                : t("notif.default.desc")}
+            </p>
+          </div>
+          {status === "default" && (
+            <button
+              onClick={handleRequest}
+              disabled={requesting}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold hover:bg-yellow-500/30 transition-colors disabled:opacity-60"
+            >
+              {requesting ? "..." : t("notif.enable.btn")}
+            </button>
+          )}
         </div>
-        {status === "default" && (
-          <button
-            onClick={handleRequest}
-            disabled={requesting}
-            className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold hover:bg-yellow-500/30 transition-colors disabled:opacity-60"
-          >
-            {requesting ? "..." : t("notif.enable.btn")}
-          </button>
+        {status === "granted" && (
+          <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+            {[
+              { icon: "🚨", labelKey: "notif.sos.label", subKey: "notif.sos.sub" },
+              { icon: "⏰", labelKey: "notif.missed.label", subKey: "notif.missed.sub" },
+              { icon: "📍", labelKey: "notif.outside.label", subKey: "notif.outside.sub" },
+            ].map(({ icon, labelKey, subKey }) => (
+              <div key={labelKey} className="rounded-lg bg-muted/30 p-1.5">
+                <div className="text-base">{icon}</div>
+                <p className="text-muted-foreground font-medium">{t(labelKey)}</p>
+                <p className="text-muted-foreground/60">{t(subKey)}</p>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-      {status === "granted" && (
-        <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
-          {[
-            { icon: "🚨", labelKey: "notif.sos.label", subKey: "notif.sos.sub" },
-            { icon: "⏰", labelKey: "notif.missed.label", subKey: "notif.missed.sub" },
-            { icon: "📍", labelKey: "notif.outside.label", subKey: "notif.outside.sub" },
-          ].map(({ icon, labelKey, subKey }) => (
-            <div key={labelKey} className="rounded-lg bg-muted/30 p-1.5">
-              <div className="text-base">{icon}</div>
-              <p className="text-muted-foreground font-medium">{t(labelKey)}</p>
-              <p className="text-muted-foreground/60">{t(subKey)}</p>
-            </div>
-          ))}
+
+      {/* iOS install-for-background-push warning — shown when granted but not installed */}
+      {status === "granted" && iosDevice && !pwaInstalled && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/8 p-3">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-300/90 leading-relaxed">{t("push.pwa.install.warning")}</p>
         </div>
       )}
     </div>
@@ -142,6 +160,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
 
   // Tracks alert IDs seen in the previous Firestore snapshot to detect truly new alerts
   const prevAlertIdsRef = useRef<Set<string>>(new Set());
+  // Cached SW registration so token refresh after permission-grant reuses it
+  const swRegRef = useRef<ServiceWorkerRegistration | null>(null);
+  const fcmMsgRef = useRef<import('firebase/messaging').Messaging | null>(null);
 
   const currentPlan = PLANS[currentPlanId as keyof typeof PLANS] ?? PLANS.basic;
   const PlanIcon = PLAN_ICON[currentPlanId] ?? Shield;
@@ -158,6 +179,32 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     };
   }, []);
 
+  // ── FCM token refresh (called on mount AND after notification permission grant) ─
+  const refreshFcmToken = useCallback(async () => {
+    const vapidKey     = firebaseConfig.vapidKey;
+    const swReg        = swRegRef.current;
+    const msgInstance  = fcmMsgRef.current;
+    const swActive     = !!swReg;
+    const fcmSupported = msgInstance !== null;
+
+    if (fcmSupported && swReg) {
+      try {
+        const token = await requestFcmToken(msgInstance, vapidKey, swReg);
+        let tokenSaved = false;
+        if (token) {
+          await saveFcmToken(profile.companyId, profile.uid, token);
+          tokenSaved = true;
+        }
+        setFcmDiagState(buildFcmDiagState(tokenSaved, vapidKey, swActive, true));
+      } catch (err) {
+        console.warn("[Dashboard] FCM token refresh error:", err);
+        setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive, true));
+      }
+    } else {
+      setFcmDiagState(buildFcmDiagState(false, vapidKey, swActive, fcmSupported));
+    }
+  }, [profile.companyId, profile.uid]);
+
   // ── FCM push notification setup (managers / super_admin only) ───────────────
   useEffect(() => {
     if (profile.role === "guard") return;
@@ -165,17 +212,22 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     let cancelled = false;
 
     (async () => {
+      // Register SW once and cache for reuse on token refresh
       const swReg = await registerFcmServiceWorker();
       if (cancelled) return;
-      const swActive = !!swReg;
+      swRegRef.current = swReg;
 
-      // initFcmMessaging() uses isSupported() internally — safe on all browsers
+      // isSupported() check inside — safe on all browsers including iOS Safari
       const msgInstance = await initFcmMessaging();
+      if (cancelled) return;
+      fcmMsgRef.current = msgInstance;
+
+      const swActive     = !!swReg;
       const fcmSupported = msgInstance !== null;
 
       if (fcmSupported && swReg) {
         try {
-          const token = await requestFcmToken(msgInstance!, vapidKey, swReg);
+          const token = await requestFcmToken(msgInstance, vapidKey, swReg);
           let tokenSaved = false;
           if (token) {
             await saveFcmToken(profile.companyId, profile.uid, token);
@@ -723,7 +775,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
               </div>
 
               {/* Notification permission */}
-              <NotificationPermissionCard />
+              <NotificationPermissionCard onPermissionGranted={refreshFcmToken} />
 
               <CompanySettings profile={profile} />
             </div>

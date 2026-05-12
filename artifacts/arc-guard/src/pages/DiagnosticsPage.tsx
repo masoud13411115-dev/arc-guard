@@ -168,9 +168,36 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
           </div>
         )}
 
-        {/* Only show the rest when FCM is supported */}
+        {/* PWA + background push rows — always shown when FCM is supported */}
         {(!fcm || fcm.fcmSupported) && (
           <>
+            <DiagRow
+              label={t("push.pwa.status")}
+              value={
+                !fcm ? "—"
+                : fcm.pwaInstalled ? t("push.pwa.installed")
+                : t("push.pwa.not.installed")
+              }
+              ok={!fcm ? null : fcm.pwaInstalled ? true : "warn"}
+            />
+            <DiagRow
+              label={t("push.bg.handler")}
+              value={
+                !fcm ? "—"
+                : fcm.bgPushActive ? t("push.bg.active")
+                : t("push.bg.inactive")
+              }
+              ok={!fcm ? null : fcm.bgPushActive ? true : false}
+            />
+
+            {/* iOS not installed warning */}
+            {fcm?.iosDevice && !fcm.pwaInstalled && (
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-300/80 leading-relaxed">{t("push.ios.bg.unsupported")}</p>
+              </div>
+            )}
+
             <DiagRow
               label={t("push.permission")}
               value={permLabel}
@@ -239,14 +266,18 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
             <Terminal className="w-3 h-3" /> DEV only
           </div>
           {[
-            ["mode",         mode],
-            ["firebaseReady",String(fbReady)],
-            ["isCloud",      String(isCloud)],
-            ["tick",         String(tick)],
-            ["fcm.swActive",      String(fcm?.swActive  ?? "—")],
-            ["fcm.tokenSaved",    String(fcm?.tokenSaved ?? "—")],
-            ["fcm.vapidSet",      String(fcm?.vapidSet   ?? "—")],
-            ["fcm.permission",    fcm?.permission ?? "—"],
+            ["mode",              mode],
+            ["firebaseReady",     String(fbReady)],
+            ["isCloud",           String(isCloud)],
+            ["tick",              String(tick)],
+            ["fcm.fcmSupported",  String(fcm?.fcmSupported ?? "—")],
+            ["fcm.pwaInstalled",  String(fcm?.pwaInstalled ?? "—")],
+            ["fcm.bgPushActive",  String(fcm?.bgPushActive ?? "—")],
+            ["fcm.iosDevice",     String(fcm?.iosDevice    ?? "—")],
+            ["fcm.swActive",      String(fcm?.swActive     ?? "—")],
+            ["fcm.tokenSaved",    String(fcm?.tokenSaved   ?? "—")],
+            ["fcm.vapidSet",      String(fcm?.vapidSet     ?? "—")],
+            ["fcm.permission",    fcm?.permission          ?? "—"],
           ].map(([k, v]) => (
             <div key={k} className="flex gap-3">
               <span className="text-white/30 w-28 shrink-0">{k}</span>

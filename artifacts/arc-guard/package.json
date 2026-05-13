@@ -97,7 +97,7 @@
   "dependencies": {
     "@capacitor/android": "^8.3.3",
     "@capacitor/core": "^8.3.3",
-    "@capacitor/splash-screen": "^8.3.3",
+    "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/local-notifications": "^8.1.0",

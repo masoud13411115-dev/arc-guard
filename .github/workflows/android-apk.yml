@@ -31,7 +31,7 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
@@ -92,42 +92,79 @@ jobs:
       - name: Install pnpm dependencies
         run: pnpm install
 
-      # ── 8. google-services.json ───────────────────────────────────────────────
-      # Add the full JSON content as a repository secret named GOOGLE_SERVICES_JSON.
-      # If the secret is not set, a placeholder is used (Firebase features disabled).
+      # ── 8. Bootstrap Android project ─────────────────────────────────────────
+      # If android/ was not committed to the repo, scaffold it now via Capacitor.
+      # This happens on the first CI run before the developer commits android/.
+      - name: Bootstrap Android project (cap add android)
+        working-directory: artifacts/arc-guard
+        run: |
+          if [ -d "android" ]; then
+            echo "✓ android/ found in repo — skipping cap add"
+          else
+            echo "android/ not committed — scaffolding with cap add android..."
+            npx cap add android
+            echo "✓ Android project scaffolded by Capacitor"
+          fi
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
+
+      # ── 9. google-services.json ───────────────────────────────────────────────
+      # Always mkdir -p so the directory exists whether android/ came from git
+      # or was just scaffolded. If GOOGLE_SERVICES_JSON secret is not set, write
+      # a structurally valid placeholder covering both package IDs so Gradle can
+      # parse and compile a demo-mode APK without crashing.
       - name: Write google-services.json
         run: |
+          mkdir -p artifacts/arc-guard/android/app
           DEST="artifacts/arc-guard/android/app/google-services.json"
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" > "$DEST"
             echo "✓ google-services.json written from GitHub Secret"
           else
-            cat > "$DEST" << 'PLACEHOLDER'
-          {
-            "_comment": "Placeholder — add GOOGLE_SERVICES_JSON secret to enable Firebase",
-            "project_info": { "project_id": "placeholder", "project_number": "000000000000" },
-            "client": [{
-              "client_info": {
-                "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
-                "android_client_info": { "package_name": "com.arcguard.manager" }
-              },
-              "api_key": [{ "current_key": "placeholder" }],
-              "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
-            }],
-            "configuration_version": "1"
-          }
-          PLACEHOLDER
-            echo "⚠️  Using placeholder google-services.json — add GOOGLE_SERVICES_JSON secret for real Firebase"
+            cat > "$DEST" << 'GSJSON'
+{
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "arc-guard-demo",
+    "storage_bucket": "arc-guard-demo.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+        "android_client_info": { "package_name": "com.arcguard.manager" }
+      },
+      "oauth_client": [],
+      "api_key": [{ "current_key": "demo-placeholder-key" }],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:1111111111111111",
+        "android_client_info": { "package_name": "com.arcguard.guard" }
+      },
+      "oauth_client": [],
+      "api_key": [{ "current_key": "demo-placeholder-key" }],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+    }
+  ],
+  "configuration_version": "1"
+}
+GSJSON
+            echo "⚠️  GOOGLE_SERVICES_JSON secret not set — using demo placeholder (Firebase disabled at runtime)"
           fi
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
-      # ── 9. Vite build + Capacitor sync — Manager ─────────────────────────────
-      # Builds the React/Vite web app and syncs assets into android/ for the Manager flavor.
+      # ── 10. Vite build + Capacitor sync — Manager ─────────────────────────────
+      # Builds React/Vite web assets and syncs into android/ for the Manager app.
       # PORT and BASE_PATH are required by vite.config.ts (throws if absent).
       - name: Build Manager (Vite + cap sync)
         if: ${{ github.event.inputs.flavor != 'guard' }}
-        run: pnpm --filter @workspace/arc-guard run cap:build:manager
+        working-directory: artifacts/arc-guard
+        run: pnpm cap:build:manager
         env:
           NODE_ENV: production
           PORT: "3000"
@@ -141,10 +178,11 @@ jobs:
           VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
           VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
 
-      # ── 10. Vite build + Capacitor sync — Guard ───────────────────────────────
+      # ── 11. Vite build + Capacitor sync — Guard ───────────────────────────────
       - name: Build Guard (Vite + cap sync)
         if: ${{ github.event.inputs.flavor != 'manager' }}
-        run: pnpm --filter @workspace/arc-guard run cap:build:guard
+        working-directory: artifacts/arc-guard
+        run: pnpm cap:build:guard
         env:
           NODE_ENV: production
           PORT: "3000"
@@ -158,11 +196,11 @@ jobs:
           VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
           VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
 
-      # ── 11. Make gradlew executable ───────────────────────────────────────────
+      # ── 12. Make gradlew executable ───────────────────────────────────────────
       - name: Make gradlew executable
         run: chmod +x artifacts/arc-guard/android/gradlew
 
-      # ── 12. Gradle — Manager debug APK ───────────────────────────────────────
+      # ── 13. Gradle — Manager debug APK ───────────────────────────────────────
       - name: Build Manager debug APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
         working-directory: artifacts/arc-guard/android
@@ -170,7 +208,7 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── 13. Gradle — Guard debug APK ─────────────────────────────────────────
+      # ── 14. Gradle — Guard debug APK ─────────────────────────────────────────
       - name: Build Guard debug APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
         working-directory: artifacts/arc-guard/android
@@ -178,7 +216,7 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── 14. Rename APKs to friendly names ────────────────────────────────────
+      # ── 15. Rename APKs to friendly names ────────────────────────────────────
       - name: Rename APK outputs
         run: |
           BASE="artifacts/arc-guard/android/app/build/outputs/apk"
@@ -189,7 +227,7 @@ jobs:
           [ -f "$MGR_SRC" ] && mv "$MGR_SRC" "$MGR_DST" && echo "✓ Renamed Manager APK"
           [ -f "$GRD_SRC" ] && mv "$GRD_SRC" "$GRD_DST" && echo "✓ Renamed Guard APK"
 
-      # ── 15. Upload Manager APK artifact ──────────────────────────────────────
+      # ── 16. Upload Manager APK artifact ──────────────────────────────────────
       - name: Upload Manager APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
         uses: actions/upload-artifact@v4
@@ -199,7 +237,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # ── 16. Upload Guard APK artifact ────────────────────────────────────────
+      # ── 17. Upload Guard APK artifact ────────────────────────────────────────
       - name: Upload Guard APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
         uses: actions/upload-artifact@v4
@@ -209,7 +247,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # ── 17. Build summary ────────────────────────────────────────────────────
+      # ── 18. Build summary ────────────────────────────────────────────────────
       - name: Write build summary
         if: always()
         run: |
@@ -220,9 +258,9 @@ jobs:
           BASE="artifacts/arc-guard/android/app/build/outputs/apk"
           [ -f "$BASE/ARC-Guard-Manager-debug.apk" ] && \
             echo "| Manager  | com.arcguard.manager     | ✅ Built |" >> $GITHUB_STEP_SUMMARY || \
-            echo "| Manager  | com.arcguard.manager     | ⏭ Skipped |" >> $GITHUB_STEP_SUMMARY
+            echo "| Manager  | com.arcguard.manager     | ⏭ Skipped / ❌ Failed |" >> $GITHUB_STEP_SUMMARY
           [ -f "$BASE/ARC-Guard-Guard-debug.apk" ] && \
             echo "| Guard    | com.arcguard.guard       | ✅ Built |" >> $GITHUB_STEP_SUMMARY || \
-            echo "| Guard    | com.arcguard.guard       | ⏭ Skipped |" >> $GITHUB_STEP_SUMMARY
+            echo "| Guard    | com.arcguard.guard       | ⏭ Skipped / ❌ Failed |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Download APKs from the **Artifacts** section of this run._" >> $GITHUB_STEP_SUMMARY

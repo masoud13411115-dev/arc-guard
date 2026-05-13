@@ -46,6 +46,11 @@ for (const [k, v] of Object.entries(arcGuardConfig)) {
 }
 const envDefine = {
   __ARC_GUARD_CONFIG__: JSON.stringify(arcGuardConfig),
+  // Baked-in at build time via CI env var APP_FLAVOR.
+  // "manager" → Manager APK auto-navigates to /manager on launch.
+  // "guard"   → Guard APK auto-navigates to /guard on launch.
+  // ""        → web build / unspecified — LandingPage shows the chooser.
+  __APP_FLAVOR__: JSON.stringify(process.env.APP_FLAVOR ?? ""),
 };
 
 // ── Firebase Messaging Service Worker generator ────────────────────────────

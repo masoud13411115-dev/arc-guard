@@ -1,0 +1,227 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/arc-guard/**"
+      - ".github/workflows/android-apk.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "artifacts/arc-guard/**"
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "Which APK variant to build"
+        required: false
+        default: "both"
+        type: choice
+        options:
+          - both
+          - manager
+          - guard
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js 20 ────────────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── 3. pnpm ──────────────────────────────────────────────────────────────
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      # ── 4. JDK 17 ────────────────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      # ── 5. Android SDK 34 ────────────────────────────────────────────────────
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platform & build tools
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/build-tools/34.0.0" >> $GITHUB_PATH
+
+      # ── 6. Caches ────────────────────────────────────────────────────────────
+      - name: Restore pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Restore Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/arc-guard/android/**/*.gradle*', 'artifacts/arc-guard/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # ── 7. Install dependencies ───────────────────────────────────────────────
+      - name: Install pnpm dependencies
+        run: pnpm install
+
+      # ── 8. google-services.json ───────────────────────────────────────────────
+      # Add the full JSON content as a repository secret named GOOGLE_SERVICES_JSON.
+      # If the secret is not set, a placeholder is used (Firebase features disabled).
+      - name: Write google-services.json
+        run: |
+          DEST="artifacts/arc-guard/android/app/google-services.json"
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > "$DEST"
+            echo "✓ google-services.json written from GitHub Secret"
+          else
+            cat > "$DEST" << 'PLACEHOLDER'
+          {
+            "_comment": "Placeholder — add GOOGLE_SERVICES_JSON secret to enable Firebase",
+            "project_info": { "project_id": "placeholder", "project_number": "000000000000" },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                "android_client_info": { "package_name": "com.arcguard.manager" }
+              },
+              "api_key": [{ "current_key": "placeholder" }],
+              "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+            }],
+            "configuration_version": "1"
+          }
+          PLACEHOLDER
+            echo "⚠️  Using placeholder google-services.json — add GOOGLE_SERVICES_JSON secret for real Firebase"
+          fi
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
+      # ── 9. Vite build + Capacitor sync — Manager ─────────────────────────────
+      # Builds the React/Vite web app and syncs assets into android/ for the Manager flavor.
+      # PORT and BASE_PATH are required by vite.config.ts (throws if absent).
+      - name: Build Manager (Vite + cap sync)
+        if: ${{ github.event.inputs.flavor != 'guard' }}
+        run: pnpm --filter @workspace/arc-guard run cap:build:manager
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
+          VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
+          VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
+          VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
+          VITE_ARC_GUARD_STORAGE_BUCKET: ${{ secrets.VITE_ARC_GUARD_STORAGE_BUCKET }}
+          VITE_ARC_GUARD_MESSAGING_SENDER_ID: ${{ secrets.VITE_ARC_GUARD_MESSAGING_SENDER_ID }}
+          VITE_ARC_GUARD_APP_ID: ${{ secrets.VITE_ARC_GUARD_APP_ID }}
+          VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
+          VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
+
+      # ── 10. Vite build + Capacitor sync — Guard ───────────────────────────────
+      - name: Build Guard (Vite + cap sync)
+        if: ${{ github.event.inputs.flavor != 'manager' }}
+        run: pnpm --filter @workspace/arc-guard run cap:build:guard
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
+          VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
+          VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
+          VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
+          VITE_ARC_GUARD_STORAGE_BUCKET: ${{ secrets.VITE_ARC_GUARD_STORAGE_BUCKET }}
+          VITE_ARC_GUARD_MESSAGING_SENDER_ID: ${{ secrets.VITE_ARC_GUARD_MESSAGING_SENDER_ID }}
+          VITE_ARC_GUARD_APP_ID: ${{ secrets.VITE_ARC_GUARD_APP_ID }}
+          VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
+          VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
+
+      # ── 11. Make gradlew executable ───────────────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x artifacts/arc-guard/android/gradlew
+
+      # ── 12. Gradle — Manager debug APK ───────────────────────────────────────
+      - name: Build Manager debug APK
+        if: ${{ github.event.inputs.flavor != 'guard' }}
+        working-directory: artifacts/arc-guard/android
+        run: ./gradlew assembleManagerDebug --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      # ── 13. Gradle — Guard debug APK ─────────────────────────────────────────
+      - name: Build Guard debug APK
+        if: ${{ github.event.inputs.flavor != 'manager' }}
+        working-directory: artifacts/arc-guard/android
+        run: ./gradlew assembleGuardDebug --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      # ── 14. Rename APKs to friendly names ────────────────────────────────────
+      - name: Rename APK outputs
+        run: |
+          BASE="artifacts/arc-guard/android/app/build/outputs/apk"
+          MGR_SRC="$BASE/manager/debug/app-manager-debug.apk"
+          GRD_SRC="$BASE/guard/debug/app-guard-debug.apk"
+          MGR_DST="$BASE/ARC-Guard-Manager-debug.apk"
+          GRD_DST="$BASE/ARC-Guard-Guard-debug.apk"
+          [ -f "$MGR_SRC" ] && mv "$MGR_SRC" "$MGR_DST" && echo "✓ Renamed Manager APK"
+          [ -f "$GRD_SRC" ] && mv "$GRD_SRC" "$GRD_DST" && echo "✓ Renamed Guard APK"
+
+      # ── 15. Upload Manager APK artifact ──────────────────────────────────────
+      - name: Upload Manager APK
+        if: ${{ github.event.inputs.flavor != 'guard' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARC-Guard-Manager-debug
+          path: artifacts/arc-guard/android/app/build/outputs/apk/ARC-Guard-Manager-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── 16. Upload Guard APK artifact ────────────────────────────────────────
+      - name: Upload Guard APK
+        if: ${{ github.event.inputs.flavor != 'manager' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARC-Guard-Guard-debug
+          path: artifacts/arc-guard/android/app/build/outputs/apk/ARC-Guard-Guard-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── 17. Build summary ────────────────────────────────────────────────────
+      - name: Write build summary
+        if: always()
+        run: |
+          echo "## ARC Guard Android Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant  | Package ID               | Output |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------------------------|--------|" >> $GITHUB_STEP_SUMMARY
+          BASE="artifacts/arc-guard/android/app/build/outputs/apk"
+          [ -f "$BASE/ARC-Guard-Manager-debug.apk" ] && \
+            echo "| Manager  | com.arcguard.manager     | ✅ Built |" >> $GITHUB_STEP_SUMMARY || \
+            echo "| Manager  | com.arcguard.manager     | ⏭ Skipped |" >> $GITHUB_STEP_SUMMARY
+          [ -f "$BASE/ARC-Guard-Guard-debug.apk" ] && \
+            echo "| Guard    | com.arcguard.guard       | ✅ Built |" >> $GITHUB_STEP_SUMMARY || \
+            echo "| Guard    | com.arcguard.guard       | ⏭ Skipped |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Download APKs from the **Artifacts** section of this run._" >> $GITHUB_STEP_SUMMARY

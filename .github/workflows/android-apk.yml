@@ -174,35 +174,65 @@ jobs:
           VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
 
       # ── 12. Make gradlew executable ───────────────────────────────────────────
+      # Must run before either Gradle invocation below.
       - name: Make gradlew executable
         run: chmod +x artifacts/arc-guard/android/gradlew
 
       # ── 13. Gradle — Manager debug APK ───────────────────────────────────────
+      # cap:build:manager already synced the Manager appId/config into android/.
+      # Capacitor's standard task is assembleDebug (no product flavors by default).
+      # We copy the APK immediately so the Guard build can overwrite dist/ safely.
       - name: Build Manager debug APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
         working-directory: artifacts/arc-guard/android
-        run: ./gradlew assembleManagerDebug --no-daemon --stacktrace
+        run: |
+          ./gradlew assembleDebug --no-daemon
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK" ]; then
+            cp "$APK" "app/build/outputs/apk/ARC-Guard-Manager-debug.apk"
+            echo "Manager APK saved: $(du -sh $APK | cut -f1)"
+          else
+            echo "::error::Manager APK not found at $APK"
+            exit 1
+          fi
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       # ── 14. Gradle — Guard debug APK ─────────────────────────────────────────
+      # cap:build:guard re-syncs the Guard appId/config into android/ then we
+      # run assembleDebug again to get the Guard-flavoured APK.
       - name: Build Guard debug APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
-        working-directory: artifacts/arc-guard/android
-        run: ./gradlew assembleGuardDebug --no-daemon --stacktrace
+        working-directory: artifacts/arc-guard
+        run: |
+          # Re-sync Guard config into android/ (already built Vite in step 14 above,
+          # but cap:build:guard also runs pnpm build, which is idempotent here)
+          pnpm cap:build:guard
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK" ]; then
+            cp "$APK" "app/build/outputs/apk/ARC-Guard-Guard-debug.apk"
+            echo "Guard APK saved: $(du -sh $APK | cut -f1)"
+          else
+            echo "::error::Guard APK not found at $APK"
+            exit 1
+          fi
         env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
+          VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
+          VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
+          VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
+          VITE_ARC_GUARD_STORAGE_BUCKET: ${{ secrets.VITE_ARC_GUARD_STORAGE_BUCKET }}
+          VITE_ARC_GUARD_MESSAGING_SENDER_ID: ${{ secrets.VITE_ARC_GUARD_MESSAGING_SENDER_ID }}
+          VITE_ARC_GUARD_APP_ID: ${{ secrets.VITE_ARC_GUARD_APP_ID }}
+          VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
+          VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── 15. Rename APKs to friendly names ────────────────────────────────────
-      - name: Rename APK outputs
-        run: |
-          BASE="artifacts/arc-guard/android/app/build/outputs/apk"
-          MGR_SRC="$BASE/manager/debug/app-manager-debug.apk"
-          GRD_SRC="$BASE/guard/debug/app-guard-debug.apk"
-          [ -f "$MGR_SRC" ] && mv "$MGR_SRC" "$BASE/ARC-Guard-Manager-debug.apk" && echo "Renamed Manager APK"
-          [ -f "$GRD_SRC" ] && mv "$GRD_SRC" "$BASE/ARC-Guard-Guard-debug.apk" && echo "Renamed Guard APK"
-
-      # ── 16. Upload Manager APK ────────────────────────────────────────────────
+      # ── 15. Upload Manager APK ────────────────────────────────────────────────
       - name: Upload Manager APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
         uses: actions/upload-artifact@v4
@@ -212,7 +242,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # ── 17. Upload Guard APK ──────────────────────────────────────────────────
+      # ── 16. Upload Guard APK ──────────────────────────────────────────────────
       - name: Upload Guard APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
         uses: actions/upload-artifact@v4

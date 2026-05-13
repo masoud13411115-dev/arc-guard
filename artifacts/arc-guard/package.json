@@ -13,8 +13,8 @@
     "cap:sync": "npx cap sync android",
     "cap:sync:manager": "cp capacitor.config.ts capacitor.config.active.ts && npx cap sync android",
     "cap:sync:guard": "cp capacitor.guard.config.ts capacitor.config.ts && npx cap sync android && cp capacitor.config.active.ts capacitor.config.ts",
-    "cap:build:manager": "pnpm build && pnpm cap:sync:manager",
-    "cap:build:guard": "pnpm build && pnpm cap:sync:guard",
+    "cap:build:manager": "CAP_ANDROID=1 pnpm build && pnpm cap:sync:manager",
+    "cap:build:guard": "CAP_ANDROID=1 pnpm build && pnpm cap:sync:guard",
     "cap:open": "npx cap open android"
   },
   "devDependencies": {
@@ -97,6 +97,7 @@
   "dependencies": {
     "@capacitor/android": "^8.3.3",
     "@capacitor/core": "^8.3.3",
+    "@capacitor/splash-screen": "^8.3.3",
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/local-notifications": "^8.1.0",

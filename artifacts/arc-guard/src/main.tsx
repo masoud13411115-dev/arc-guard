@@ -30,4 +30,15 @@ if (!rootEl) {
       <App />
     </ErrorBoundary>
   );
+
+  // ── Capacitor native splash screen dismiss ────────────────────────────────
+  // Must be called explicitly from JS to guarantee the native splash goes away.
+  // launchAutoHide:true is set, but if the WebView takes >launchShowDuration to
+  // produce its first paint, Capacitor keeps the splash open until JS calls this.
+  // Dynamic import keeps @capacitor/splash-screen out of the critical-path bundle
+  // on the web build — it resolves instantly on native via the Capacitor bridge,
+  // and fails gracefully (no-op) when not running inside a Capacitor container.
+  import("@capacitor/splash-screen")
+    .then(({ SplashScreen }) => SplashScreen.hide({ fadeOutDuration: 300 }))
+    .catch(() => { /* running in browser, not native — ignore */ });
 }

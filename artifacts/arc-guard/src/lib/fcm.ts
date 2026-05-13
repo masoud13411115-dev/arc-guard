@@ -14,6 +14,7 @@
 
 import { getToken, deleteToken, onMessage } from 'firebase/messaging';
 import type { Messaging, MessagePayload } from 'firebase/messaging';
+import { Capacitor } from '@capacitor/core';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,11 @@ export function hasBgPushApis(): boolean {
  */
 export function isBgPushContextUnsupported(): boolean {
   if (typeof window === 'undefined') return true;
+
+  // Capacitor native (Android / iOS) — web Firebase Messaging SDK and service
+  // workers don't work inside a Capacitor WebView. Native push is handled by
+  // @capacitor/push-notifications (see nativePush.ts).
+  if (Capacitor.isNativePlatform()) return true;
 
   // iOS requires PWA installation for ANY background push
   if (isIosDevice() && !isPwaInstalled()) return true;

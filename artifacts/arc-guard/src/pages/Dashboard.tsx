@@ -37,6 +37,8 @@ import {
 import { saveFcmToken } from "@/lib/firestore";
 import { initFcmMessaging } from "@/firebase";
 import firebaseConfig from "@/firebaseConfig";
+import { isAndroid } from "@/lib/platform";
+import { initNativePush } from "@/lib/nativePush";
 import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
 
 interface DashboardProps {
@@ -205,6 +207,16 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     }
   }, [profile.companyId, profile.uid]);
 
+  // ── Android native push tap → navigate to alerts tab ──────────────────────
+  useEffect(() => {
+    const handler = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ tab?: string }>).detail;
+      if (detail?.tab === "alerts") setActiveTab("alerts");
+    };
+    window.addEventListener("arc-guard:navigate", handler);
+    return () => window.removeEventListener("arc-guard:navigate", handler);
+  }, []);
+
   // ── FCM push notification setup (managers / super_admin only) ───────────────
   useEffect(() => {
     if (profile.role === "guard") return;
@@ -212,6 +224,15 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     let cancelled = false;
 
     (async () => {
+      // ── Android Capacitor: use native FCM push, skip web Firebase Messaging ──
+      if (isAndroid()) {
+        const state = await initNativePush(profile.companyId, profile.uid);
+        if (!cancelled && state) {
+          setFcmDiagState(buildFcmDiagState(!!state.token, vapidKey, false, state.token !== null));
+        }
+        return;
+      }
+
       // Register SW once and cache for reuse on token refresh
       const swReg = await registerFcmServiceWorker();
       if (cancelled) return;

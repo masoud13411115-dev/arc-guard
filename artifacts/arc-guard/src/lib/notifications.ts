@@ -37,12 +37,19 @@ const VIBRATE_PATTERNS: Record<AlertKind, number[]> = {
 };
 
 export function vibrateForAlert(kind: AlertKind): void {
-  try {
-    const pattern = VIBRATE_PATTERNS[kind];
-    navigator.vibrate?.(pattern);
-  } catch {
-    // vibration not supported
-  }
+  // On Android/iOS native: use Capacitor Haptics for richer motor feedback.
+  // On web: fall back to navigator.vibrate.
+  const hapticType = kind === 'sos' ? 'heavy' : kind === 'outside' ? 'warning' : 'error';
+  import('@/lib/platform')
+    .then(({ triggerHaptic }) => triggerHaptic(hapticType))
+    .catch(() => {
+      // platform module unavailable — fall back to web vibrate
+      try {
+        navigator.vibrate?.(VIBRATE_PATTERNS[kind]);
+      } catch {
+        // vibration not supported
+      }
+    });
 }
 
 // ── Browser notification ──────────────────────────────────────────────────────

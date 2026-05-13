@@ -145,6 +145,24 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
+      # ── 10b. Verify assets copied by cap sync ─────────────────────────────────
+      # Confirms that Capacitor copied the Vite build output into the WebView
+      # assets directory. Prints the first 25 lines of index.html so we can
+      # verify that Vite replaced /src/main.tsx with the real hashed bundle path
+      # and that base URLs are relative ('./' not '/arc-guard/').
+      - name: Verify Capacitor assets
+        working-directory: artifacts/arc-guard/android
+        run: |
+          ASSETS="app/src/main/assets/public"
+          echo "=== Assets directory ==="
+          ls -lh "$ASSETS/" | head -30
+          echo ""
+          echo "=== index.html (first 30 lines) ==="
+          head -30 "$ASSETS/index.html" || echo "index.html NOT FOUND"
+          echo ""
+          echo "=== assets/ JS files ==="
+          ls "$ASSETS/assets/" 2>/dev/null | grep '\.js$' | head -10 || echo "(no JS files found)"
+
       # ── 11. Patch build.gradle — inject productFlavors ────────────────────────
       # Calls the committed Python script (android-config/patch_gradle.py) which:
       #   - Inserts flavorDimensions + productFlavors (manager / guard) into

@@ -130,11 +130,11 @@ function NotificationPermissionCard({ onPermissionGranted }: NotifCardProps) {
         )}
       </div>
 
-      {/* iOS install-for-background-push warning — shown when granted but not installed */}
-      {status === "granted" && iosDevice && !pwaInstalled && (
+      {/* Background push unsupported — shown when permission granted but context disallows push */}
+      {status === "granted" && (iosDevice && !pwaInstalled) && (
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/8 p-3">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-300/90 leading-relaxed">{t("push.pwa.install.warning")}</p>
+          <p className="text-xs text-amber-300/90 leading-relaxed">{t("push.bg.unsupported.msg")}</p>
         </div>
       )}
     </div>

@@ -100,6 +100,15 @@ export async function initFcmMessaging(): Promise<MessagingInstance | null> {
     return null;
   }
 
+  // Early exit for contexts where background push is known to be unreliable or
+  // unsupported: iOS Safari (non-standalone), iframe/Replit preview, missing APIs.
+  // Avoids loading the messaging bundle entirely; in-app alerts still work.
+  const { isBgPushContextUnsupported } = await import('./lib/fcm');
+  if (isBgPushContextUnsupported()) {
+    logger.warn('firebase', 'FCM skipped — unsupported context (iOS non-PWA, iframe, or missing SW/PushManager APIs)');
+    return null;
+  }
+
   try {
     // Dynamic import so the messaging bundle is only loaded when needed
     const { isSupported, getMessaging } = await import('firebase/messaging');

@@ -61,6 +61,39 @@ export function hasBgPushApis(): boolean {
   );
 }
 
+/**
+ * Returns true when background push should be SKIPPED entirely — either because
+ * the platform doesn't support it or the runtime context makes it unreliable:
+ *
+ *  - iOS Safari not in standalone mode (iOS requires PWA install for any push)
+ *  - Iframe context (Replit preview, embedded webview) — SW/push unreliable
+ *  - Missing browser APIs (no ServiceWorker / PushManager)
+ *
+ * When this returns true, initFcmMessaging() exits immediately without touching
+ * the Firebase Messaging SDK — so no crashes, no error logs, no token requests.
+ * In-app realtime alerts (Firestore subscriptions) continue to work normally.
+ */
+export function isBgPushContextUnsupported(): boolean {
+  if (typeof window === 'undefined') return true;
+
+  // iOS requires PWA installation for ANY background push
+  if (isIosDevice() && !isPwaInstalled()) return true;
+
+  // Iframe context — service workers registered inside an iframe are unreliable;
+  // Replit's dev preview and many webviews run the app in a sandboxed iframe.
+  try {
+    if (window.self !== window.top) return true;
+  } catch {
+    // Cross-origin iframe — access to window.top throws; definitely an iframe
+    return true;
+  }
+
+  // Missing browser APIs
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return true;
+
+  return false;
+}
+
 // ── Service Worker registration ───────────────────────────────────────────────
 
 /**

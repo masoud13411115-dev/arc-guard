@@ -160,11 +160,11 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
           ok={!fcm ? null : fcm.fcmSupported ? true : false}
         />
 
-        {/* When unsupported, show a helpful callout and skip the rest */}
+        {/* When unsupported, show the user-facing message and skip the rest */}
         {fcm && !fcm.fcmSupported && (
           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-500/8 border border-red-500/20">
             <Info className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-red-300/80 leading-relaxed">{t("push.fcm.browser.fallback")}</p>
+            <p className="text-[11px] text-red-300/80 leading-relaxed">{t("push.bg.unsupported.msg")}</p>
           </div>
         )}
 

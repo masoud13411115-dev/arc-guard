@@ -167,7 +167,15 @@ export default defineConfig({
       },
     },
 
-    VitePWA({
+    // ── PWA / Service Worker ────────────────────────────────────────────────
+    // Skip entirely for Android (Capacitor) builds.
+    // Inside Capacitor the app runs at http://localhost with no /arc-guard/
+    // prefix, so the SW scope and manifest URLs built for the web don't match.
+    // The registerSW() call from virtual:pwa-register can also interfere with
+    // WebView startup on some Android versions.
+    // A no-op shim for virtual:pwa-register is injected below so that
+    // pwa.ts compiles successfully without the real VitePWA plugin.
+    ...(!isAndroidBuild ? [VitePWA({
       registerType: "prompt",
       injectRegister: false,
       strategies: "injectManifest",
@@ -241,7 +249,22 @@ export default defineConfig({
           },
         ],
       },
-    }),
+    })] : []),
+
+    // ── Android build: no-op shim for virtual:pwa-register ─────────────────
+    // pwa.ts imports registerSW from virtual:pwa-register which is provided
+    // by vite-plugin-pwa. When VitePWA is skipped (isAndroidBuild), we inject
+    // a tiny no-op so the import resolves and pwa.ts compiles without errors.
+    ...(isAndroidBuild ? [{
+      name: "arc-guard-nop-pwa-register",
+      resolveId(id: string) {
+        if (id === "virtual:pwa-register") return "\0virtual:pwa-register-nop";
+      },
+      load(id: string) {
+        if (id === "\0virtual:pwa-register-nop")
+          return "export const registerSW = () => () => {};";
+      },
+    }] : []),
 
     ...(process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined
       ? [

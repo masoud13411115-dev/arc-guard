@@ -16,14 +16,19 @@ import { syncOfflineQueue } from "@/lib/adapter";
 import { listenForSyncTrigger, getQueueCount } from "@/lib/offline";
 import { onNetworkChange, type NetworkState } from "@/lib/network";
 import { logger } from "@/lib/logger";
+import { Capacitor } from "@capacitor/core";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, staleTime: 30_000 } },
 });
 
-// Strip trailing slash from Vite BASE_URL for wouter base prop
-// e.g. "/arc-guard/" → "/arc-guard"
-const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
+// Derive Wouter base from Vite's BASE_URL.
+// • Web build:     BASE_URL = '/arc-guard/'  →  routerBase = '/arc-guard'
+// • Android build: BASE_URL = './'           →  routerBase = ''
+//   Wouter with base="." cannot strip '.' from absolute Android paths,
+//   so we fall back to '' which lets Wouter match routes from the root '/'.
+const rawBase = import.meta.env.BASE_URL;
+const routerBase = rawBase === "./" ? "" : rawBase.replace(/\/$/, "") || "";
 
 function NetworkBanner({ state }: { state: NetworkState }) {
   const { t, dir } = useI18n();
@@ -49,8 +54,15 @@ function AppContent() {
   const [isStandalone]                      = useState(isPWAInstalled);
 
   useEffect(() => {
-    initPWA(() => setUpdateAvailable(true));
-    logger.info("app", "ARC Guard starting", { pwa: isPWAInstalled(), firebase: isFirebaseReady });
+    // PWA service-worker registration only applies on the web.
+    // Skip it entirely when running inside a Capacitor native container:
+    // the SW scope / manifest paths use '/arc-guard/' which doesn't match
+    // Capacitor's http://localhost origin, and registerSW() can interfere
+    // with startup on some Android WebView versions.
+    if (!Capacitor.isNativePlatform()) {
+      initPWA(() => setUpdateAvailable(true));
+    }
+    logger.info("app", "ARC Guard starting", { pwa: isPWAInstalled(), firebase: isFirebaseReady, native: Capacitor.isNativePlatform() });
     const unsub = listenForSyncTrigger(async () => {
       if (isFirebaseReady) {
         const synced = await syncOfflineQueue();

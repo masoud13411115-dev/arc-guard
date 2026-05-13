@@ -6,13 +6,22 @@ import { writeFileSync, mkdirSync } from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { VitePWA } from "vite-plugin-pwa";
 
-const rawPort = process.env.PORT;
-if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
-const port = Number(rawPort);
-if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
+// ── Build target detection ─────────────────────────────────────────────────
+// CAP_ANDROID=1 → Capacitor/Android build: use base './' so that
+// file:///android_asset/public/... paths resolve correctly in the WebView.
+// Web builds keep the usual absolute base path for proxy routing.
+const isAndroidBuild = process.env.CAP_ANDROID === "1";
 
-const basePath = process.env.BASE_PATH;
-if (!basePath) throw new Error("BASE_PATH environment variable is required but was not provided.");
+const rawPort = process.env.PORT;
+if (!isAndroidBuild && !rawPort) throw new Error("PORT environment variable is required but was not provided.");
+const port = rawPort ? Number(rawPort) : 3000;
+if (!isAndroidBuild && (Number.isNaN(port) || port <= 0)) throw new Error(`Invalid PORT value: "${rawPort}"`);
+
+const basePath = process.env.BASE_PATH ?? "/arc-guard/";
+if (!isAndroidBuild && !process.env.BASE_PATH) throw new Error("BASE_PATH environment variable is required but was not provided.");
+
+// Android WebView file:// origin — relative base is required.
+const effectiveBase = isAndroidBuild ? "./" : basePath;
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -125,7 +134,7 @@ self.addEventListener('notificationclick', function(event) {
 }
 
 export default defineConfig({
-  base: basePath,
+  base: effectiveBase,
   plugins: [
     react(),
     tailwindcss(),
@@ -257,8 +266,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    // Target modern browsers — allows smaller output, no polyfills
-    target: "esnext",
+    // Android WebView ~Chromium 89+; web targets modern evergreen browsers
+    target: isAndroidBuild ? "es2020" : "esnext",
     // Source maps in production for error tracking
     sourcemap: isProd ? "hidden" : true,
     // Warn on chunks > 600 KB (before gzip)

@@ -1,4 +1,5 @@
 name: Build Android APK
+# Builds Manager and Guard debug APKs on every push to main
 
 on:
   push:

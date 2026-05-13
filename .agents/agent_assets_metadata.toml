@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "yB9soIRK1H5CqDJGGRLcj"
+uri = "file://ARC_Guard_Android_Project.zip"
+type = "unspecified"
+title = "ARC_Guard_Android_Project.zip — Android build package"

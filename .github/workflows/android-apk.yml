@@ -95,10 +95,11 @@ jobs:
       - name: Install pnpm dependencies
         run: pnpm install --no-frozen-lockfile
 
-      # ── 8. Vite production build ──────────────────────────────────────────────
-      # Built once — same JS bundle for both APK variants.
-      # CAP_ANDROID=1 -> base:'./' so file:// assets load in Android WebView.
-      - name: Vite production build
+      # ── 8. Build Manager web assets ───────────────────────────────────────────
+      # APP_FLAVOR=manager → __APP_FLAVOR__ = "manager" is baked into the JS
+      # bundle so the Manager APK auto-navigates to /manager on launch and
+      # shows native tap buttons instead of the web link-card UI.
+      - name: Build Manager web assets
         working-directory: artifacts/arc-guard
         run: pnpm build
         env:
@@ -106,6 +107,7 @@ jobs:
           PORT: "3000"
           BASE_PATH: /arc-guard/
           CAP_ANDROID: "1"
+          APP_FLAVOR: manager
           VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
           VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
           VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
@@ -195,6 +197,44 @@ jobs:
           echo "Manager APK: $(du -sh "$APK" | cut -f1)"
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      # ── 13b. Build Guard web assets ───────────────────────────────────────────
+      # Rebuild the Vite bundle with APP_FLAVOR=guard so __APP_FLAVOR__ = "guard"
+      # is baked into the Guard APK's JS. This is a second Vite build — the
+      # output overwrites dist/public/ and the next step syncs it into android/.
+      - name: Build Guard web assets
+        if: ${{ github.event.inputs.flavor != 'manager' }}
+        working-directory: artifacts/arc-guard
+        run: pnpm build
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
+          CAP_ANDROID: "1"
+          APP_FLAVOR: guard
+          VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
+          VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
+          VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
+          VITE_ARC_GUARD_STORAGE_BUCKET: ${{ secrets.VITE_ARC_GUARD_STORAGE_BUCKET }}
+          VITE_ARC_GUARD_MESSAGING_SENDER_ID: ${{ secrets.VITE_ARC_GUARD_MESSAGING_SENDER_ID }}
+          VITE_ARC_GUARD_APP_ID: ${{ secrets.VITE_ARC_GUARD_APP_ID }}
+          VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
+          VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
+
+      # ── 13c. Sync Guard web assets into Android ────────────────────────────────
+      # cap sync (without cap add) updates android/app/src/main/assets/public/
+      # with the new Guard bundle. The android/ scaffold is already in place.
+      - name: Sync Guard web assets into Android
+        if: ${{ github.event.inputs.flavor != 'manager' }}
+        working-directory: artifacts/arc-guard
+        run: |
+          npx cap sync android
+          echo "Guard assets synced. Verifying __APP_FLAVOR__ in bundle:"
+          grep -o '"guard"' android/app/src/main/assets/public/assets/*.js | head -3 || echo "(not found in top — check full bundle)"
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
 
       # ── 14. Build Guard APK — assembleGuardDebug ──────────────────────────────
       # productFlavor "guard" -> applicationId "com.arcguard.guard"

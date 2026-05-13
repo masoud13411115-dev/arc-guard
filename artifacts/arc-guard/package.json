@@ -86,6 +86,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.3",
     "@capacitor/core": "^8.3.3",
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/haptics": "^8.0.2",

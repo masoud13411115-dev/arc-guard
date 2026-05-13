@@ -3,78 +3,163 @@
 <head>
   <meta charset="UTF-8" />
 
-  <!-- ── Viewport ── -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 
-  <!-- ── Primary meta ── -->
   <title>ARC Guard — سیستم گشت امنیتی</title>
   <meta name="description" content="ARC Guard — سیستم هوشمند گشت و نگهبانی با QR Code و GPS" />
   <meta name="robots" content="index, follow" />
 
-  <!-- ── PWA theme ── -->
   <meta name="theme-color" content="#0c1829" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#0c1829" />
 
-  <!-- ── iOS Safari PWA ── -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="ARC Guard" />
   <meta name="mobile-web-app-capable" content="yes" />
 
-  <!-- ── iOS touch icons ── -->
-  <link rel="apple-touch-icon" href="/arc-guard/icon-192.png" />
-  <link rel="apple-touch-icon" sizes="152x152" href="/arc-guard/icon-152.png" />
-  <link rel="apple-touch-icon" sizes="144x144" href="/arc-guard/icon-144.png" />
-  <link rel="apple-touch-icon" sizes="128x128" href="/arc-guard/icon-128.png" />
+  <!-- %BASE_URL% is replaced by Vite: './' for Android, '/arc-guard/' for web -->
+  <link rel="apple-touch-icon" href="%BASE_URL%icon-192.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="%BASE_URL%icon-152.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="%BASE_URL%icon-144.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="%BASE_URL%icon-128.png" />
 
-  <!-- ── iOS Splash screens (all major devices) ── -->
-  <!-- iPhone SE (750×1334 @2x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-se.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-iphone-se.png"
     media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
-  <!-- iPhone XR (828×1792 @2x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-xr.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-iphone-xr.png"
     media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
-  <!-- iPhone 12 / 13 / 14 (1170×2532 @3x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-12.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-iphone-12.png"
     media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
-  <!-- iPhone 14 Pro (1179×2556 @3x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-14pro.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-iphone-14pro.png"
     media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
-  <!-- iPhone 14 Pro Max (1284×2778 @3x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-iphone-14promax.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-iphone-14promax.png"
     media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
-  <!-- iPad (1536×2048 @2x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-ipad.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-ipad.png"
     media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" />
-  <!-- iPad Pro 12.9" (2048×2732 @2x) -->
-  <link rel="apple-touch-startup-image" href="/arc-guard/splash-ipad-pro-13.png"
+  <link rel="apple-touch-startup-image" href="%BASE_URL%splash-ipad-pro-13.png"
     media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
 
-  <!-- ── Android / PWA manifest ── -->
-  <link rel="manifest" href="/arc-guard/manifest.webmanifest" />
+  <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
 
-  <!-- ── Standard favicon ── -->
-  <link rel="icon" type="image/svg+xml" href="/arc-guard/favicon.svg" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/arc-guard/icon-192.png" />
+  <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="%BASE_URL%icon-192.png" />
 
-  <!-- ── OpenGraph ── -->
   <meta property="og:title" content="ARC Guard" />
   <meta property="og:description" content="سیستم هوشمند گشت امنیتی" />
   <meta property="og:type" content="website" />
-  <meta property="og:image" content="/arc-guard/opengraph.jpg" />
+  <meta property="og:image" content="%BASE_URL%opengraph.jpg" />
 
-  <!-- ── Microsoft Tiles ── -->
-  <meta name="msapplication-TileImage" content="/arc-guard/icon-144.png" />
+  <meta name="msapplication-TileImage" content="%BASE_URL%icon-144.png" />
   <meta name="msapplication-TileColor" content="#0c1829" />
   <meta name="msapplication-config" content="none" />
 
-  <!-- ── Fonts ── -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- ── Error capture (runs before any JS bundle) ── -->
+  <!-- Collects JS errors and unhandled rejections; visible in Android Logcat -->
+  <script>
+    window.__arcErrors = [];
+    window.onerror = function(msg, src, line, col, err) {
+      var entry = { msg: String(msg), src: src, line: line, col: col, stack: err ? err.stack : '' };
+      window.__arcErrors.push(entry);
+      console.error('[ARC Guard] JS Error:', JSON.stringify(entry));
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      var entry = { msg: String(e.reason), type: 'unhandledrejection' };
+      window.__arcErrors.push(entry);
+      console.error('[ARC Guard] Unhandled rejection:', JSON.stringify(entry));
+    });
+  </script>
+
+  <!-- ── Loading screen + error fallback styles ── -->
+  <style>
+    #arc-loading {
+      position: fixed; inset: 0;
+      background: #0c1829;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: rgba(255, 255, 255, 0.7);
+      transition: opacity 0.35s ease;
+    }
+    #arc-loading.arc-hidden { opacity: 0; pointer-events: none; }
+    .arc-spinner {
+      width: 48px; height: 48px;
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #0ea5e9;
+      border-radius: 50%;
+      animation: arc-spin 0.85s linear infinite;
+    }
+    @keyframes arc-spin { to { transform: rotate(360deg); } }
+    #arc-loading p { margin: 16px 0 0; font-size: 13px; letter-spacing: 0.03em; }
+    #arc-error {
+      display: none;
+      position: fixed; inset: 0;
+      background: #0c1829;
+      flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 32px; text-align: center;
+      font-family: system-ui, -apple-system, sans-serif;
+      z-index: 9998;
+    }
+    #arc-error.arc-show { display: flex; }
+    #arc-error h2 { color: #f87171; margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+    #arc-error p  { color: rgba(255,255,255,0.6); margin: 0; font-size: 13px; }
+    #arc-error button {
+      margin-top: 20px; padding: 9px 24px;
+      background: #0ea5e9; color: #fff;
+      border: none; border-radius: 8px;
+      cursor: pointer; font-size: 14px; font-weight: 500;
+    }
+  </style>
 </head>
 <body>
+  <!-- Loading indicator — visible until React mounts -->
+  <div id="arc-loading">
+    <div class="arc-spinner"></div>
+    <p>در حال بارگذاری...</p>
+  </div>
+
+  <!-- Error fallback — shown if app hasn't mounted after 20 s -->
+  <div id="arc-error">
+    <h2>خطا در بارگذاری برنامه</h2>
+    <p>لطفاً برنامه را مجدداً باز کنید</p>
+    <button onclick="window.location.reload()">تلاش مجدد</button>
+  </div>
+
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
+
+  <script>
+    // Hide loading screen once React injects content into #root
+    (function() {
+      var root = document.getElementById('root');
+      var loading = document.getElementById('arc-loading');
+      if (!root || !loading) return;
+
+      var obs = new MutationObserver(function() {
+        if (root.childElementCount > 0) {
+          loading.classList.add('arc-hidden');
+          setTimeout(function() { loading.remove(); }, 400);
+          obs.disconnect();
+        }
+      });
+      obs.observe(root, { childList: true });
+
+      // Fallback: show error screen if app hasn't loaded after 20 s
+      setTimeout(function() {
+        if (!loading.classList.contains('arc-hidden')) {
+          obs.disconnect();
+          loading.style.display = 'none';
+          var err = document.getElementById('arc-error');
+          if (err) err.classList.add('arc-show');
+          console.error('[ARC Guard] App failed to load within 20s. Errors:', JSON.stringify(window.__arcErrors || []));
+        }
+      }, 20000);
+    })();
+  </script>
 </body>
 </html>

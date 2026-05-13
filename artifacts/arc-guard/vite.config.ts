@@ -167,6 +167,8 @@ export default defineConfig({
       injectManifest: {
         injectionPoint: "self.__WB_MANIFEST",
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        globIgnores: ["**/*logo*", "**/*-logo*"],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       devOptions: { enabled: false },
 

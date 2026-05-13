@@ -90,7 +90,7 @@ jobs:
 
       # ── 7. Install dependencies ───────────────────────────────────────────────
       - name: Install pnpm dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       # ── 8. Bootstrap Android project ─────────────────────────────────────────
       # If android/ is not committed to the repo, scaffold it now with Capacitor.

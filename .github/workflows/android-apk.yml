@@ -98,6 +98,11 @@ jobs:
       - name: Bootstrap Android project
         working-directory: artifacts/arc-guard
         run: |
+          # Ensure @capacitor/android native runtime is available
+          if ! pnpm list @capacitor/android --depth=0 2>/dev/null | grep -q "@capacitor/android"; then
+            echo "Installing @capacitor/android..."
+            pnpm add @capacitor/android --prefer-offline || pnpm add @capacitor/android
+          fi
           if [ -d "android" ]; then
             echo "android/ found in repo — skipping cap add"
           else

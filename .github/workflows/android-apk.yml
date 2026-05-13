@@ -1,5 +1,7 @@
 name: Build Android APK
-# Builds Manager and Guard debug APKs on every push to main
+# Builds Manager and Guard debug APKs on every push to main.
+# Uses Android productFlavors (manager + guard) so both APKs are built from one
+# Gradle project with different applicationId values — no config-file swapping.
 
 on:
   push:
@@ -84,52 +86,18 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/arc-guard/android/**/*.gradle*', 'artifacts/arc-guard/android/gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-productflavors-v1
           restore-keys: |
+            gradle-${{ runner.os }}-productflavors-
             gradle-${{ runner.os }}-
 
       # ── 7. Install dependencies ───────────────────────────────────────────────
       - name: Install pnpm dependencies
         run: pnpm install --no-frozen-lockfile
 
-      # ── 8. Bootstrap Android project ─────────────────────────────────────────
-      - name: Bootstrap Android project
-        working-directory: artifacts/arc-guard
-        run: |
-          if ! pnpm list @capacitor/android --depth=0 2>/dev/null | grep -q "@capacitor/android"; then
-            echo "Installing @capacitor/android..."
-            pnpm add @capacitor/android --prefer-offline || pnpm add @capacitor/android
-          fi
-          if [ -d "android" ]; then
-            echo "android/ found in repo — skipping cap add"
-          else
-            echo "android/ not committed — running cap add android..."
-            npx cap add android
-            echo "Android project scaffolded"
-          fi
-        env:
-          NODE_ENV: production
-          PORT: "3000"
-          BASE_PATH: /arc-guard/
-
-      # ── 9. google-services.json ───────────────────────────────────────────────
-      - name: Write google-services.json
-        run: |
-          mkdir -p artifacts/arc-guard/android/app
-          DEST="artifacts/arc-guard/android/app/google-services.json"
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" > "$DEST"
-            echo "google-services.json written from GitHub Secret"
-          else
-            echo "ewogICJwcm9qZWN0X2luZm8iOiB7CiAgICAicHJvamVjdF9udW1iZXIiOiAiMDAwMDAwMDAwMDAwIiwKICAgICJwcm9qZWN0X2lkIjogImFyYy1ndWFyZC1kZW1vIiwKICAgICJzdG9yYWdlX2J1Y2tldCI6ICJhcmMtZ3VhcmQtZGVtby5hcHBzcG90LmNvbSIKICB9LAogICJjbGllbnQiOiBbCiAgICB7CiAgICAgICJjbGllbnRfaW5mbyI6IHsKICAgICAgICAibW9iaWxlc2RrX2FwcF9pZCI6ICIxOjAwMDAwMDAwMDAwMDphbmRyb2lkOjAwMDAwMDAwMDAwMDAwMDAiLAogICAgICAgICJhbmRyb2lkX2NsaWVudF9pbmZvIjogewogICAgICAgICAgInBhY2thZ2VfbmFtZSI6ICJjb20uYXJjZ3VhcmQubWFuYWdlciIKICAgICAgICB9CiAgICAgIH0sCiAgICAgICJvYXV0aF9jbGllbnQiOiBbXSwKICAgICAgImFwaV9rZXkiOiBbCiAgICAgICAgewogICAgICAgICAgImN1cnJlbnRfa2V5IjogImRlbW8tcGxhY2Vob2xkZXIta2V5IgogICAgICAgIH0KICAgICAgXSwKICAgICAgInNlcnZpY2VzIjogewogICAgICAgICJhcHBpbnZpdGVfc2VydmljZSI6IHsKICAgICAgICAgICJvdGhlcl9wbGF0Zm9ybV9vYXV0aF9jbGllbnQiOiBbXQogICAgICAgIH0KICAgICAgfQogICAgfSwKICAgIHsKICAgICAgImNsaWVudF9pbmZvIjogewogICAgICAgICJtb2JpbGVzZGtfYXBwX2lkIjogIjE6MDAwMDAwMDAwMDAwOmFuZHJvaWQ6MTExMTExMTExMTExMTExMSIsCiAgICAgICAgImFuZHJvaWRfY2xpZW50X2luZm8iOiB7CiAgICAgICAgICAicGFja2FnZV9uYW1lIjogImNvbS5hcmNndWFyZC5ndWFyZCIKICAgICAgICB9CiAgICAgIH0sCiAgICAgICJvYXV0aF9jbGllbnQiOiBbXSwKICAgICAgImFwaV9rZXkiOiBbCiAgICAgICAgewogICAgICAgICAgImN1cnJlbnRfa2V5IjogImRlbW8tcGxhY2Vob2xkZXIta2V5IgogICAgICAgIH0KICAgICAgXSwKICAgICAgInNlcnZpY2VzIjogewogICAgICAgICJhcHBpbnZpdGVfc2VydmljZSI6IHsKICAgICAgICAgICJvdGhlcl9wbGF0Zm9ybV9vYXV0aF9jbGllbnQiOiBbXQogICAgICAgIH0KICAgICAgfQogICAgfQogIF0sCiAgImNvbmZpZ3VyYXRpb25fdmVyc2lvbiI6ICIxIgp9" | base64 -d > "$DEST"
-            echo "Using demo placeholder google-services.json"
-          fi
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-
-      # ── 10. Vite production build (shared for both APK variants) ──────────────
-      # Built once — same JS bundle for Manager and Guard; only the native package
-      # ID differs. CAP_ANDROID=1 → base:'./' so file:// assets load on WebView.
+      # ── 8. Vite production build ──────────────────────────────────────────────
+      # Build once — same JS bundle for both APK variants.
+      # CAP_ANDROID=1 → base:'./' so file:// assets load in Android WebView.
       - name: Vite production build
         working-directory: artifacts/arc-guard
         run: pnpm build
@@ -147,70 +115,192 @@ jobs:
           VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
           VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
 
-      # ── 11. Make gradlew executable ───────────────────────────────────────────
+      # ── 9. Bootstrap Android project ─────────────────────────────────────────
+      # android/ is not committed — scaffold it fresh from Capacitor each run.
+      - name: Bootstrap Android project (cap add + cap sync)
+        working-directory: artifacts/arc-guard
+        run: |
+          echo "Scaffolding android/ with Capacitor..."
+          npx cap add android
+          echo "Syncing web assets into android/..."
+          npx cap sync android
+          echo "android/ ready:"
+          ls android/app/
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: /arc-guard/
+
+      # ── 10. Write google-services.json ────────────────────────────────────────
+      - name: Write google-services.json
+        run: |
+          DEST="artifacts/arc-guard/android/app/google-services.json"
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > "$DEST"
+            echo "google-services.json written from GitHub Secret"
+          else
+            echo "ewogICJwcm9qZWN0X2luZm8iOiB7CiAgICAicHJvamVjdF9udW1iZXIiOiAiMDAwMDAwMDAwMDAwIiwKICAgICJwcm9qZWN0X2lkIjogImFyYy1ndWFyZC1kZW1vIiwKICAgICJzdG9yYWdlX2J1Y2tldCI6ICJhcmMtZ3VhcmQtZGVtby5hcHBzcG90LmNvbSIKICB9LAogICJjbGllbnQiOiBbCiAgICB7CiAgICAgICJjbGllbnRfaW5mbyI6IHsKICAgICAgICAibW9iaWxlc2RrX2FwcF9pZCI6ICIxOjAwMDAwMDAwMDAwMDphbmRyb2lkOjAwMDAwMDAwMDAwMDAwMDAiLAogICAgICAgICJhbmRyb2lkX2NsaWVudF9pbmZvIjogewogICAgICAgICAgInBhY2thZ2VfbmFtZSI6ICJjb20uYXJjZ3VhcmQubWFuYWdlciIKICAgICAgICB9CiAgICAgIH0sCiAgICAgICJvYXV0aF9jbGllbnQiOiBbXSwKICAgICAgImFwaV9rZXkiOiBbCiAgICAgICAgewogICAgICAgICAgImN1cnJlbnRfa2V5IjogImRlbW8tcGxhY2Vob2xkZXIta2V5IgogICAgICAgIH0KICAgICAgXSwKICAgICAgInNlcnZpY2VzIjogewogICAgICAgICJhcHBpbnZpdGVfc2VydmljZSI6IHsKICAgICAgICAgICJvdGhlcl9wbGF0Zm9ybV9vYXV0aF9jbGllbnQiOiBbXQogICAgICAgIH0KICAgICAgfQogICAgfSwKICAgIHsKICAgICAgImNsaWVudF9pbmZvIjogewogICAgICAgICJtb2JpbGVzZGtfYXBwX2lkIjogIjE6MDAwMDAwMDAwMDAwOmFuZHJvaWQ6MTExMTExMTExMTExMTExMSIsCiAgICAgICAgImFuZHJvaWRfY2xpZW50X2luZm8iOiB7CiAgICAgICAgICAicGFja2FnZV9uYW1lIjogImNvbS5hcmNndWFyZC5ndWFyZCIKICAgICAgICB9CiAgICAgIH0sCiAgICAgICJvYXV0aF9jbGllbnQiOiBbXSwKICAgICAgImFwaV9rZXkiOiBbCiAgICAgICAgewogICAgICAgICAgImN1cnJlbnRfa2V5IjogImRlbW8tcGxhY2Vob2xkZXIta2V5IgogICAgICAgIH0KICAgICAgXSwKICAgICAgInNlcnZpY2VzIjogewogICAgICAgICJhcHBpbnZpdGVfc2VydmljZSI6IHsKICAgICAgICAgICJvdGhlcl9wbGF0Zm9ybV9vYXV0aF9jbGllbnQiOiBbXQogICAgICAgIH0KICAgICAgfQogICAgfQogIF0sCiAgImNvbmZpZ3VyYXRpb25fdmVyc2lvbiI6ICIxIgp9" | base64 -d > "$DEST"
+            echo "Using demo placeholder google-services.json"
+          fi
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
+      # ── 11. Patch build.gradle — add productFlavors ───────────────────────────
+      # android/ is scaffolded with Manager config (single applicationId).
+      # We inject productFlavors so Gradle can build both Manager and Guard APKs
+      # from ONE project without any config-file swapping.
+      # resValue for app_name requires removing the generated entry from strings.xml
+      # to avoid a duplicate-resource error during aapt.
+      - name: Patch build.gradle for productFlavors
+        working-directory: artifacts/arc-guard
+        run: |
+          python3 << 'PYEOF'
+          import re, os, sys
+
+          gradle_path = "android/app/build.gradle"
+          with open(gradle_path) as f:
+              content = f.read()
+
+          if "productFlavors" in content:
+              print("productFlavors already present — skipping patch")
+              sys.exit(0)
+
+          flavors_block = """
+          flavorDimensions "variant"
+          productFlavors {
+              manager {
+                  dimension "variant"
+                  applicationId "com.arcguard.manager"
+                  resValue "string", "app_name", "ARC Guard Manager"
+              }
+              guard {
+                  dimension "variant"
+                  applicationId "com.arcguard.guard"
+                  resValue "string", "app_name", "ARC Guard"
+              }
+          }
+      """
+
+          # Insert flavors block before the very last closing brace of the file
+          # (which closes the android { } block in Capacitor-generated build.gradle)
+          lines = content.splitlines(keepends=True)
+          inserted = False
+          for i in range(len(lines) - 1, -1, -1):
+              if lines[i].strip() == "}":
+                  lines.insert(i, flavors_block + "\n")
+                  inserted = True
+                  break
+
+          if not inserted:
+              print("ERROR: could not find closing brace to insert productFlavors")
+              sys.exit(1)
+
+          with open(gradle_path, "w") as f:
+              f.writelines(lines)
+          print("productFlavors block inserted into build.gradle")
+
+          # Remove app_name from strings.xml to avoid duplicate-resource conflict
+          # with the resValue declarations above
+          strings_path = "android/app/src/main/res/values/strings.xml"
+          if os.path.exists(strings_path):
+              with open(strings_path) as f:
+                  xml = f.read()
+              xml_new = re.sub(r'\s*<string name="app_name">[^<]*</string>', "", xml)
+              if xml_new != xml:
+                  with open(strings_path, "w") as f:
+                      f.write(xml_new)
+                  print("app_name removed from strings.xml (provided by productFlavors resValue)")
+              else:
+                  print("app_name not found in strings.xml — no patch needed")
+
+          # Show the patched build.gradle for verification
+          with open(gradle_path) as f:
+              print("\n=== Patched build.gradle ===")
+              print(f.read())
+          PYEOF
+
+      # ── 12. Make gradlew executable ───────────────────────────────────────────
       - name: Make gradlew executable
         run: chmod +x artifacts/arc-guard/android/gradlew
 
-      # ── 12. Manager: cap sync → Gradle → APK ──────────────────────────────────
-      # CRITICAL: cap sync and ./gradlew are in the SAME step so that
-      # applicationId "com.arcguard.manager" is active in build.gradle when
-      # Gradle compiles. Separating these steps was the root cause of both APKs
-      # sharing the same package ID and not installing side-by-side.
-      - name: Sync Manager config + Build Manager APK
+      # ── 13. Build Manager APK (assembleManagerDebug) ──────────────────────────
+      # productFlavor "manager" → applicationId "com.arcguard.manager"
+      # Output: app/build/outputs/apk/manager/debug/app-manager-debug.apk
+      - name: Build Manager debug APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
-        working-directory: artifacts/arc-guard
+        working-directory: artifacts/arc-guard/android
         run: |
-          echo "=== Syncing Manager config (com.arcguard.manager) into android/ ==="
-          # capacitor.config.ts is already the Manager config — sync directly.
-          npx cap sync android
-          echo ""
-          echo "=== Building Manager debug APK ==="
-          cd android
-          ./gradlew assembleDebug --no-daemon
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          if [ -f "$APK" ]; then
-            cp "$APK" "app/build/outputs/apk/ARC-Guard-Manager-debug.apk"
-            echo "✅ Manager APK saved ($(du -sh "$APK" | cut -f1))"
-          else
+          echo "Building Manager APK (com.arcguard.manager)..."
+          ./gradlew assembleManagerDebug --no-daemon
+          APK="app/build/outputs/apk/manager/debug/app-manager-debug.apk"
+          if [ ! -f "$APK" ]; then
             echo "::error::Manager APK not found at $APK"
+            ls app/build/outputs/apk/ 2>/dev/null || echo "(no apk output dir)"
             exit 1
           fi
+          cp "$APK" "app/build/outputs/apk/ARC-Guard-Manager-debug.apk"
+          echo "Manager APK size: $(du -sh "$APK" | cut -f1)"
         env:
-          NODE_ENV: production
-          PORT: "3000"
-          BASE_PATH: /arc-guard/
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── 13. Guard: cap sync → Gradle → APK ────────────────────────────────────
-      # Switch capacitor.config.ts to Guard variant THEN immediately sync and
-      # build. This ensures com.arcguard.guard is in build.gradle when Gradle
-      # compiles — giving a completely separate installable APK.
-      - name: Sync Guard config + Build Guard APK
+      # ── 14. Build Guard APK (assembleGuardDebug) ──────────────────────────────
+      # productFlavor "guard" → applicationId "com.arcguard.guard"
+      # Output: app/build/outputs/apk/guard/debug/app-guard-debug.apk
+      - name: Build Guard debug APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
-        working-directory: artifacts/arc-guard
+        working-directory: artifacts/arc-guard/android
         run: |
-          echo "=== Switching to Guard config (com.arcguard.guard) ==="
-          cp capacitor.guard.config.ts capacitor.config.ts
-          npx cap sync android
-          echo ""
-          echo "=== Building Guard debug APK ==="
-          cd android
-          ./gradlew assembleDebug --no-daemon
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          if [ -f "$APK" ]; then
-            cp "$APK" "app/build/outputs/apk/ARC-Guard-Guard-debug.apk"
-            echo "✅ Guard APK saved ($(du -sh "$APK" | cut -f1))"
-          else
+          echo "Building Guard APK (com.arcguard.guard)..."
+          ./gradlew assembleGuardDebug --no-daemon
+          APK="app/build/outputs/apk/guard/debug/app-guard-debug.apk"
+          if [ ! -f "$APK" ]; then
             echo "::error::Guard APK not found at $APK"
+            ls app/build/outputs/apk/ 2>/dev/null || echo "(no apk output dir)"
             exit 1
           fi
+          cp "$APK" "app/build/outputs/apk/ARC-Guard-Guard-debug.apk"
+          echo "Guard APK size: $(du -sh "$APK" | cut -f1)"
         env:
-          NODE_ENV: production
-          PORT: "3000"
-          BASE_PATH: /arc-guard/
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── 14. Upload Manager APK ────────────────────────────────────────────────
+      # ── 15. Verify package IDs with aapt ─────────────────────────────────────
+      # Confirm each APK has the correct applicationId BEFORE uploading.
+      - name: Verify APK package IDs
+        if: always()
+        run: |
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          BASE="artifacts/arc-guard/android/app/build/outputs/apk"
+          MGR_APK="$BASE/ARC-Guard-Manager-debug.apk"
+          GRD_APK="$BASE/ARC-Guard-Guard-debug.apk"
+          PASS=true
+
+          if [ -f "$MGR_APK" ]; then
+            PKG=$("$AAPT" dump badging "$MGR_APK" 2>/dev/null | grep "^package:" | sed "s/.*name='\([^']*\)'.*/\1/")
+            NAME=$("$AAPT" dump badging "$MGR_APK" 2>/dev/null | grep "application-label:" | sed "s/application-label:'\([^']*\)'/\1/")
+            echo "Manager APK → package=$PKG  label=$NAME"
+            if [ "$PKG" != "com.arcguard.manager" ]; then
+              echo "::error::Manager APK has wrong package ID: $PKG (expected com.arcguard.manager)"
+              PASS=false
+            else
+              echo "✅ Manager package ID correct"
+            fi
+          fi
+
+          if [ -f "$GRD_APK" ]; then
+            PKG=$("$AAPT" dump badging "$GRD_APK" 2>/dev/null | grep "^package:" | sed "s/.*name='\([^']*\)'.*/\1/")
+            NAME=$("$AAPT" dump badging "$GRD_APK" 2>/dev/null | grep "application-label:" | sed "s/application-label:'\([^']*\)'/\1/")
+            echo "Guard   APK → package=$PKG  label=$NAME"
+            if [ "$PKG" != "com.arcguard.guard" ]; then
+              echo "::error::Guard APK has wrong package ID: $PKG (expected com.arcguard.guard)"
+              PASS=false
+            else
+              echo "✅ Guard package ID correct"
+            fi
+          fi
+
+          $PASS || exit 1
+
+      # ── 16. Upload Manager APK ────────────────────────────────────────────────
       - name: Upload Manager APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
         uses: actions/upload-artifact@v4
@@ -220,7 +310,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # ── 15. Upload Guard APK ──────────────────────────────────────────────────
+      # ── 17. Upload Guard APK ──────────────────────────────────────────────────
       - name: Upload Guard APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
         uses: actions/upload-artifact@v4
@@ -230,18 +320,29 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # ── 16. Build summary ─────────────────────────────────────────────────────
+      # ── 18. Build summary ─────────────────────────────────────────────────────
       - name: Write build summary
         if: always()
         run: |
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           BASE="artifacts/arc-guard/android/app/build/outputs/apk"
           echo "## ARC Guard Android Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Variant | Package ID | Output |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|------------|--------|" >> $GITHUB_STEP_SUMMARY
-          [ -f "$BASE/ARC-Guard-Manager-debug.apk" ] && MGR="✅ Built" || MGR="❌ Skipped / Failed"
-          [ -f "$BASE/ARC-Guard-Guard-debug.apk" ]   && GRD="✅ Built" || GRD="❌ Skipped / Failed"
-          echo "| Manager | \`com.arcguard.manager\` | $MGR |" >> $GITHUB_STEP_SUMMARY
-          echo "| Guard   | \`com.arcguard.guard\`   | $GRD |" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant | Package ID | App Name | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-----------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          if [ -f "$BASE/ARC-Guard-Manager-debug.apk" ]; then
+            PKG=$("$AAPT" dump badging "$BASE/ARC-Guard-Manager-debug.apk" 2>/dev/null | grep "^package:" | sed "s/.*name='\([^']*\)'.*/\1/")
+            NM=$("$AAPT" dump badging "$BASE/ARC-Guard-Manager-debug.apk" 2>/dev/null | grep "application-label:" | sed "s/application-label:'\([^']*\)'/\1/")
+            echo "| Manager | \`$PKG\` | $NM | ✅ Built |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Manager | — | — | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f "$BASE/ARC-Guard-Guard-debug.apk" ]; then
+            PKG=$("$AAPT" dump badging "$BASE/ARC-Guard-Guard-debug.apk" 2>/dev/null | grep "^package:" | sed "s/.*name='\([^']*\)'.*/\1/")
+            NM=$("$AAPT" dump badging "$BASE/ARC-Guard-Guard-debug.apk" 2>/dev/null | grep "application-label:" | sed "s/application-label:'\([^']*\)'/\1/")
+            echo "| Guard   | \`$PKG\` | $NM | ✅ Built |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Guard   | — | — | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "_Download APKs from the Artifacts section of this run._" >> $GITHUB_STEP_SUMMARY
+          echo "_Both APKs install side-by-side — verified by aapt dump badging._" >> $GITHUB_STEP_SUMMARY

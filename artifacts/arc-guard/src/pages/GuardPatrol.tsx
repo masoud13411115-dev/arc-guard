@@ -14,7 +14,7 @@ import { queuePatrolLog, queueSosAlert, syncAll } from "@/lib/syncManager";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert } from "@/lib/adapter";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
-import { requestCameraPermission } from "@/lib/permissions";
+import { requestCameraPermission, requestGpsPermission } from "@/lib/permissions";
 import HelpPage from "@/pages/HelpPage";
 import { db } from "@/firebase";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
@@ -137,30 +137,38 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   // ── GPS watch (continuous background) ─────────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) { setGpsError(true); return; }
-    const id = navigator.geolocation.watchPosition(
-      (pos) => {
-        const coords: GpsCoords = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        };
-        setGps(coords);
-        gpsRef.current = coords;
-        setGpsError(false);
-        if (db) {
-          updateGuardSession({
-            guardId, guardName, companyId,
-            lastSeen: Date.now(),
-            lastCheckpoint: recentLogs[0]?.checkpointName ?? "—",
-            lastGps: coords,
-            status: "active",
-          });
-        }
-      },
-      () => setGpsError(true),
-      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
-    );
-    return () => navigator.geolocation.clearWatch(id);
+    let watchId: number | undefined;
+
+    // Request location permission explicitly before watchPosition.
+    // On Android WebView this triggers the OS runtime permission dialog;
+    // without it navigator.geolocation silently errors on first use.
+    requestGpsPermission().then(() => {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const coords: GpsCoords = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+          };
+          setGps(coords);
+          gpsRef.current = coords;
+          setGpsError(false);
+          if (db) {
+            updateGuardSession({
+              guardId, guardName, companyId,
+              lastSeen: Date.now(),
+              lastCheckpoint: recentLogs[0]?.checkpointName ?? "—",
+              lastGps: coords,
+              status: "active",
+            });
+          }
+        },
+        () => setGpsError(true),
+        { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+      );
+    });
+
+    return () => { if (watchId !== undefined) navigator.geolocation.clearWatch(watchId); };
   }, [guardId, guardName, companyId, recentLogs]);
 
   // ── Initial queue count from IndexedDB ────────────────────────────────────

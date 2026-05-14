@@ -14,6 +14,7 @@ import { queuePatrolLog, queueSosAlert, syncAll } from "@/lib/syncManager";
 import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert } from "@/lib/adapter";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
+import { requestCameraPermission } from "@/lib/permissions";
 import HelpPage from "@/pages/HelpPage";
 import { db } from "@/firebase";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
@@ -231,6 +232,22 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     setScanResult(null);
     setScanDebug(null);
     setShowDebug(false);
+
+    // Request camera permission explicitly before launching the scanner.
+    // On Android WebView this triggers the OS runtime permission dialog;
+    // without it getUserMedia silently fails and the scanner never opens.
+    const camPerm = await requestCameraPermission();
+    if (camPerm === "denied") {
+      setScanPhase("idle");
+      showResult({
+        ok: false, status: "failed",
+        title: tRef.current("guard.camera.denied"),
+        msg: tRef.current("guard.camera.denied.msg"),
+      });
+      playFail();
+      return;
+    }
+
     setTimeout(async () => {
       try {
         const { Html5Qrcode } = await import("html5-qrcode");

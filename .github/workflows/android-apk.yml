@@ -165,6 +165,16 @@ jobs:
           echo "=== assets/ JS files ==="
           ls "$ASSETS/assets/" 2>/dev/null | grep '\.js$' | head -10 || echo "(no JS files found)"
 
+      # ── 10c. Patch AndroidManifest — inject CAMERA permission ─────────────────
+      # html5-qrcode relies on the WebView's getUserMedia() API, which requires
+      # android.permission.CAMERA to be declared in the manifest AND granted at
+      # runtime. Capacitor does NOT add this automatically unless
+      # @capacitor/camera is installed. The script also declares the camera
+      # hardware features so the Play Store filters correctly.
+      - name: Inject CAMERA permission into AndroidManifest
+        working-directory: artifacts/arc-guard
+        run: python3 android-config/patch_manifest.py
+
       # ── 11. Patch build.gradle — inject productFlavors ────────────────────────
       # Calls the committed Python script (android-config/patch_gradle.py) which:
       #   - Inserts flavorDimensions + productFlavors (manager / guard) into

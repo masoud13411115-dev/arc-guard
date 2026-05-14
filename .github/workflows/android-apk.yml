@@ -246,6 +246,15 @@ jobs:
           PORT: "3000"
           BASE_PATH: /arc-guard/
 
+      # ── 13d. Re-patch AndroidManifest after Guard cap sync ─────────────────────
+      # cap sync overwrites AndroidManifest.xml, removing the CAMERA permission
+      # injected in step 10c. Re-run patch_manifest.py so the Guard APK also
+      # declares android.permission.CAMERA for html5-qrcode WebView access.
+      - name: Re-inject CAMERA permission after Guard cap sync
+        if: ${{ github.event.inputs.flavor != 'manager' }}
+        working-directory: artifacts/arc-guard
+        run: python3 android-config/patch_manifest.py
+
       # ── 14. Build Guard APK — assembleGuardDebug ──────────────────────────────
       # productFlavor "guard" -> applicationId "com.arcguard.guard"
       # Output: app/build/outputs/apk/guard/debug/app-guard-debug.apk

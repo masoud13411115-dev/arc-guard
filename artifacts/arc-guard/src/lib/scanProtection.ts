@@ -13,9 +13,13 @@ const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per checkpoint
 //
 // v1 (legacy):   ARC_GUARD_CP_{NAME}_{TIMESTAMP}
 //   - Older checkpoints printed before the v2 migration
+//
+// dynamic (v3):  ARCG_DYN|{checkpointId}|{windowNum}|{hmac8}
+//   - Time-rotating HMAC-signed code; valid for ±2 windows (±2 min)
 
-const QR_V2_PREFIX = "ARCG|";
-const QR_V1_PREFIX = "ARC_GUARD_CP_";
+const QR_V2_PREFIX  = "ARCG|";
+const QR_V1_PREFIX  = "ARC_GUARD_CP_";
+const QR_DYN_PREFIX = "ARCG_DYN|";
 
 export function isValidQrFormat(qrText: string): boolean {
   if (!qrText || typeof qrText !== "string") return false;
@@ -27,6 +31,17 @@ export function isValidQrFormat(qrText: string): boolean {
     return parts.length === 3 && parts[1].length > 0 && parts[2].length > 0;
   }
 
+  // Dynamic format: ARCG_DYN|{checkpointId}|{windowNum}|{hmac8}
+  if (qrText.startsWith(QR_DYN_PREFIX)) {
+    const parts = qrText.split("|");
+    return (
+      parts.length === 4 &&
+      parts[1].length > 0 &&   // checkpointId
+      parts[2].length > 0 &&   // windowNum
+      parts[3].length === 8    // hmac8 is exactly 8 hex chars
+    );
+  }
+
   // v1 legacy format: ARC_GUARD_CP_{NAME}_{TIMESTAMP}
   if (qrText.startsWith(QR_V1_PREFIX)) {
     return qrText.length >= 20 && /^[A-Z0-9_]+$/.test(qrText);
@@ -35,12 +50,25 @@ export function isValidQrFormat(qrText: string): boolean {
   return false;
 }
 
-/** Parse a v2 QR code → {companyId, checkpointId}, or null for v1/invalid */
+/** Parse a v2 QR code → {companyId, checkpointId}, or null for v1/dynamic/invalid */
 export function parseQrCode(qrText: string): { companyId: string; checkpointId: string } | null {
   if (!qrText.startsWith(QR_V2_PREFIX)) return null;
   const parts = qrText.split("|");
   if (parts.length !== 3 || !parts[1] || !parts[2]) return null;
   return { companyId: parts[1], checkpointId: parts[2] };
+}
+
+/** Parse a Dynamic QR code → {checkpointId, windowNum, hmac}, or null for other formats */
+export function parseDynamicQrCode(
+  qrText: string,
+): { checkpointId: string; windowNum: number; hmac: string } | null {
+  if (!qrText.startsWith(QR_DYN_PREFIX)) return null;
+  const parts = qrText.split("|");
+  if (parts.length !== 4) return null;
+  const [, checkpointId, winStr, hmac] = parts;
+  const windowNum = parseInt(winStr, 10);
+  if (!checkpointId || isNaN(windowNum) || !hmac) return null;
+  return { checkpointId, windowNum, hmac };
 }
 
 // ── Cooldown tracking ─────────────────────────────────────────────────────────

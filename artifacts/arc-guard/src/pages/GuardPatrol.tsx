@@ -1127,8 +1127,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
           return (
             <div className="w-full max-w-sm space-y-4 mt-2">
-              {/* QR scan button — shown when any checkpoint needs QR */}
-              {!allNoQr && (
+              {/* QR scan button — shown when checkpoints haven't loaded yet OR when at least one checkpoint needs QR */}
+              {(!checkpointsLoaded || !allNoQr) && (
                 <div className="flex flex-col items-center gap-4">
                   <button
                     onClick={startScanner}
@@ -1145,17 +1145,27 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
                 </div>
               )}
 
-              {/* GPS/NFC-only checkpoints list — shown when some or all checkpoints skip QR */}
-              {(noQrCps.length > 0 || allNoQr) && (
+              {/* GPS-only big button — shown when ALL checkpoints skip QR (gps / gps+nfc / nfc) */}
+              {checkpointsLoaded && allNoQr && (
+                <div className="flex flex-col items-center gap-4">
+                  <button
+                    onClick={() => nextCheckpoint && handleGpsCheckIn(nextCheckpoint.cp)}
+                    disabled={scanPhase !== "idle" || !nextCheckpoint}
+                    className="w-60 h-60 rounded-full bg-green-500/10 border-4 border-green-500/40 flex flex-col items-center justify-center gap-4
+                      hover:bg-green-500/20 hover:border-green-500/65 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
+                      transition-all duration-150 shadow-[0_0_60px_rgba(34,197,94,0.18)]"
+                    style={{ touchAction: "manipulation" }}
+                  >
+                    <MapPin className="w-24 h-24 text-green-400" />
+                    <span className="text-[22px] font-bold text-green-400 tracking-wide">{t("vm.gpsOnly.btn")}</span>
+                  </button>
+                  <p className="text-[16px] text-muted-foreground text-center">{t("vm.gpsOnly.hint")}</p>
+                </div>
+              )}
+
+              {/* GPS/NFC-only checkpoints list — when some (or all) checkpoints skip QR; big GPS button handles allNoQr tap */}
+              {noQrCps.length > 0 && (
                 <div className="space-y-2">
-                  {allNoQr && (
-                    <div className="flex flex-col items-center gap-2 pb-2">
-                      <div className="w-16 h-16 rounded-full bg-green-500/10 border-2 border-green-500/30 flex items-center justify-center">
-                        <MapPin className="w-8 h-8 text-green-400" />
-                      </div>
-                      <p className="text-[14px] text-muted-foreground text-center">{t("vm.gpsOnly.hint")}</p>
-                    </div>
-                  )}
                   {noQrCps.map((cp) => {
                     const effMode = getEffectiveScanMode(cp, companyVerificationMode);
                     const hasNfc  = modeHasNfc(effMode);

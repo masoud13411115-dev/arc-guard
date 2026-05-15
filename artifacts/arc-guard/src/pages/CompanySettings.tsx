@@ -2,16 +2,16 @@ import { useState, useEffect } from "react";
 import {
   Building2, Users, Shield, Copy, Check, RefreshCw,
   Crown, Star, UserX, UserCheck,
-  TrendingUp, Key, Info, Lock
+  TrendingUp, Key, Info, Lock, QrCode, Zap, MapPin,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode } from "@/lib/adapter";
+import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode, updateCompany } from "@/lib/adapter";
 import AdapterStatusBadge from "@/components/AdapterStatusBadge";
 import AdapterModeSelector from "@/components/AdapterModeSelector";
 import {
   PLANS, PLAN_ORDER, FEATURE_LABELS, getUsagePct, getLimitLabel
 } from "@/lib/plans";
-import type { UserProfile, CompanyRecord, PlanId } from "@/types";
+import type { UserProfile, CompanyRecord, PlanId, VerificationMode } from "@/types";
 
 interface CompanySettingsProps {
   profile: UserProfile;
@@ -55,6 +55,9 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [togglingGuard, setTogglingGuard] = useState<string | null>(null);
+  const [localMode, setLocalMode] = useState<VerificationMode>("fixedQr");
+  const [savingMode, setSavingMode] = useState(false);
+  const [modeSaved, setModeSaved] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -64,7 +67,18 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
     ]);
     setCompany(c);
     setGuards(gs);
+    if (c?.verificationMode) setLocalMode(c.verificationMode);
     setLoading(false);
+  };
+
+  const handleSaveMode = async () => {
+    if (!company) return;
+    setSavingMode(true);
+    await updateCompany(company.id, { verificationMode: localMode });
+    setCompany((prev) => prev ? { ...prev, verificationMode: localMode } : prev);
+    setSavingMode(false);
+    setModeSaved(true);
+    setTimeout(() => setModeSaved(false), 3000);
   };
 
   useEffect(() => { load(); }, [profile.companyId]);
@@ -332,6 +346,63 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
             <span className={`text-xs font-medium text-foreground ${mono ? "font-mono text-[10px]" : ""}`}>{value}</span>
           </div>
         ))}
+      </div>
+
+      {/* ── Verification Mode ── */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+          <Shield className="w-4 h-4 text-primary" />
+          <span className="text-sm font-bold text-foreground">{t("vm.title")}</span>
+        </div>
+        <div className="p-4 space-y-3">
+          {(["gpsOnly", "fixedQr", "dynamicQr"] as const).map((mode) => {
+            const icons = { gpsOnly: MapPin, fixedQr: QrCode, dynamicQr: Zap };
+            const ModeIcon = icons[mode];
+            const isSelected = localMode === mode;
+            return (
+              <button
+                key={mode}
+                onClick={() => setLocalMode(mode)}
+                className={`w-full rounded-xl border-2 p-4 text-right transition-all ${
+                  isSelected
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-muted/20 hover:border-primary/30"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    isSelected ? "bg-primary/20" : "bg-muted"
+                  }`}>
+                    <ModeIcon className={`w-5 h-5 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                  </div>
+                  <div className="flex-1 text-right min-w-0">
+                    <p className={`text-sm font-bold ${isSelected ? "text-primary" : "text-foreground"}`}>
+                      {t(`vm.${mode}` as Parameters<typeof t>[0])}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {t(`vm.${mode}.desc` as Parameters<typeof t>[0])}
+                    </p>
+                  </div>
+                  {isSelected && (
+                    <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <Check className="w-3 h-3 text-white" />
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+          <button
+            onClick={handleSaveMode}
+            disabled={savingMode}
+            className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
+          >
+            {savingMode ? <RefreshCw className="w-4 h-4 animate-spin" /> : t("vm.save")}
+          </button>
+          {modeSaved && (
+            <p className="text-center text-xs text-green-400">✓ {t("vm.saved")}</p>
+          )}
+        </div>
       </div>
 
       {/* ── Adapter status + mode selector ── */}

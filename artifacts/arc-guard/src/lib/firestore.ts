@@ -4,6 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/firebase';
 import type { Checkpoint, PatrolLog, Alert, GuardSession, CompanyRecord, UserProfile, PlanId } from '@/types';
+import { generateDynamicQrSecret } from './dynamicQr';
 import { getQueue, removeFromQueue } from './offline';
 
 // ── Company-scoped collection helpers ─────────────────────────────────────────
@@ -33,8 +34,20 @@ export async function saveCheckpoint(
   const qrCode = `ARCG|${companyId}|${checkpointId}`;
   const path = checkpointPath(companyId);
   console.log(`[firestore] saveCheckpoint → ${path}/${checkpointId}`, { name: cp.name, companyId, qrCode });
+  // Auto-generate dynamicQrSecret when mode is dynamicQr and no secret yet provided
+  const dynamicQrSecret =
+    cp.verificationMode === 'dynamicQr' && !cp.dynamicQrSecret
+      ? generateDynamicQrSecret()
+      : cp.dynamicQrSecret;
+
   try {
-    await setDoc(newRef, { ...cp, qrCode, companyId, createdAt: Date.now() });
+    await setDoc(newRef, {
+      ...cp,
+      qrCode,
+      companyId,
+      createdAt: Date.now(),
+      ...(dynamicQrSecret ? { dynamicQrSecret } : {}),
+    });
     console.log(`[firestore] saveCheckpoint ✓ id=${checkpointId} path=${path}/${checkpointId}`);
     return checkpointId;
   } catch (err) {

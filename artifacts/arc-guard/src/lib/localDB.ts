@@ -1,20 +1,25 @@
 /**
- * ARC Guard — Local IndexedDB Layer (v4.0)
+ * ARC Guard — Local IndexedDB Layer (v6.0)
  *
  * Uses the `idb` library to provide a typed, promise-based IndexedDB interface.
- * Two stores:
- *   - offlineQueue   — patrol logs + SOS alerts queued while offline
- *   - cachedCheckpoints — last-known checkpoint list per company (offline scanning)
  *
- * Also provides one-time migration from the legacy localStorage queue.
+ * Stores:
+ *   offlineQueue       — patrol logs + SOS alerts queued while offline (sync later)
+ *   cachedCheckpoints  — last-known checkpoint list per company (offline scanning)
+ *   cachedManagerData  — manager dashboard cache (v5)
+ *   localCheckpoints   — primary checkpoint storage for indexeddb adapter mode (v6)
+ *   localPatrolLogs    — primary patrol log storage for indexeddb adapter mode (v6)
+ *   localGuardSessions — primary guard session storage for indexeddb adapter mode (v6)
+ *   localAlerts        — primary alert storage for indexeddb adapter mode (v6)
+ *   localCompanies     — company records for indexeddb adapter mode (v6)
  */
 
 import { openDB, type IDBPDatabase } from "idb";
-import type { Checkpoint, PatrolLog, Alert } from "@/types";
+import type { Checkpoint, PatrolLog, Alert, GuardSession, CompanyRecord } from "@/types";
 
 // ── DB config ─────────────────────────────────────────────────────────────────
 const DB_NAME    = "arc-guard-offline";
-const DB_VERSION = 5; // v5 — add cachedManagerData for manager dashboard offline
+const DB_VERSION = 6;
 
 export type QueueItemType = "patrol_log" | "sos_alert";
 
@@ -35,7 +40,7 @@ interface CachedCheckpointRecord {
 }
 
 interface CachedManagerDataRecord {
-  key:       string; // `{companyId}:{type}`
+  key:       string;
   companyId: string;
   type:      string;
   data:      unknown[];
@@ -50,12 +55,37 @@ type ArcDB = {
     indexes: { byCompany: string; byType: QueueItemType; byCreatedAt: number };
   };
   cachedCheckpoints: {
-    key:   string; // companyId
+    key:   string;
     value: CachedCheckpointRecord;
   };
   cachedManagerData: {
-    key:   string; // `{companyId}:{type}`
+    key:   string;
     value: CachedManagerDataRecord;
+  };
+  // v6: primary local data stores (indexeddb adapter mode)
+  localCheckpoints: {
+    key:     string;
+    value:   Checkpoint;
+    indexes: { byCompany: string };
+  };
+  localPatrolLogs: {
+    key:     string;
+    value:   PatrolLog & { id: string };
+    indexes: { byCompany: string; byCreatedAt: number };
+  };
+  localGuardSessions: {
+    key:     string;
+    value:   GuardSession;
+    indexes: { byCompany: string };
+  };
+  localAlerts: {
+    key:     string;
+    value:   Alert & { id: string };
+    indexes: { byCompany: string; byCreatedAt: number };
+  };
+  localCompanies: {
+    key:   string;
+    value: CompanyRecord;
   };
 };
 
@@ -66,26 +96,44 @@ function getDB(): Promise<IDBPDatabase<ArcDB>> {
   if (!_db) {
     _db = openDB<ArcDB>(DB_NAME, DB_VERSION, {
       upgrade(db, oldVersion) {
-        // Drop old stores from previous schema versions
         if (oldVersion < 4) {
           for (const name of Array.from(db.objectStoreNames)) {
             db.deleteObjectStore(name);
           }
         }
-        // offlineQueue
         if (!db.objectStoreNames.contains("offlineQueue")) {
           const s = db.createObjectStore("offlineQueue", { keyPath: "id" });
           s.createIndex("byCompany",   "companyId");
           s.createIndex("byType",      "type");
           s.createIndex("byCreatedAt", "createdAt");
         }
-        // cachedCheckpoints
         if (!db.objectStoreNames.contains("cachedCheckpoints")) {
           db.createObjectStore("cachedCheckpoints", { keyPath: "companyId" });
         }
-        // v5: manager dashboard data cache (patrolLogs, sessions, alerts, checkpoints)
         if (!db.objectStoreNames.contains("cachedManagerData")) {
           db.createObjectStore("cachedManagerData", { keyPath: "key" });
+        }
+        // v6 — local data stores for indexeddb adapter mode
+        if (!db.objectStoreNames.contains("localCheckpoints")) {
+          const s = db.createObjectStore("localCheckpoints", { keyPath: "id" });
+          s.createIndex("byCompany", "companyId");
+        }
+        if (!db.objectStoreNames.contains("localPatrolLogs")) {
+          const s = db.createObjectStore("localPatrolLogs", { keyPath: "id" });
+          s.createIndex("byCompany",   "companyId");
+          s.createIndex("byCreatedAt", "scannedAt");
+        }
+        if (!db.objectStoreNames.contains("localGuardSessions")) {
+          const s = db.createObjectStore("localGuardSessions", { keyPath: "guardId" });
+          s.createIndex("byCompany", "companyId");
+        }
+        if (!db.objectStoreNames.contains("localAlerts")) {
+          const s = db.createObjectStore("localAlerts", { keyPath: "id" });
+          s.createIndex("byCompany",   "companyId");
+          s.createIndex("byCreatedAt", "alertedAt");
+        }
+        if (!db.objectStoreNames.contains("localCompanies")) {
+          db.createObjectStore("localCompanies", { keyPath: "id" });
         }
       },
     });
@@ -102,21 +150,18 @@ export async function enqueueItem(
   await db.put("offlineQueue", { ...item, attempts: 0, lastAttemptAt: null });
 }
 
-/** Add a patrol log to the offline queue. Returns the generated queue ID. */
 export async function enqueuePatrolLog(companyId: string, log: PatrolLog): Promise<string> {
   const id = `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   await enqueueItem({ id, type: "patrol_log", companyId, payload: log as unknown as Record<string, unknown>, createdAt: Date.now() });
   return id;
 }
 
-/** Add a SOS alert to the offline queue. Returns the generated queue ID. */
 export async function enqueueSosAlert(companyId: string, alert: Omit<Alert, "id">): Promise<string> {
   const id = `sos_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   await enqueueItem({ id, type: "sos_alert", companyId, payload: alert as unknown as Record<string, unknown>, createdAt: Date.now() });
   return id;
 }
 
-/** Get all queued items for a company, oldest first. */
 export async function getQueuedItems(companyId: string): Promise<QueuedItem[]> {
   const db  = await getDB();
   const all = await db.getAllFromIndex("offlineQueue", "byCompany", companyId);
@@ -146,18 +191,13 @@ export async function clearOfflineQueue(companyId: string): Promise<void> {
 
 // ── Checkpoint cache ──────────────────────────────────────────────────────────
 
-const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000; // 24 hours
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 
-/** Persist current checkpoint list to IndexedDB for offline scanning. */
 export async function cacheCheckpoints(companyId: string, data: Checkpoint[]): Promise<void> {
   const db = await getDB();
   await db.put("cachedCheckpoints", { companyId, data, updatedAt: Date.now() });
 }
 
-/**
- * Load cached checkpoints. Returns null if never cached or older than 24 hours.
- * In offline mode the 24-hour limit is relaxed — stale is better than empty.
- */
 export async function getCachedCheckpoints(
   companyId: string,
   { allowStale = false }: { allowStale?: boolean } = {},
@@ -184,7 +224,6 @@ export async function estimateLocalDBSize(): Promise<{ bytes: number; formatted:
       const used = est.usage ?? 0;
       return { bytes: used, formatted: fmtBytes(used) };
     }
-    // Fallback: sum localStorage values
     let size = 0;
     for (const key of Object.keys(localStorage)) {
       size += (localStorage.getItem(key) ?? "").length * 2;
@@ -203,26 +242,21 @@ function fmtBytes(b: number): string {
 
 // ── Manager dashboard data cache (v5) ─────────────────────────────────────────
 
-/** Persist manager dashboard collection data for offline access. */
 export async function cacheManagerData(
   companyId: string,
   type: string,
   data: unknown[],
 ): Promise<void> {
-  const db = await getDB();
+  const db  = await getDB();
   const key = `${companyId}:${type}`;
   await db.put("cachedManagerData", { key, companyId, type, data, updatedAt: Date.now() });
 }
 
-/**
- * Load cached manager dashboard data for a given type.
- * Returns null if no cache exists yet.
- */
 export async function getCachedManagerData(
   companyId: string,
   type: string,
 ): Promise<unknown[] | null> {
-  const db = await getDB();
+  const db  = await getDB();
   const rec = await db.get("cachedManagerData", `${companyId}:${type}`);
   return rec?.data ?? null;
 }
@@ -255,7 +289,106 @@ export async function migrateLocalStorageQueue(): Promise<number> {
     return migrated;
   } catch (e) {
     console.error("[localDB] migration error:", e);
-    localStorage.setItem(MIGRATED_KEY, "1"); // don't retry on error
+    localStorage.setItem(MIGRATED_KEY, "1");
     return 0;
   }
+}
+
+// ── Local data store helpers (v6 — indexeddb adapter mode) ────────────────────
+
+function localId(): string {
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export { localId };
+
+// Checkpoints
+export async function putLocalCheckpoint(cp: Checkpoint): Promise<void> {
+  const db = await getDB();
+  await db.put("localCheckpoints", cp);
+}
+
+export async function getLocalCheckpoints(companyId: string): Promise<Checkpoint[]> {
+  const db  = await getDB();
+  const all = await db.getAllFromIndex("localCheckpoints", "byCompany", companyId);
+  return all.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteLocalCheckpoint(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("localCheckpoints", id);
+}
+
+// Patrol Logs
+export async function putLocalPatrolLog(log: PatrolLog & { id: string }): Promise<void> {
+  const db = await getDB();
+  await db.put("localPatrolLogs", log);
+}
+
+export async function getLocalPatrolLogs(
+  companyId: string,
+  guardId?: string,
+  limitCount = 500,
+): Promise<(PatrolLog & { id: string })[]> {
+  const db  = await getDB();
+  const all = await db.getAllFromIndex("localPatrolLogs", "byCompany", companyId);
+  const filtered = guardId ? all.filter((l) => l.guardId === guardId) : all;
+  return filtered
+    .sort((a, b) => b.scannedAt - a.scannedAt)
+    .slice(0, limitCount);
+}
+
+// Guard Sessions
+export async function putLocalGuardSession(session: GuardSession): Promise<void> {
+  const db = await getDB();
+  await db.put("localGuardSessions", session);
+}
+
+export async function getLocalGuardSessions(companyId: string): Promise<GuardSession[]> {
+  const db = await getDB();
+  return db.getAllFromIndex("localGuardSessions", "byCompany", companyId);
+}
+
+// Alerts
+export async function putLocalAlert(alert: Alert & { id: string }): Promise<void> {
+  const db = await getDB();
+  await db.put("localAlerts", alert);
+}
+
+export async function getLocalAlerts(
+  companyId: string,
+  limitCount = 200,
+): Promise<(Alert & { id: string })[]> {
+  const db  = await getDB();
+  const all = await db.getAllFromIndex("localAlerts", "byCompany", companyId);
+  return all
+    .sort((a, b) => b.alertedAt - a.alertedAt)
+    .slice(0, limitCount);
+}
+
+export async function updateLocalAlertField(
+  id: string,
+  data: Partial<Alert>,
+): Promise<void> {
+  const db  = await getDB();
+  const rec = await db.get("localAlerts", id);
+  if (!rec) return;
+  await db.put("localAlerts", { ...rec, ...data });
+}
+
+// Companies
+export async function putLocalCompany(company: CompanyRecord): Promise<void> {
+  const db = await getDB();
+  await db.put("localCompanies", company);
+}
+
+export async function getLocalCompany(id: string): Promise<CompanyRecord | null> {
+  const db  = await getDB();
+  const rec = await db.get("localCompanies", id);
+  return rec ?? null;
+}
+
+export async function getAllLocalCompanies(): Promise<CompanyRecord[]> {
+  const db = await getDB();
+  return db.getAll("localCompanies");
 }

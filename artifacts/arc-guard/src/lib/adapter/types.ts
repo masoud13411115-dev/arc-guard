@@ -4,11 +4,14 @@ import type {
 } from "@/types";
 
 // ── Adapter mode ───────────────────────────────────────────────────────────────
-export type AdapterMode = "firebase" | "local";
+/**
+ * firebase   — cloud Firebase Firestore (default)
+ * indexeddb  — fully local IndexedDB on this device; works offline forever
+ * local      — company LAN server via HTTP REST API
+ */
+export type AdapterMode = "firebase" | "indexeddb" | "local";
 
 // ── Unified data-access interface ──────────────────────────────────────────────
-// All adapters (Firebase, local server, …) must implement every method here.
-// Signatures mirror firestore.ts exactly so call-sites need no changes.
 export interface DataAdapter {
 
   // ── Checkpoints ──────────────────────────────────────────────────────────────

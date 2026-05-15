@@ -4,8 +4,10 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   MapPin, Plus, QrCode, Trash2, Shield, Clock,
   CheckCircle, Pencil, X, Download, ChevronDown, ChevronUp,
-  Printer, Copy, Navigation, Crosshair, Info, RefreshCw,
+  Printer, Copy, Navigation, Crosshair, Info, RefreshCw, Zap, Loader2, Nfc, Layers,
 } from "lucide-react";
+import { useDynamicQrText, WINDOW_SECS } from "@/lib/dynamicQr";
+import type { VerificationMode, ScanMode } from "@/types";
 import {
   saveCheckpoint as fbSaveCheckpoint,
   updateCheckpoint as fbUpdateCheckpoint,
@@ -35,8 +37,65 @@ const EMPTY_FORM = {
   radiusMeters: "50",
   intervalValue: "30",
   intervalUnit: "minutes" as IntervalUnit,
+  verificationMode: "" as VerificationMode | "",
+  scanMode: "" as ScanMode | "",
 };
 type FormState = typeof EMPTY_FORM;
+
+// ── Scan mode definitions ────────────────────────────────────────────────────
+type ScanModeMeta = {
+  value: ScanMode;
+  label: string;
+  icon: React.ElementType;
+  colors: string;
+  badgeColors: string;
+};
+const SCAN_MODES: ScanModeMeta[] = [
+  { value: "qr",      label: "QR",       icon: QrCode,  colors: "border-sky-500/60 bg-sky-500/10 text-sky-400",         badgeColors: "bg-sky-500/10 text-sky-400 border-sky-500/20" },
+  { value: "gps",     label: "GPS",      icon: MapPin,  colors: "border-green-500/60 bg-green-500/10 text-green-400",   badgeColors: "bg-green-500/10 text-green-400 border-green-500/20" },
+  { value: "nfc",     label: "NFC",      icon: Nfc,     colors: "border-purple-500/60 bg-purple-500/10 text-purple-400", badgeColors: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  { value: "qr+gps",  label: "QR+GPS",   icon: Shield,  colors: "border-primary/60 bg-primary/10 text-primary",         badgeColors: "bg-primary/10 text-primary border-primary/20" },
+  { value: "qr+nfc",  label: "QR+NFC",   icon: Layers,  colors: "border-amber-500/60 bg-amber-500/10 text-amber-400",   badgeColors: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  { value: "gps+nfc", label: "GPS+NFC",  icon: Zap,     colors: "border-orange-500/60 bg-orange-500/10 text-orange-400", badgeColors: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  { value: "all",     label: "همه",      icon: Shield,  colors: "border-red-500/60 bg-red-500/10 text-red-400",          badgeColors: "bg-red-500/10 text-red-400 border-red-500/20" },
+];
+function scanModeMeta(m: ScanMode | ""): ScanModeMeta | undefined {
+  return SCAN_MODES.find((s) => s.value === m);
+}
+
+// ── Dynamic QR display sub-component ─────────────────────────────────────────
+function DynamicQrCard({ cp, t }: { cp: { id: string; name: string; dynamicQrSecret?: string }; t: (k: string, v?: Record<string, string>) => string }) {
+  const qrText = useDynamicQrText(cp.id, cp.dynamicQrSecret);
+  const [countdown, setCountdown] = useState(WINDOW_SECS - (Math.floor(Date.now() / 1000) % WINDOW_SECS));
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown(WINDOW_SECS - (Math.floor(Date.now() / 1000) % WINDOW_SECS));
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!qrText) {
+    return (
+      <div className="h-56 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 p-4 bg-white rounded-xl border border-border">
+      <QRCodeSVG value={qrText} size={220} level="H" includeMargin bgColor="#ffffff" fgColor="#0a1628" />
+      <div className="flex items-center gap-2 text-xs text-gray-500">
+        <RefreshCw className="w-3.5 h-3.5" style={{ animation: "spin 60s linear infinite" }} />
+        <span>{t("vm.dynamic.refresh")} — {countdown}s</span>
+      </div>
+      <p className="text-[10px] text-gray-400 font-mono text-center break-all px-2 leading-relaxed">
+        {qrText.slice(0, 45)}…
+      </p>
+    </div>
+  );
+}
 
 const inputClass = "w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors";
 
@@ -123,6 +182,8 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
       radiusMeters: String(cp.radiusMeters),
       intervalValue,
       intervalUnit,
+      verificationMode: cp.verificationMode ?? "",
+      scanMode: cp.scanMode ?? "",
     });
     setGpsPreview(null);
     setShowForm(true);
@@ -167,6 +228,8 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         radiusMeters: parseInt(form.radiusMeters),
         patrolIntervalMinutes: toIntervalMinutes(form.intervalValue, form.intervalUnit),
         active: true,
+        ...(form.verificationMode ? { verificationMode: form.verificationMode as VerificationMode } : {}),
+        ...(form.scanMode ? { scanMode: form.scanMode as ScanMode } : {}),
       };
 
       if (editId) {
@@ -523,6 +586,68 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
               </p>
             </div>
 
+            {/* Scan Mode */}
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5" />
+                {t("sm.title")}
+              </label>
+              {/* 7-button grid — "company default" toggle row above */}
+              <button
+                type="button"
+                onClick={() => setF("scanMode", "")}
+                className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                  form.scanMode === ""
+                    ? "border-primary/60 bg-primary/10 text-primary"
+                    : "border-border bg-muted/30 text-muted-foreground hover:border-primary/30"
+                }`}
+              >
+                <Shield className="w-3.5 h-3.5" />{t("sm.company.default")}
+              </button>
+              <div className="grid grid-cols-3 gap-2">
+                {SCAN_MODES.map(({ value, label, icon: Icon, colors }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setF("scanMode", value)}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-center transition-all ${
+                      form.scanMode === value
+                        ? colors
+                        : "border-border bg-muted/30 text-muted-foreground hover:border-primary/30"
+                    }`}
+                  >
+                    <Icon className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+                    <span className="text-[11px] font-bold leading-tight">{label}</span>
+                    <span className="text-[9px] leading-tight opacity-70">
+                      {t(`sm.${value}.desc` as Parameters<typeof t>[0])}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {/* Dynamic QR toggle — only visible for modes that include QR */}
+              {(form.scanMode === "qr" || form.scanMode === "qr+gps" || form.scanMode === "qr+nfc" || form.scanMode === "all") && (
+                <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                  <label className="flex items-center gap-2 text-xs text-amber-400 cursor-pointer">
+                    <Zap className="w-3.5 h-3.5" />
+                    {t("vm.dynamicQr")} — {t("vm.dynamicQr.desc")}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setF("verificationMode",
+                      form.verificationMode === "dynamicQr" ? "fixedQr" : "dynamicQr"
+                    )}
+                    className={`w-9 h-5 rounded-full border-2 transition-colors flex items-center ${
+                      form.verificationMode === "dynamicQr"
+                        ? "bg-amber-400 border-amber-500 justify-end"
+                        : "bg-muted border-border justify-start"
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-full bg-white mx-0.5 shadow" />
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Buttons */}
             <div className="flex gap-2 pt-1">
               <button
@@ -619,6 +744,29 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                   <span className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground">
                     <Clock className="w-3 h-3" />{formatIntervalLabel(cp.patrolIntervalMinutes, t)}
                   </span>
+                  {/* Show scanMode badge (new) or verificationMode badge (legacy) */}
+                  {cp.scanMode ? (() => {
+                    const meta = scanModeMeta(cp.scanMode);
+                    if (!meta) return null;
+                    const Icon = meta.icon;
+                    return (
+                      <span className={`flex items-center gap-1 text-xs rounded px-2 py-0.5 border ${meta.badgeColors}`}>
+                        <Icon className="w-3 h-3" />{meta.label}
+                        {cp.verificationMode === "dynamicQr" && <Zap className="w-2.5 h-2.5 text-amber-400" />}
+                      </span>
+                    );
+                  })() : cp.verificationMode ? (
+                    <span className={`flex items-center gap-1 text-xs rounded px-2 py-0.5 ${
+                      cp.verificationMode === "dynamicQr" ? "bg-amber-500/10 text-amber-400"
+                      : cp.verificationMode === "gpsOnly" ? "bg-green-500/10 text-green-400"
+                      : "bg-sky-500/10 text-sky-400"
+                    }`}>
+                      {cp.verificationMode === "gpsOnly" && <MapPin className="w-3 h-3" />}
+                      {cp.verificationMode === "fixedQr" && <QrCode className="w-3 h-3" />}
+                      {cp.verificationMode === "dynamicQr" && <Zap className="w-3 h-3" />}
+                      {t(`vm.${cp.verificationMode}` as Parameters<typeof t>[0])}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -640,23 +788,28 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
 
               {expandedQr === cp.id && (
                 <div className="px-4 pb-4 animate-fade-in-up space-y-3">
-                  {/* QR preview */}
-                  <div className="flex flex-col items-center gap-3 p-4 bg-white rounded-xl border border-border">
-                    <QRCodeSVG
-                      ref={(el: SVGSVGElement | null) => { qrRefs.current[cp.id] = el; }}
-                      value={cp.qrCode}
-                      size={220}
-                      level="H"
-                      includeMargin
-                      bgColor="#ffffff"
-                      fgColor="#0a1628"
-                    />
-                    <p className="text-[10px] text-gray-400 font-mono text-center break-all px-2 leading-relaxed">
-                      {cp.qrCode}
-                    </p>
-                  </div>
+                  {/* QR preview — static or rotating depending on mode */}
+                  {cp.verificationMode === "dynamicQr" ? (
+                    <DynamicQrCard cp={cp} t={t} />
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 p-4 bg-white rounded-xl border border-border">
+                      <QRCodeSVG
+                        ref={(el: SVGSVGElement | null) => { qrRefs.current[cp.id] = el; }}
+                        value={cp.qrCode}
+                        size={220}
+                        level="H"
+                        includeMargin
+                        bgColor="#ffffff"
+                        fgColor="#0a1628"
+                      />
+                      <p className="text-[10px] text-gray-400 font-mono text-center break-all px-2 leading-relaxed">
+                        {cp.qrCode}
+                      </p>
+                    </div>
+                  )}
 
-                  {/* Action buttons */}
+                  {/* Action buttons — hidden for dynamicQr (rotating code cannot be printed) */}
+                  {cp.verificationMode !== "dynamicQr" && (
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => downloadQrPng(cp)}
@@ -689,6 +842,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                         : <><Copy className="w-3.5 h-3.5" />{t("cp.qr.copy")}</>}
                     </button>
                   </div>
+                  )}
 
                   {/* Security note */}
                   <div className="rounded-lg bg-muted/50 border border-border px-3 py-2.5">

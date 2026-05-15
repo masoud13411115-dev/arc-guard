@@ -1,4 +1,4 @@
-import { Activity, MapPin, Clock, AlertTriangle, CheckCircle, Users, Shield, Bell } from "lucide-react";
+import { Activity, MapPin, Clock, AlertTriangle, CheckCircle, Users, Shield, Bell, AlertOctagon } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { resolveAlert } from "@/lib/adapter";
 import { isFirebaseReady } from "@/firebase";
@@ -174,13 +174,22 @@ export default function LiveMonitor({ companyId, sessions, alerts, recentLogs }:
                       )}
                     </p>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                    s === "valid"   ? "bg-green-400/10 text-green-400"   :
-                    s === "outside" ? "bg-yellow-400/10 text-yellow-400" :
-                    "bg-destructive/10 text-destructive"
-                  }`}>
-                    {statusLabel[s]}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {log.fraudFlags && log.fraudFlags.length > 0 && (
+                      <span className="flex items-center gap-1 text-[11px] bg-orange-500/10 text-orange-400 border border-orange-500/20 px-1.5 py-0.5 rounded-full"
+                        title={log.fraudFlags.join(", ")}>
+                        <AlertOctagon className="w-3 h-3" />
+                        مشکوک
+                      </span>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      s === "valid"   ? "bg-green-400/10 text-green-400"   :
+                      s === "outside" ? "bg-yellow-400/10 text-yellow-400" :
+                      "bg-destructive/10 text-destructive"
+                    }`}>
+                      {statusLabel[s]}
+                    </span>
+                  </div>
                 </div>
               );
             })}

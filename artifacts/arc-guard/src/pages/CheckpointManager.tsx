@@ -74,15 +74,7 @@ const QR_MODES: Array<ScanMode | ""> = ["qr", "qr+gps", "qr+nfc", "all"];
 
 // ── Dynamic QR display sub-component ─────────────────────────────────────────
 function DynamicQrCard({ cp, t }: { cp: { id: string; name: string; dynamicQrSecret?: string }; t: (k: string, v?: Record<string, string>) => string }) {
-  const qrText = useDynamicQrText(cp.id, cp.dynamicQrSecret);
-  const [countdown, setCountdown] = useState(WINDOW_SECS - (Math.floor(Date.now() / 1000) % WINDOW_SECS));
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setCountdown(WINDOW_SECS - (Math.floor(Date.now() / 1000) % WINDOW_SECS));
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
+  const { qrText, secondsLeft } = useDynamicQrText(cp.id, cp.dynamicQrSecret);
 
   if (!qrText) {
     return (
@@ -92,12 +84,13 @@ function DynamicQrCard({ cp, t }: { cp: { id: string; name: string; dynamicQrSec
     );
   }
 
+  const minsLeft = Math.ceil(secondsLeft / 60);
   return (
     <div className="flex flex-col items-center gap-3 p-4 bg-white rounded-xl border border-border">
       <QRCodeSVG value={qrText} size={220} level="H" includeMargin bgColor="#ffffff" fgColor="#0a1628" />
       <div className="flex items-center gap-2 text-xs text-gray-500">
-        <RefreshCw className="w-3.5 h-3.5" style={{ animation: "spin 60s linear infinite" }} />
-        <span>{t("vm.dynamic.refresh")} — {countdown}s</span>
+        <RefreshCw className="w-3.5 h-3.5" style={{ animation: `spin ${secondsLeft}s linear infinite` }} />
+        <span>{t("vm.dynamic.refresh")} — {minsLeft > 1 ? `${minsLeft} دقیقه` : `${secondsLeft}s`}</span>
       </div>
       <p className="text-[10px] text-gray-400 font-mono text-center break-all px-2 leading-relaxed">
         {qrText.slice(0, 45)}…

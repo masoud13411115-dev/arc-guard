@@ -8,8 +8,8 @@ import {
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
-import { haversineDistance } from "@/lib/gps";
-import { validateDynamicQr } from "@/lib/dynamicQr";
+import { haversineDistance, detectGpsFraud, recordScanGps } from "@/lib/gps";
+import { validateDynamicQr, isDynamicWindowUsed, markDynamicWindowUsed, extractDynamicQrWindow } from "@/lib/dynamicQr";
 import { parseDynamicQrCode } from "@/lib/scanProtection";
 import { cacheCheckpoints, getCachedCheckpoints, getDBQueueCount } from "@/lib/localDB";
 import { queuePatrolLog, queueSosAlert, syncAll } from "@/lib/syncManager";
@@ -82,6 +82,8 @@ type PendingGps = {
   localCount: number;
   /** Effective scan mode, pre-computed before GPS phase starts */
   effMode: ScanMode;
+  /** Dynamic QR window number for anti-replay tracking (only set for ARCG_DYN scans) */
+  dynWindowNum?: number;
 };
 
 const SOS_HOLD_MS = 3000;
@@ -331,7 +333,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     coords: GpsCoords,
   ) => {
     const { checkpoint, qrText, qrFormat, qrCompanyId, qrCheckpointId,
-            firestorePath, foundInLocal, foundInFirestore, localCount } = pending;
+            firestorePath, foundInLocal, foundInFirestore, localCount,
+            dynWindowNum } = pending;
 
     const distance = Math.round(
       haversineDistance(coords.lat, coords.lng, checkpoint.lat, checkpoint.lng),
@@ -340,6 +343,12 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     const status: ScanStatus = withinRadius ? "valid" : "outside";
 
     console.log(`[scan] distance=${distance}m radius=${checkpoint.radiusMeters}m within=${withinRadius}`);
+
+    // ── Anti-fraud: detect GPS anomalies ─────────────────────────────────────
+    const fraudFlags = detectGpsFraud(coords, checkpoint.id);
+    if (fraudFlags.length > 0) {
+      console.warn("[scan] Fraud flags detected:", fraudFlags);
+    }
 
     setScanDebug({
       qrText, qrFormat, qrCompanyId, qrCheckpointId,
@@ -356,8 +365,16 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       distanceMeters: distance,
     });
 
-    const log = buildLog(qrText, checkpoint, coords, distance, withinRadius, status);
+    const scanMode = pending.effMode;
+    const log = buildLog(qrText, checkpoint, coords, distance, withinRadius, status,
+      { fraudFlags: fraudFlags.length > 0 ? fraudFlags : undefined, scanMode });
     recordScan(checkpoint.id);
+    // Mark Dynamic QR window as used (anti-replay)
+    if (dynWindowNum !== undefined) {
+      markDynamicWindowUsed(checkpoint.id, dynWindowNum);
+    }
+    // Record GPS position for next scan's impossible-speed check
+    recordScanGps(coords, checkpoint.id);
     setRecentLogs((prev) => [log, ...prev.slice(0, 4)]);
 
     const isOffline = !navigator.onLine;
@@ -598,6 +615,19 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
         }
       }
 
+      // Anti-replay check: reject QR codes used in the same window
+      const dynWindowNum = extractDynamicQrWindow(qrText);
+      if (dynWindowNum !== null && isDynamicWindowUsed(dynCp.id, dynWindowNum)) {
+        showResult({
+          ok: false, status: "failed",
+          title: "QR قبلاً استفاده شد",
+          msg: "این کد QR قبلاً در همین بازه زمانی اسکن شده است — لطفاً ۱۰ دقیقه صبر کنید.",
+          checkpoint: dynCp.name,
+        });
+        playFail();
+        return;
+      }
+
       // Cooldown check
       if (!canScan(dynCp.id)) {
         const secs = secondsUntilNextScan(dynCp.id);
@@ -618,6 +648,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
         foundInLocal: true, foundInFirestore: null,
         localCount: checkpoints.length,
         effMode: getEffectiveScanMode(dynCp, companyVerificationMode),
+        dynWindowNum: dynWindowNum ?? undefined,
       });
       return;
     }
@@ -824,6 +855,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     distance: number | null,
     withinRadius: boolean,
     status: ScanStatus,
+    extra?: { fraudFlags?: string[]; scanMode?: string },
   ): PatrolLog => ({
     guardId, guardName, companyId,
     checkpointId:   checkpoint?.id   ?? "unknown",
@@ -836,6 +868,8 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     scannedAt: Date.now(),
     scannedAtText: new Date().toLocaleTimeString("fa-IR"),
     synced: false,
+    ...(extra?.fraudFlags?.length ? { fraudFlags: extra.fraudFlags } : {}),
+    ...(extra?.scanMode ? { scanMode: extra.scanMode } : {}),
   });
 
   const persistLog = (log: PatrolLog) => {

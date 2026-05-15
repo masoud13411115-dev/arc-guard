@@ -107,6 +107,10 @@ export interface PatrolLog {
   companyId: string;
   synced: boolean;
   offlineQueued?: boolean;
+  /** Which scan mode was used for this log entry */
+  scanMode?: string;
+  /** Anti-fraud anomaly flags detected at scan time */
+  fraudFlags?: string[];
 }
 
 export type AlertKind = 'sos' | 'missed' | 'outside';

@@ -1,13 +1,16 @@
 /**
- * ARC Guard — Sync Manager (v4.0)
+ * ARC Guard — Sync Manager (v5.0)
  *
- * Bridges the IndexedDB offline queue and the Firebase adapter.
- * - queuePatrolLog / queueSosAlert  — write to IndexedDB when offline (or on Firebase error)
- * - syncAll(companyId)              — flush pending queue to Firebase
+ * Bridges the IndexedDB offline queue and the remote data adapter.
+ *
+ * - queuePatrolLog / queueSosAlert  — write to IndexedDB when offline / on error
+ * - syncAll(companyId)              — flush pending queue to the active remote adapter
  * - useSyncManager(companyId)       — React hook providing reactive sync state
  *
- * Always syncs to Firebase directly (bypass the local adapter), because we
- * want cloud persistence regardless of which adapter mode is selected.
+ * Sync routing by adapter mode:
+ *   firebase   → syncs to firebaseAdapter (cloud)
+ *   local      → syncs to localAdapter (company LAN server)
+ *   indexeddb  → data is already local; just clears the queue
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -16,12 +19,12 @@ import {
   enqueuePatrolLog, enqueueSosAlert, migrateLocalStorageQueue,
   type QueuedItem,
 } from "@/lib/localDB";
-import { firebaseAdapter } from "@/lib/adapter";
+import { firebaseAdapter, localAdapter, getAdapterMode } from "@/lib/adapter";
 import { isFirebaseReady } from "@/firebase";
 import type { PatrolLog, Alert } from "@/types";
 
-// ── Sync metadata (localStorage — tiny data, just timestamps) ─────────────────
-const lastSyncKey = (cid: string) => `arc_guard_v4_last_sync_${cid}`;
+// ── Sync metadata ─────────────────────────────────────────────────────────────
+const lastSyncKey = (cid: string) => `arc_guard_v5_last_sync_${cid}`;
 
 export function getLastSyncAt(companyId: string): number | null {
   const raw = localStorage.getItem(lastSyncKey(companyId));
@@ -34,19 +37,38 @@ function persistLastSyncAt(companyId: string): void {
 
 // ── Queue helpers ─────────────────────────────────────────────────────────────
 
-/** Queue a patrol log to IndexedDB for later sync. */
 export async function queuePatrolLog(companyId: string, log: PatrolLog): Promise<string> {
   return enqueuePatrolLog(companyId, log);
 }
 
-/** Queue an SOS alert to IndexedDB for later sync. */
 export async function queueSosAlert(companyId: string, alert: Omit<Alert, "id">): Promise<string> {
   return enqueueSosAlert(companyId, alert);
 }
 
-// ── Sync a single item to Firebase ───────────────────────────────────────────
+// ── Sync a single item to the active remote adapter ───────────────────────────
 
 async function syncItem(item: QueuedItem): Promise<boolean> {
+  const mode = getAdapterMode();
+
+  // IndexedDB mode — data already on device, nothing to push remotely
+  if (mode === "indexeddb") return true;
+
+  // Local server mode
+  if (mode === "local") {
+    try {
+      if (item.type === "patrol_log") {
+        await localAdapter.savePatrolLog(item.payload as unknown as PatrolLog);
+      } else if (item.type === "sos_alert") {
+        await localAdapter.saveAlert(item.payload as unknown as Alert);
+      }
+      return true;
+    } catch (e) {
+      console.error(`[syncManager] local server sync failed for ${item.type} ${item.id}:`, e);
+      return false;
+    }
+  }
+
+  // Firebase mode (default)
   if (!isFirebaseReady) return false;
   try {
     if (item.type === "patrol_log") {
@@ -56,7 +78,7 @@ async function syncItem(item: QueuedItem): Promise<boolean> {
     }
     return true;
   } catch (e) {
-    console.error(`[syncManager] failed to sync ${item.type} ${item.id}:`, e);
+    console.error(`[syncManager] firebase sync failed for ${item.type} ${item.id}:`, e);
     return false;
   }
 }
@@ -69,7 +91,20 @@ export interface SyncAllResult {
 }
 
 export async function syncAll(companyId: string): Promise<SyncAllResult> {
-  if (!navigator.onLine || !isFirebaseReady) return { synced: 0, failed: 0 };
+  const mode = getAdapterMode();
+
+  // IndexedDB mode — flush queue (data already saved locally)
+  if (mode === "indexeddb") {
+    const items = await getQueuedItems(companyId);
+    for (const item of items) await removeQueuedItem(item.id);
+    if (items.length > 0) persistLastSyncAt(companyId);
+    return { synced: items.length, failed: 0 };
+  }
+
+  // Remote modes — need network
+  if (!navigator.onLine) return { synced: 0, failed: 0 };
+  if (mode === "firebase" && !isFirebaseReady) return { synced: 0, failed: 0 };
+
   const items = await getQueuedItems(companyId);
   if (items.length === 0) return { synced: 0, failed: 0 };
 
@@ -88,7 +123,7 @@ export async function syncAll(companyId: string): Promise<SyncAllResult> {
 
   if (synced > 0) {
     persistLastSyncAt(companyId);
-    console.log(`[syncManager] synced ${synced} items for company ${companyId.slice(-6)}`);
+    console.log(`[syncManager] synced ${synced} items (${mode}) for company ${companyId.slice(-6)}`);
   }
   return { synced, failed };
 }
@@ -110,17 +145,18 @@ export function useSyncManager(companyId: string): SyncState {
   const [isSyncing,    setIsSyncing]    = useState(false);
 
   const migrated   = useRef(false);
-  const syncingRef = useRef(false); // avoid concurrent syncs
+  const syncingRef = useRef(false);
 
-  // Refresh pending count from IndexedDB
   const refreshCount = useCallback(async () => {
     const n = await getDBQueueCount(companyId);
     setPendingCount(n);
   }, [companyId]);
 
-  // Run full sync
   const doSync = useCallback(async () => {
-    if (!navigator.onLine || syncingRef.current) return;
+    const mode = getAdapterMode();
+    // Only wait for network in non-indexeddb modes
+    if (mode !== "indexeddb" && !navigator.onLine) return;
+    if (syncingRef.current) return;
     syncingRef.current = true;
     setIsSyncing(true);
     try {
@@ -133,7 +169,6 @@ export function useSyncManager(companyId: string): SyncState {
     }
   }, [companyId, refreshCount]);
 
-  // Init: one-time localStorage migration + initial count
   useEffect(() => {
     if (migrated.current) return;
     migrated.current = true;
@@ -142,7 +177,6 @@ export function useSyncManager(companyId: string): SyncState {
       .catch(console.error);
   }, [refreshCount]);
 
-  // Network events
   useEffect(() => {
     const onOnline  = () => { setOnline(true);  doSync(); };
     const onOffline = () => setOnline(false);
@@ -154,22 +188,16 @@ export function useSyncManager(companyId: string): SyncState {
     };
   }, [doSync]);
 
-  // Poll count every 30 s
   useEffect(() => {
     const id = setInterval(refreshCount, 30_000);
     return () => clearInterval(id);
   }, [refreshCount]);
 
-  // Auto-sync when online and items are waiting
   useEffect(() => {
-    if (online && pendingCount > 0 && !syncingRef.current) doSync();
+    const mode = getAdapterMode();
+    const canSync = mode === "indexeddb" || online;
+    if (canSync && pendingCount > 0 && !syncingRef.current) doSync();
   }, [online, pendingCount, doSync]);
 
-  return {
-    online,
-    pendingCount,
-    lastSyncAt,
-    isSyncing,
-    syncNow: doSync,
-  };
+  return { online, pendingCount, lastSyncAt, isSyncing, syncNow: doSync };
 }

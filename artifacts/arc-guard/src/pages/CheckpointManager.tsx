@@ -63,6 +63,15 @@ function scanModeMeta(m: ScanMode | ""): ScanModeMeta | undefined {
   return SCAN_MODES.find((s) => s.value === m);
 }
 
+// GPS coordinates are required only when the mode actually checks distance
+const GPS_MODES: Array<ScanMode | ""> = ["gps", "qr+gps", "gps+nfc", "all"];
+function requiresGps(sm: ScanMode | ""): boolean {
+  return GPS_MODES.includes(sm);
+}
+
+// verificationMode only makes sense for QR-containing modes
+const QR_MODES: Array<ScanMode | ""> = ["qr", "qr+gps", "qr+nfc", "all"];
+
 // ── Dynamic QR display sub-component ─────────────────────────────────────────
 function DynamicQrCard({ cp, t }: { cp: { id: string; name: string; dynamicQrSecret?: string }; t: (k: string, v?: Record<string, string>) => string }) {
   const qrText = useDynamicQrText(cp.id, cp.dynamicQrSecret);
@@ -210,11 +219,18 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.lat || !form.lng) return;
+    if (!form.name.trim()) return;
 
-    const lat = parseFloat(form.lat);
-    const lng = parseFloat(form.lng);
-    if (isNaN(lat) || isNaN(lng)) { alert(t("cp.gps.failed")); return; }
+    // GPS coordinates are mandatory only for modes that actually do distance checks
+    const gpsRequired = requiresGps(form.scanMode);
+    if (gpsRequired && (!form.lat || !form.lng)) return;
+
+    const lat = parseFloat(form.lat) || 0;
+    const lng = parseFloat(form.lng) || 0;
+    if (gpsRequired && (isNaN(lat) || isNaN(lng))) { alert(t("cp.gps.failed")); return; }
+
+    // verificationMode is only meaningful for QR-containing modes — strip it otherwise
+    const effectiveVerificationMode = QR_MODES.includes(form.scanMode) ? form.verificationMode : "";
 
     setSaving(true);
     setDebugInfo(null);
@@ -228,7 +244,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
         radiusMeters: parseInt(form.radiusMeters),
         patrolIntervalMinutes: toIntervalMinutes(form.intervalValue, form.intervalUnit),
         active: true,
-        ...(form.verificationMode ? { verificationMode: form.verificationMode as VerificationMode } : {}),
+        ...(effectiveVerificationMode ? { verificationMode: effectiveVerificationMode as VerificationMode } : {}),
         ...(form.scanMode ? { scanMode: form.scanMode as ScanMode } : {}),
       };
 
@@ -246,6 +262,8 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
           ...payload, id: newId, companyId, qrCode, createdAt: Date.now(),
         };
         setCheckpoints((prev) => {
+          // Guard against race with Firestore onSnapshot — don't add twice
+          if (prev.some((c) => c.id === newId)) return prev;
           const updated = [...prev, newCp];
           lsBackupSave(companyId, updated);
           return updated;
@@ -466,7 +484,8 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
               />
             </div>
 
-            {/* GPS capture button */}
+            {/* GPS section — only shown for modes that require distance checking */}
+            {requiresGps(form.scanMode) && (<>
             <button
               type="button"
               onClick={captureGps}
@@ -541,6 +560,7 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
             <p className="text-[11px] text-muted-foreground text-center">
               {t("cp.form.coords.hint")}
             </p>
+            </>)}
 
             {/* Radius */}
             <div className="space-y-1">
@@ -609,7 +629,12 @@ export default function CheckpointManager({ companyId }: CheckpointManagerProps)
                   <button
                     key={value}
                     type="button"
-                    onClick={() => setF("scanMode", value)}
+                    onClick={() => setForm((f) => ({
+                      ...f,
+                      scanMode: value,
+                      // Clear verificationMode when switching to a mode that doesn't use QR
+                      verificationMode: QR_MODES.includes(value) ? f.verificationMode : "",
+                    }))}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-center transition-all ${
                       form.scanMode === value
                         ? colors

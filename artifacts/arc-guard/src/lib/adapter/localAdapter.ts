@@ -1,169 +1,280 @@
 /**
- * Local-server adapter — Phase 1 placeholder.
+ * Local-Server Adapter — HTTP REST client for the company's on-premises server.
  *
- * Every method logs a warning and returns safe empty values.
- * Phase 2 will replace these stubs with real HTTP/WebSocket calls
- * to a LAN server running the ARC Guard local backend.
+ * Stores the server base URL in localStorage (arc_guard_local_server_url).
+ * Every method calls the REST API at {serverUrl}/api/{companyId}/...
+ * Subscriptions poll every 5 seconds.
  *
- * QR codes follow the same ARCG|{companyId}|{id} format so they stay
- * compatible with the guard scanner without any UI changes.
+ * QR codes follow ARCG|{companyId}|{id} format — compatible with guard scanner.
+ *
+ * Offline fallback: if the server is unreachable, the offline queue
+ * (IndexedDB offlineQueue via syncManager) will buffer logs and retry on reconnect.
  */
+
 import type { DataAdapter } from "./types";
 
-const TAG = "[localAdapter]";
+// ── Server URL persistence ────────────────────────────────────────────────────
 
-function warn(fn: string) {
-  console.warn(
-    `${TAG} ${fn}: local server not yet implemented — returning empty data (Phase 1 placeholder)`,
-  );
+const SERVER_URL_KEY = "arc_guard_local_server_url";
+const POLL_MS        = 5_000;
+
+export function getLocalServerUrl(): string {
+  try { return localStorage.getItem(SERVER_URL_KEY)?.trim() ?? ""; }
+  catch { return ""; }
 }
 
-function localId(): string {
-  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+export function setLocalServerUrl(url: string): void {
+  try { localStorage.setItem(SERVER_URL_KEY, url.trim()); }
+  catch { /* private browsing */ }
 }
+
+// ── HTTP helpers ──────────────────────────────────────────────────────────────
+
+async function apiFetch<T = unknown>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
+  const base = getLocalServerUrl().replace(/\/$/, "");
+  if (!base) throw new Error("آدرس سرور شرکت تنظیم نشده است");
+  const res = await fetch(`${base}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  return res.json() as Promise<T>;
+}
+
+function apiPath(companyId: string, resource: string): string {
+  return `/api/${companyId}/${resource}`;
+}
+
+// ── Polling subscription factory ─────────────────────────────────────────────
+
+function poll<T>(
+  fetchFn: () => Promise<T>,
+  cb: (data: T) => void,
+  onError?: (e: Error) => void,
+): () => void {
+  let active = true;
+
+  function run() {
+    fetchFn()
+      .then((d) => { if (active) cb(d); })
+      .catch((e) => { if (active) onError?.(e as Error); });
+  }
+
+  run();
+  const id = setInterval(run, POLL_MS);
+  return () => { active = false; clearInterval(id); };
+}
+
+// ── Adapter implementation ────────────────────────────────────────────────────
 
 export const localAdapter: DataAdapter = {
 
   // ── Checkpoints ──────────────────────────────────────────────────────────────
-  async saveCheckpoint(companyId, _cp) {
-    warn("saveCheckpoint");
-    const id = localId();
-    console.info(`${TAG} saveCheckpoint → would POST /api/checkpoints  qr=ARCG|${companyId}|${id}`);
-    return id;
+
+  async saveCheckpoint(companyId, cp) {
+    const res = await apiFetch<{ id: string }>(apiPath(companyId, "checkpoints"), {
+      method: "POST",
+      body:   JSON.stringify({ companyId, ...cp }),
+    });
+    return res.id;
   },
 
-  async updateCheckpoint(_companyId, id, _data) {
-    warn("updateCheckpoint");
-    console.info(`${TAG} updateCheckpoint → would PATCH /api/checkpoints/${id}`);
+  async updateCheckpoint(companyId, id, data) {
+    await apiFetch(apiPath(companyId, `checkpoints/${id}`), {
+      method: "PATCH",
+      body:   JSON.stringify(data),
+    });
   },
 
-  async deleteCheckpoint(_companyId, id) {
-    warn("deleteCheckpoint");
-    console.info(`${TAG} deleteCheckpoint → would DELETE /api/checkpoints/${id}`);
+  async deleteCheckpoint(companyId, id) {
+    await apiFetch(apiPath(companyId, `checkpoints/${id}`), { method: "DELETE" });
   },
 
-  subscribeCheckpoints(_companyId, cb, _onError) {
-    warn("subscribeCheckpoints");
-    cb([]);
-    return () => {};
+  subscribeCheckpoints(companyId, cb, onError) {
+    return poll(
+      () => apiFetch<{ checkpoints: import("@/types").Checkpoint[] }>(apiPath(companyId, "checkpoints"))
+              .then((r) => r.checkpoints ?? []),
+      cb,
+      onError,
+    );
   },
 
-  async getCheckpoints(_companyId) {
-    warn("getCheckpoints");
-    return [];
+  async getCheckpoints(companyId) {
+    const r = await apiFetch<{ checkpoints: import("@/types").Checkpoint[] }>(apiPath(companyId, "checkpoints"));
+    return r.checkpoints ?? [];
   },
 
   // ── Patrol Logs ───────────────────────────────────────────────────────────────
-  async savePatrolLog(_log) {
-    warn("savePatrolLog");
-    const id = localId();
-    console.info(`${TAG} savePatrolLog → would POST /api/patrol-logs`);
-    return id;
+
+  async savePatrolLog(log) {
+    const res = await apiFetch<{ id: string }>(apiPath(log.companyId, "patrol-logs"), {
+      method: "POST",
+      body:   JSON.stringify(log),
+    });
+    return res.id;
   },
 
-  subscribePatrolLogs(_companyId, cb, _limitCount) {
-    warn("subscribePatrolLogs");
-    cb([]);
-    return () => {};
+  subscribePatrolLogs(companyId, cb, limitCount = 200) {
+    return poll(
+      () => apiFetch<{ logs: import("@/types").PatrolLog[] }>(
+              apiPath(companyId, `patrol-logs?limit=${limitCount}`))
+              .then((r) => r.logs ?? []),
+      cb,
+    );
   },
 
-  async getPatrolLogs(_companyId, _guardId) {
-    warn("getPatrolLogs");
-    return [];
+  async getPatrolLogs(companyId, guardId) {
+    const qs  = guardId ? `?guardId=${encodeURIComponent(guardId)}` : "";
+    const res = await apiFetch<{ logs: import("@/types").PatrolLog[] }>(apiPath(companyId, `patrol-logs${qs}`));
+    return res.logs ?? [];
   },
 
   // ── Guard Sessions ────────────────────────────────────────────────────────────
-  async updateGuardSession(_session) {
-    warn("updateGuardSession");
-    console.info(`${TAG} updateGuardSession → would PUT /api/guard-sessions`);
+
+  async updateGuardSession(session) {
+    await apiFetch(apiPath(session.companyId, `guard-sessions/${session.guardId}`), {
+      method: "PUT",
+      body:   JSON.stringify(session),
+    });
   },
 
-  subscribeGuardSessions(_companyId, cb) {
-    warn("subscribeGuardSessions");
-    cb([]);
-    return () => {};
+  subscribeGuardSessions(companyId, cb) {
+    return poll(
+      () => apiFetch<{ sessions: import("@/types").GuardSession[] }>(apiPath(companyId, "guard-sessions"))
+              .then((r) => r.sessions ?? []),
+      cb,
+    );
   },
 
   // ── Alerts ────────────────────────────────────────────────────────────────────
-  async saveAlert(_alert) {
-    warn("saveAlert");
-    const id = localId();
-    console.info(`${TAG} saveAlert → would POST /api/alerts`);
-    return id;
+
+  async saveAlert(alert) {
+    const res = await apiFetch<{ id: string }>(apiPath(alert.companyId, "alerts"), {
+      method: "POST",
+      body:   JSON.stringify(alert),
+    });
+    return res.id;
   },
 
-  async saveMissedAlert(_alert) {
-    warn("saveMissedAlert");
-    console.info(`${TAG} saveMissedAlert → would POST /api/alerts (kind=missed)`);
+  async saveMissedAlert(alert) {
+    await apiFetch(apiPath(alert.companyId, "alerts"), {
+      method: "POST",
+      body:   JSON.stringify({ ...alert, kind: "missed" }),
+    });
   },
 
-  subscribeAlerts(_companyId, cb, _onError) {
-    warn("subscribeAlerts");
-    cb([]);
-    return () => {};
+  subscribeAlerts(companyId, cb, onError) {
+    return poll(
+      () => apiFetch<{ alerts: import("@/types").Alert[] }>(apiPath(companyId, "alerts"))
+              .then((r) => r.alerts ?? []),
+      cb,
+      onError,
+    );
   },
 
-  async getAlertHistory(_companyId, _limitCount) {
-    warn("getAlertHistory");
-    return [];
+  async getAlertHistory(companyId, limitCount = 100) {
+    const res = await apiFetch<{ alerts: import("@/types").Alert[] }>(
+      apiPath(companyId, `alerts?limit=${limitCount}`),
+    );
+    return res.alerts ?? [];
   },
 
-  async resolveAlert(_companyId, id) {
-    warn("resolveAlert");
-    console.info(`${TAG} resolveAlert → would PATCH /api/alerts/${id}/resolve`);
+  async resolveAlert(companyId, id) {
+    await apiFetch(apiPath(companyId, `alerts/${id}/resolve`), { method: "PATCH" });
   },
 
   // ── Company ───────────────────────────────────────────────────────────────────
-  async getCompany(_companyId) {
-    warn("getCompany");
-    return null;
+
+  async getCompany(companyId) {
+    try {
+      const res = await apiFetch<{ company: import("@/types").CompanyRecord }>(apiPath(companyId, "company"));
+      return res.company ?? null;
+    } catch { return null; }
   },
 
-  async updateCompany(_companyId, _data) {
-    warn("updateCompany");
-    console.info(`${TAG} updateCompany → would PATCH /api/company`);
+  async updateCompany(companyId, data) {
+    await apiFetch(apiPath(companyId, "company"), {
+      method: "PATCH",
+      body:   JSON.stringify(data),
+    });
   },
 
-  async regenerateInviteCode(_companyId) {
-    warn("regenerateInviteCode");
-    const code = `LOCAL-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    console.info(`${TAG} regenerateInviteCode → would POST /api/company/invite-code → ${code}`);
-    return code;
+  async regenerateInviteCode(companyId) {
+    const res = await apiFetch<{ inviteCode: string }>(apiPath(companyId, "company/invite-code"), {
+      method: "POST",
+    });
+    return res.inviteCode;
   },
 
   async getAllCompanies() {
-    warn("getAllCompanies");
-    return [];
+    try {
+      const res = await apiFetch<{ companies: import("@/types").CompanyRecord[] }>("/api/admin/companies");
+      return res.companies ?? [];
+    } catch { return []; }
   },
 
   subscribeAllCompanies(cb) {
-    warn("subscribeAllCompanies");
-    cb([]);
-    return () => {};
+    return poll(
+      () => apiFetch<{ companies: import("@/types").CompanyRecord[] }>("/api/admin/companies")
+              .then((r) => r.companies ?? [])
+              .catch(() => [] as import("@/types").CompanyRecord[]),
+      cb,
+    );
   },
 
-  async setCompanyPlan(_companyId, _plan) {
-    warn("setCompanyPlan");
+  async setCompanyPlan(companyId, plan) {
+    await apiFetch(apiPath(companyId, "company/plan"), {
+      method: "PATCH",
+      body:   JSON.stringify({ plan }),
+    });
   },
 
-  async setCompanySuspended(_companyId, _suspended) {
-    warn("setCompanySuspended");
+  async setCompanySuspended(companyId, suspended) {
+    await apiFetch(apiPath(companyId, "company/suspended"), {
+      method: "PATCH",
+      body:   JSON.stringify({ suspended }),
+    });
   },
 
   // ── Company guards ────────────────────────────────────────────────────────────
-  async getCompanyGuards(_companyId) {
-    warn("getCompanyGuards");
-    return [];
+
+  async getCompanyGuards(companyId) {
+    try {
+      const res = await apiFetch<{ guards: import("@/types").UserProfile[] }>(apiPath(companyId, "guards"));
+      return res.guards ?? [];
+    } catch { return []; }
   },
 
-  async setGuardActive(uid, _active) {
-    warn("setGuardActive");
-    console.info(`${TAG} setGuardActive → would PATCH /api/guards/${uid}/active`);
+  async setGuardActive(uid, active) {
+    const base = getLocalServerUrl().replace(/\/$/, "");
+    if (!base) return;
+    await fetch(`${base}/api/guards/${uid}/active`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ active }),
+    });
   },
 
   // ── Offline sync ──────────────────────────────────────────────────────────────
+
   async syncOfflineQueue() {
-    warn("syncOfflineQueue");
+    // syncManager handles flush; this adapter is the target
     return 0;
   },
 };
+
+// ── Connection test helper (used by UI) ───────────────────────────────────────
+
+export async function testLocalServerConnection(): Promise<boolean> {
+  const base = getLocalServerUrl().replace(/\/$/, "");
+  if (!base) return false;
+  try {
+    const res = await fetch(`${base}/api/health`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}

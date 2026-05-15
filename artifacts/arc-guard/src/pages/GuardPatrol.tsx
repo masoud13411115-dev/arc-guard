@@ -3,15 +3,18 @@ import {
   QrCode, MapPin, CheckCircle, AlertTriangle, XCircle,
   Shield, LogOut, Wifi, WifiOff, Clock, Camera,
   PhoneOff, Loader2, ChevronDown, ChevronUp, RefreshCw,
-  Navigation, HelpCircle,
+  Navigation, HelpCircle, Nfc,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
 import { haversineDistance } from "@/lib/gps";
+import { validateDynamicQr } from "@/lib/dynamicQr";
+import { parseDynamicQrCode } from "@/lib/scanProtection";
 import { cacheCheckpoints, getCachedCheckpoints, getDBQueueCount } from "@/lib/localDB";
 import { queuePatrolLog, queueSosAlert, syncAll } from "@/lib/syncManager";
-import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert } from "@/lib/adapter";
+import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert, getCompany } from "@/lib/adapter";
+import type { VerificationMode, ScanMode } from "@/types";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
 import { requestCameraPermission, requestGpsPermission } from "@/lib/permissions";
@@ -29,7 +32,8 @@ interface GuardPatrolProps {
 }
 
 // "gps-wait" = checkpoint found, waiting for getCurrentPosition to resolve
-type ScanPhase = "idle" | "scanning" | "gps-wait" | "result";
+// "nfc-wait" = GPS (and QR if needed) passed, waiting for NFC tap
+type ScanPhase = "idle" | "scanning" | "gps-wait" | "nfc-wait" | "result";
 
 type ScanResult = {
   ok: boolean;
@@ -49,7 +53,7 @@ type ScanResult = {
 
 type ScanDebug = {
   qrText: string;
-  qrFormat: "v2" | "v1" | "invalid";
+  qrFormat: "v2" | "v1" | "invalid" | "gps";
   qrCompanyId: string | null;
   qrCheckpointId: string | null;
   guardCompanyId: string;
@@ -76,6 +80,8 @@ type PendingGps = {
   foundInLocal: boolean;
   foundInFirestore: boolean | null;
   localCount: number;
+  /** Effective scan mode, pre-computed before GPS phase starts */
+  effMode: ScanMode;
 };
 
 const SOS_HOLD_MS = 3000;
@@ -100,6 +106,20 @@ function gpsErrorTitle(code: number, t: (k: string) => string): string {
   }
 }
 
+// ── Scan-mode helpers ────────────────────────────────────────────────────────
+function modeHasQr(m: ScanMode): boolean  { return m === "qr" || m === "qr+gps" || m === "qr+nfc" || m === "all"; }
+function modeHasGps(m: ScanMode): boolean { return m === "gps" || m === "qr+gps" || m === "gps+nfc" || m === "all"; }
+function modeHasNfc(m: ScanMode): boolean { return m === "nfc" || m === "qr+nfc" || m === "gps+nfc" || m === "all"; }
+
+/** Map old VerificationMode + checkpoint scanMode to a unified ScanMode */
+function getEffectiveScanMode(cp: Checkpoint, companyMode: VerificationMode): ScanMode {
+  if (cp.scanMode) return cp.scanMode;
+  const m = cp.verificationMode ?? companyMode;
+  if (m === "gpsOnly") return "gps";
+  if (m === "dynamicQr") return "qr+gps";
+  return "qr+gps"; // fixedQr default
+}
+
 export default function GuardPatrol({ guardId, guardName, guardCode, companyId, companyName, onLogout }: GuardPatrolProps) {
   const [checkpoints, setCheckpoints]             = useState<Checkpoint[]>([]);
   const [checkpointsLoaded, setCheckpointsLoaded] = useState(false);
@@ -114,6 +134,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   const [showDebug, setShowDebug]                 = useState(false);
   const [syncing, setSyncing]                     = useState(false);
   const [showHelp, setShowHelp]                   = useState(false);
+  const [companyVerificationMode, setCompanyVerificationMode] = useState<VerificationMode>("fixedQr");
 
   // SOS
   const [sosHolding, setSosHolding]   = useState(false);
@@ -123,6 +144,13 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   const [sosError, setSosError]       = useState<string | null>(null);
   const [sosWritePath, setSosWritePath] = useState<string | null>(null);
   const [showSosDebug, setShowSosDebug] = useState(false);
+
+  // NFC phase state
+  const [nfcWaiting, setNfcWaiting]   = useState(false);
+  const nfcReaderRef   = useRef<any>(null);
+  const pendingNfcRef  = useRef<{ result: ScanResult; log: PatrolLog } | null>(null);
+  // Ref wrapper so processDistance (defined first) can forward-call startNfcScan (defined later)
+  const startNfcScanRef = useRef<(result: ScanResult, log: PatrolLog) => void>(() => {});
 
   const scannerRef     = useRef<any>(null);
   const sosTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -174,6 +202,13 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   // ── Initial queue count from IndexedDB ────────────────────────────────────
   useEffect(() => {
     getDBQueueCount(companyId).then(setQueueCount).catch(console.error);
+  }, [companyId]);
+
+  // ── Company verification mode ──────────────────────────────────────────────
+  useEffect(() => {
+    getCompany(companyId).then((c) => {
+      if (c?.verificationMode) setCompanyVerificationMode(c.verificationMode);
+    }).catch(() => {});
   }, [companyId]);
 
   // ── Load checkpoints (real-time + offline cache) ───────────────────────────
@@ -327,18 +362,18 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
     const isOffline = !navigator.onLine;
 
+    const validResult: ScanResult = {
+      ok: true, status: "valid",
+      title: tRef.current("guard.scan.result.valid"),
+      msg: tRef.current("scan.result.valid.msg", { distance: String(distance), accuracy: String(Math.round(coords.accuracy)) }),
+      checkpoint: checkpoint.name,
+      distance,
+      guardCoords: coords,
+      checkpointCoords: { lat: checkpoint.lat, lng: checkpoint.lng },
+      offlineSaved: isOffline,
+    };
+
     if (withinRadius) {
-      showResult({
-        ok: true, status: "valid",
-        title: tRef.current("guard.scan.result.valid"),
-        msg: tRef.current("scan.result.valid.msg", { distance: String(distance), accuracy: String(Math.round(coords.accuracy)) }),
-        checkpoint: checkpoint.name,
-        distance,
-        guardCoords: coords,
-        checkpointCoords: { lat: checkpoint.lat, lng: checkpoint.lng },
-        offlineSaved: isOffline,
-      });
-      playSuccess();
       if (db && !isOffline) {
         updateGuardSession({
           guardId, guardName, companyId,
@@ -346,6 +381,13 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           lastGps: coords, status: "active",
         });
       }
+      // If mode also requires NFC, hand off to NFC phase instead of showing result immediately
+      if (modeHasNfc(pending.effMode)) {
+        startNfcScanRef.current(validResult, log);
+        return;
+      }
+      showResult(validResult);
+      playSuccess();
     } else {
       showResult({
         ok: false, status: "outside",
@@ -441,6 +483,42 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
     fetchGpsAndProcess(pendingGpsRef.current);
   }, [fetchGpsAndProcess]);
 
+  // ── GPS-Only check-in (no QR required) ────────────────────────────────────
+  const handleGpsCheckIn = useCallback(async (cp: Checkpoint) => {
+    if (scanPhase !== "idle") return;
+    setScanResult(null);
+    setScanDebug(null);
+    setShowDebug(false);
+
+    // Cooldown guard
+    if (!canScan(cp.id)) {
+      const secs = secondsUntilNextScan(cp.id);
+      showResult({
+        ok: false, status: "cooldown",
+        title: tRef.current("scan.cooldown.title"),
+        msg: `"${cp.name}" — ${formatCountdown(secs)}`,
+        checkpoint: cp.name,
+      });
+      playCooldown();
+      return;
+    }
+
+    const cpEffMode = getEffectiveScanMode(cp, companyVerificationMode);
+    fetchGpsAndProcess({
+      checkpoint: cp,
+      qrText: "GPS_ONLY",
+      qrFormat: "gps",
+      qrCompanyId: companyId,
+      qrCheckpointId: cp.id,
+      firestorePath: `companies/${companyId}/checkpoints/${cp.id}`,
+      foundInLocal: true,
+      foundInFirestore: null,
+      localCount: checkpoints.length,
+      effMode: cpEffMode,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanPhase, companyId, checkpoints.length, fetchGpsAndProcess]);
+
   // ── QR processing ─────────────────────────────────────────────────────────
   const handleQrScan = useCallback(async (qrText: string) => {
     await stopScanner();
@@ -468,6 +546,79 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       });
       playFail();
       persistLog(buildLog(qrText, null, null, null, false, "failed"));
+      return;
+    }
+
+    // ── 2a. Handle Dynamic QR (ARCG_DYN format) ───────────────────────────
+    if (qrText.startsWith("ARCG_DYN|")) {
+      const dynParsed = parseDynamicQrCode(qrText);
+      if (!dynParsed) {
+        showResult({
+          ok: false, status: "failed",
+          title: tRef.current("vm.dynamic.invalid.title"),
+          msg: tRef.current("vm.dynamic.invalid.msg"),
+        });
+        playFail();
+        return;
+      }
+
+      // Find checkpoint by ID (local state first, then IndexedDB cache, then Firestore)
+      let dynCp: Checkpoint | null = checkpoints.find((c) => c.id === dynParsed.checkpointId) ?? null;
+      if (!dynCp) {
+        const cached = await getCachedCheckpoints(companyId, { allowStale: true });
+        dynCp = cached?.find((c) => c.id === dynParsed.checkpointId) ?? null;
+      }
+      if (!dynCp && db && navigator.onLine) {
+        try {
+          const cpDoc = await getDoc(doc(db, "companies", companyId, "checkpoints", dynParsed.checkpointId));
+          if (cpDoc.exists()) dynCp = { id: cpDoc.id, ...cpDoc.data() } as Checkpoint;
+        } catch {}
+      }
+      if (!dynCp) {
+        showResult({
+          ok: false, status: "failed",
+          title: tRef.current("scan.result.notfound.title"),
+          msg: tRef.current("scan.result.notfound.missing"),
+        });
+        playFail();
+        return;
+      }
+
+      // Validate HMAC + timestamp window
+      if (dynCp.dynamicQrSecret) {
+        const valid = await validateDynamicQr(qrText, dynCp.id, dynCp.dynamicQrSecret);
+        if (!valid) {
+          showResult({
+            ok: false, status: "failed",
+            title: tRef.current("vm.dynamic.invalid.title"),
+            msg: tRef.current("vm.dynamic.invalid.msg"),
+          });
+          playFail();
+          return;
+        }
+      }
+
+      // Cooldown check
+      if (!canScan(dynCp.id)) {
+        const secs = secondsUntilNextScan(dynCp.id);
+        showResult({
+          ok: false, status: "cooldown",
+          title: tRef.current("scan.cooldown.title"),
+          msg: `"${dynCp.name}" — ${formatCountdown(secs)}`,
+          checkpoint: dynCp.name,
+        });
+        playCooldown();
+        return;
+      }
+
+      fetchGpsAndProcess({
+        checkpoint: dynCp, qrText, qrFormat: "v2",
+        qrCompanyId: companyId, qrCheckpointId: dynCp.id,
+        firestorePath: `companies/${companyId}/checkpoints/${dynCp.id}`,
+        foundInLocal: true, foundInFirestore: null,
+        localCount: checkpoints.length,
+        effMode: getEffectiveScanMode(dynCp, companyVerificationMode),
+      });
       return;
     }
 
@@ -596,16 +747,51 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       return;
     }
 
-    // ── 6. GPS — fetch or wait ─────────────────────────────────────────────
-    // Checkpoint found → hand off to GPS phase (never fail immediately with "GPS not found")
+    // ── 6. Determine effective scan mode for this checkpoint ───────────────
+    const effMode = getEffectiveScanMode(checkpoint, companyVerificationMode);
+
+    // ── 7. Branch by scan mode ─────────────────────────────────────────────
     const pending: PendingGps = {
       checkpoint, qrText, qrFormat, qrCompanyId, qrCheckpointId,
       firestorePath,
       foundInLocal: foundInLocal || foundInFirestore === true,
       foundInFirestore,
       localCount: checkpoints.length,
+      effMode,
     };
-    fetchGpsAndProcess(pending);
+
+    if (modeHasGps(effMode)) {
+      // GPS check required — go through standard GPS phase
+      fetchGpsAndProcess(pending);
+    } else {
+      // QR validates the checkpoint — no GPS distance check required
+      setScanPhase("result");
+      setScanDebug({
+        qrText, qrFormat, qrCompanyId, qrCheckpointId,
+        guardCompanyId: companyId,
+        firestorePath,
+        localCheckpointsCount: checkpoints.length,
+        foundInLocal: foundInLocal || foundInFirestore === true,
+        foundInFirestore,
+        failReason: null,
+      });
+      recordScan(checkpoint.id);
+      const log = buildLog(qrText, checkpoint, null, null, true, "valid");
+      setRecentLogs((prev) => [log, ...prev.slice(0, 4)]);
+      const validResult: ScanResult = {
+        ok: true, status: "valid",
+        title: tRef.current("guard.scan.result.valid"),
+        msg: tRef.current("sm.qr.desc"),
+        checkpoint: checkpoint.name,
+      };
+      if (modeHasNfc(effMode)) {
+        startNfcScanRef.current(validResult, log);
+      } else {
+        showResult(validResult);
+        playSuccess();
+        persistLog(log);
+      }
+    }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkpoints, checkpointsLoaded, companyId, fetchGpsAndProcess]);
@@ -663,6 +849,60 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       queuePatrolLog(companyId, log).then(refreshCount).catch(console.error);
     }
   };
+
+  // ── NFC scanning ──────────────────────────────────────────────────────────
+  const startNfcScan = useCallback((result: ScanResult, log: PatrolLog) => {
+    pendingNfcRef.current = { result, log };
+    setNfcWaiting(true);
+    setScanPhase("nfc-wait");
+
+    if (!('NDEFReader' in window)) {
+      // NFC API not available — allow bypass immediately
+      return;
+    }
+
+    try {
+      const reader = new (window as any).NDEFReader();
+      nfcReaderRef.current = reader;
+      reader.scan().then(() => {
+        reader.onreadingerror = () => { /* ignore read errors, user can retry */ };
+        reader.onreading = () => {
+          // NFC tag tapped — confirm
+          nfcReaderRef.current = null;
+          const pending = pendingNfcRef.current;
+          if (!pending) return;
+          pendingNfcRef.current = null;
+          setNfcWaiting(false);
+          showResult(pending.result);
+          playSuccess();
+          persistLog(pending.log);
+          setScanPhase("result");
+        };
+      }).catch(() => {
+        // NDEFReader.scan() rejected (e.g. permission denied) — bypass allowed
+      });
+    } catch {
+      // NDEFReader construction failed — bypass allowed
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
+
+  // Keep startNfcScanRef in sync so processDistance can call it without stale closures
+  useEffect(() => { startNfcScanRef.current = startNfcScan; }, [startNfcScan]);
+
+  const cancelNfcScan = useCallback(() => {
+    try { if (nfcReaderRef.current) { nfcReaderRef.current = null; } } catch {}
+    const pending = pendingNfcRef.current;
+    if (pending) {
+      pendingNfcRef.current = null;
+      showResult(pending.result);
+      playSuccess();
+      persistLog(pending.log);
+    }
+    setNfcWaiting(false);
+    setScanPhase("result");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Next checkpoint ────────────────────────────────────────────────────────
   const nextCheckpoint = (() => {
@@ -878,21 +1118,106 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
       {/* ── Main ── */}
       <main className="flex-1 flex flex-col items-center px-5 gap-6">
 
-        {/* BIG SCAN BUTTON */}
-        <div className="flex flex-col items-center gap-4 mt-2">
-          <button
-            onClick={startScanner}
-            disabled={scanPhase !== "idle"}
-            className="w-60 h-60 rounded-full bg-primary/10 border-4 border-primary/40 flex flex-col items-center justify-center gap-4
-              hover:bg-primary/20 hover:border-primary/65 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
-              transition-all duration-150 shadow-[0_0_60px_rgba(14,165,233,0.18)] arc-glow"
-            style={{ touchAction: "manipulation" }}
-          >
-            <QrCode className="w-24 h-24 text-primary" />
-            <span className="text-[22px] font-bold text-primary tracking-wide">{t("guard.scan.btn")}</span>
-          </button>
-          <p className="text-[16px] text-muted-foreground">{t("guard.scan.hint")}</p>
-        </div>
+        {/* MAIN ACTION — smart routing based on per-checkpoint scan modes */}
+        {(() => {
+          // Compute which checkpoints need QR vs GPS/NFC-only
+          const qrCps  = checkpoints.filter((cp) => modeHasQr(getEffectiveScanMode(cp, companyVerificationMode)));
+          const noQrCps = checkpoints.filter((cp) => !modeHasQr(getEffectiveScanMode(cp, companyVerificationMode)));
+          const allNoQr = checkpoints.length > 0 && qrCps.length === 0;
+
+          return (
+            <div className="w-full max-w-sm space-y-4 mt-2">
+              {/* QR scan button — shown when any checkpoint needs QR */}
+              {!allNoQr && (
+                <div className="flex flex-col items-center gap-4">
+                  <button
+                    onClick={startScanner}
+                    disabled={scanPhase !== "idle"}
+                    className="w-60 h-60 rounded-full bg-primary/10 border-4 border-primary/40 flex flex-col items-center justify-center gap-4
+                      hover:bg-primary/20 hover:border-primary/65 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
+                      transition-all duration-150 shadow-[0_0_60px_rgba(14,165,233,0.18)] arc-glow"
+                    style={{ touchAction: "manipulation" }}
+                  >
+                    <QrCode className="w-24 h-24 text-primary" />
+                    <span className="text-[22px] font-bold text-primary tracking-wide">{t("guard.scan.btn")}</span>
+                  </button>
+                  <p className="text-[16px] text-muted-foreground">{t("guard.scan.hint")}</p>
+                </div>
+              )}
+
+              {/* GPS/NFC-only checkpoints list — shown when some or all checkpoints skip QR */}
+              {(noQrCps.length > 0 || allNoQr) && (
+                <div className="space-y-2">
+                  {allNoQr && (
+                    <div className="flex flex-col items-center gap-2 pb-2">
+                      <div className="w-16 h-16 rounded-full bg-green-500/10 border-2 border-green-500/30 flex items-center justify-center">
+                        <MapPin className="w-8 h-8 text-green-400" />
+                      </div>
+                      <p className="text-[14px] text-muted-foreground text-center">{t("vm.gpsOnly.hint")}</p>
+                    </div>
+                  )}
+                  {noQrCps.map((cp) => {
+                    const effMode = getEffectiveScanMode(cp, companyVerificationMode);
+                    const hasNfc  = modeHasNfc(effMode);
+                    return (
+                      <div key={cp.id} className="rounded-2xl border border-border bg-card/60 p-4 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-foreground text-sm">{cp.name}</p>
+                          {cp.location && (
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{cp.location}</p>
+                          )}
+                          <p className="text-[10px] text-muted-foreground/60 mt-0.5 uppercase tracking-wider">
+                            {effMode}
+                          </p>
+                        </div>
+                        {effMode === "nfc" ? (
+                          <button
+                            onClick={() => {
+                              if (scanPhase !== "idle") return;
+                              if (!canScan(cp.id)) {
+                                const secs = secondsUntilNextScan(cp.id);
+                                showResult({ ok: false, status: "cooldown", title: tRef.current("scan.cooldown.title"), msg: `"${cp.name}" — ${formatCountdown(secs)}`, checkpoint: cp.name });
+                                playCooldown();
+                                return;
+                              }
+                              const nfcResult: ScanResult = { ok: true, status: "valid", title: tRef.current("guard.scan.result.valid"), msg: tRef.current("sm.nfc.desc"), checkpoint: cp.name };
+                              const nfcLog = buildLog("NFC_ONLY", cp, gpsRef.current, null, true, "valid");
+                              recordScan(cp.id);
+                              setRecentLogs((prev) => [nfcLog, ...prev.slice(0, 4)]);
+                              startNfcScanRef.current(nfcResult, nfcLog);
+                            }}
+                            disabled={scanPhase !== "idle"}
+                            className="shrink-0 px-4 py-2.5 rounded-xl bg-purple-500/15 border border-purple-500/40 text-purple-400 font-bold text-sm
+                              hover:bg-purple-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                            style={{ touchAction: "manipulation" }}
+                          >
+                            {t("sm.nfc")}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleGpsCheckIn(cp)}
+                            disabled={scanPhase !== "idle"}
+                            className={`shrink-0 px-4 py-2.5 rounded-xl font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                              hasNfc
+                                ? "bg-orange-500/15 border border-orange-500/40 text-orange-400 hover:bg-orange-500/25"
+                                : "bg-green-500/15 border border-green-500/40 text-green-400 hover:bg-green-500/25"
+                            }`}
+                            style={{ touchAction: "manipulation" }}
+                          >
+                            {t("vm.gpsOnly.btn")}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {checkpoints.length === 0 && checkpointsLoaded && (
+                    <p className="text-center text-muted-foreground text-sm py-6">{t("cp.no.checkpoints")}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Next checkpoint card */}
         {nextCheckpoint && (
@@ -1104,6 +1429,38 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             {t("scan.wait.gps.desc")}
           </p>
           <p className="text-[14px] text-white/35 mt-4">{t("scan.wait.gps.max")}</p>
+        </div>
+      )}
+
+      {/* ── NFC Wait overlay ── */}
+      {scanPhase === "nfc-wait" && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 bg-black/92" dir={dir}>
+          <div className={`w-32 h-32 rounded-full border-4 flex items-center justify-center mb-7 ${
+            'NDEFReader' in window
+              ? "bg-purple-500/15 border-purple-500/40 animate-pulse"
+              : "bg-amber-500/15 border-amber-500/40"
+          }`}>
+            <Nfc className={`w-16 h-16 ${'NDEFReader' in window ? "text-purple-400" : "text-amber-400"}`} />
+          </div>
+          {'NDEFReader' in window ? (
+            <>
+              <p className="text-[22px] font-bold text-white mb-3">{t("sm.nfc.tap")}</p>
+              <p className="text-[16px] text-white/60 text-center leading-relaxed">{t("sm.nfc.waiting")}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[20px] font-bold text-amber-400 mb-2">{t("sm.nfc.unsupported")}</p>
+              <p className="text-[14px] text-white/50 text-center mb-6">{t("sm.nfc.tap")}</p>
+            </>
+          )}
+          <button
+            onClick={cancelNfcScan}
+            className="mt-8 flex items-center gap-2 px-6 py-3 rounded-2xl border border-white/20 text-white/70 hover:text-white hover:border-white/40 transition-colors text-[15px]"
+            style={{ touchAction: "manipulation" }}
+          >
+            <CheckCircle className="w-5 h-5 text-green-400" />
+            {t("sm.nfc.bypass")}
+          </button>
         </div>
       )}
 

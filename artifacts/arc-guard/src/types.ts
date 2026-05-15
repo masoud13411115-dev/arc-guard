@@ -6,6 +6,26 @@ export interface GpsCoords {
 
 export type PlanId = 'basic' | 'professional' | 'enterprise';
 
+/**
+ * Verification mode for a company (default) or individual checkpoint (override).
+ *  gpsOnly   — guard checks in using GPS location only, no QR scan required
+ *  fixedQr   — guard scans a static printed QR + GPS radius check (default)
+ *  dynamicQr — guard scans a time-rotating HMAC-signed QR + GPS radius check
+ */
+export type VerificationMode = 'gpsOnly' | 'fixedQr' | 'dynamicQr';
+
+/**
+ * Per-checkpoint scan mode — which physical verification methods are required.
+ *  qr       — QR code scan only (no GPS distance check)
+ *  gps      — GPS proximity check only (no QR scan)
+ *  nfc      — NFC tap only
+ *  qr+gps   — QR scan + GPS distance check (classic patrol mode)
+ *  qr+nfc   — QR scan + NFC tap
+ *  gps+nfc  — GPS proximity + NFC tap
+ *  all      — QR scan + GPS distance + NFC tap
+ */
+export type ScanMode = 'qr' | 'gps' | 'nfc' | 'qr+gps' | 'qr+nfc' | 'gps+nfc' | 'all';
+
 export interface Company {
   id: string;
   name: string;
@@ -28,6 +48,8 @@ export interface CompanyRecord {
   createdAt: number;
   trialEndsAt?: number;
   notes?: string;
+  /** Company-wide default verification mode; individual checkpoints may override. */
+  verificationMode?: VerificationMode;
 }
 
 export interface UserProfile {
@@ -55,6 +77,15 @@ export interface Checkpoint {
   active: boolean;
   companyId: string;
   createdAt: number;
+  /** Per-checkpoint mode override; falls back to company default when absent. */
+  verificationMode?: VerificationMode;
+  /**
+   * Scan mode — which verification methods are required for this checkpoint.
+   * Takes precedence over verificationMode when set.
+   */
+  scanMode?: ScanMode;
+  /** HMAC-SHA-256 secret for dynamicQr mode — auto-generated on checkpoint creation. */
+  dynamicQrSecret?: string;
 }
 
 export type ScanStatus = 'valid' | 'outside' | 'failed';

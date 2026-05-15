@@ -668,7 +668,12 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
                 <h2 className="text-lg font-bold text-foreground">{t("dash.section.monitor")}</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">{t("dash.section.monitor.sub")}</p>
               </div>
-              <LiveMonitor companyId={profile.companyId} />
+              <LiveMonitor
+                companyId={profile.companyId}
+                sessions={sessions}
+                alerts={alerts}
+                recentLogs={recentLogs}
+              />
             </div>
           )}
 

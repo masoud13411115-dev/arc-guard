@@ -8,6 +8,8 @@ import { useI18n } from "@/lib/i18n";
 import { getCompany, getCompanyGuards, setGuardActive, regenerateInviteCode, updateCompany } from "@/lib/adapter";
 import AdapterStatusBadge from "@/components/AdapterStatusBadge";
 import AdapterModeSelector from "@/components/AdapterModeSelector";
+import LanServerPanel from "@/components/LanServerPanel";
+import { getAdapterMode } from "@/lib/adapter";
 import {
   PLANS, PLAN_ORDER, FEATURE_LABELS, getUsagePct, getLimitLabel
 } from "@/lib/plans";
@@ -408,6 +410,9 @@ export default function CompanySettings({ profile }: CompanySettingsProps) {
       {/* ── Adapter status + mode selector ── */}
       <AdapterStatusBadge />
       <AdapterModeSelector />
+
+      {/* ── LAN server setup panel (visible when mode = local) ── */}
+      {getAdapterMode() === "local" && <LanServerPanel />}
     </div>
   );
 }

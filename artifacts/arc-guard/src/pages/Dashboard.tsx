@@ -9,6 +9,7 @@ import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
+import LanModeIndicator from "@/components/LanModeIndicator";
 import LiveMonitor from "./LiveMonitor";
 import CheckpointManager from "./CheckpointManager";
 import PatrolLogs from "./PatrolLogs";
@@ -469,6 +470,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         <div className="px-2 mb-2 flex items-center justify-between gap-2">
           <p className="text-[10px] text-muted-foreground truncate">@{profile.username}</p>
           <VersionBadge />
+        </div>
+        <div className="px-2 mb-2">
+          <LanModeIndicator />
         </div>
         <button onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors">

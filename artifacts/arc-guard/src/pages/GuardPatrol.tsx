@@ -17,6 +17,7 @@ import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert, get
 import type { VerificationMode, ScanMode } from "@/types";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
+import { buildLabel, isStable, isTest } from "@/version";
 import { requestCameraPermission, requestGpsPermission } from "@/lib/permissions";
 import HelpPage from "@/pages/HelpPage";
 import { db } from "@/firebase";
@@ -1066,6 +1067,13 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             {companyName && (
               <span className="text-[12px] text-muted-foreground truncate max-w-[100px]">{companyName}</span>
             )}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+              isStable ? "bg-green-500/10 text-green-400 border-green-500/20"
+              : isTest  ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+              : "bg-muted text-muted-foreground border-border"
+            }`}>
+              {buildLabel()}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <LanguageSelector variant="compact" />

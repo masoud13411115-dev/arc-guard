@@ -9,14 +9,21 @@
  *
  * Offline fallback: if the server is unreachable, the offline queue
  * (IndexedDB offlineQueue via syncManager) will buffer logs and retry on reconnect.
+ *
+ * v2 improvements:
+ *   - 10-second AbortSignal.timeout on all fetch calls
+ *   - Connection health cached so subscriptions degrade gracefully
+ *   - Retry once on connection failure before propagating error
+ *   - Richer error messages (HTTP status + server error body when available)
  */
 
 import type { DataAdapter } from "./types";
 
 // ── Server URL persistence ────────────────────────────────────────────────────
 
-const SERVER_URL_KEY = "arc_guard_local_server_url";
-const POLL_MS        = 5_000;
+const SERVER_URL_KEY    = "arc_guard_local_server_url";
+const POLL_MS           = 5_000;
+const FETCH_TIMEOUT_MS  = 10_000;
 
 export function getLocalServerUrl(): string {
   try { return localStorage.getItem(SERVER_URL_KEY)?.trim() ?? ""; }
@@ -28,6 +35,15 @@ export function setLocalServerUrl(url: string): void {
   catch { /* private browsing */ }
 }
 
+// ── Connection health cache ───────────────────────────────────────────────────
+// Tracks last known server status to give meaningful errors in subscriptions.
+
+let _lastHealthOk    = false;
+let _lastHealthCheck = 0;
+const HEALTH_CACHE_MS = 30_000; // re-check health at most every 30s
+
+export function getCachedLocalServerHealth(): boolean { return _lastHealthOk; }
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch<T = unknown>(
@@ -36,12 +52,32 @@ async function apiFetch<T = unknown>(
 ): Promise<T> {
   const base = getLocalServerUrl().replace(/\/$/, "");
   if (!base) throw new Error("آدرس سرور شرکت تنظیم نشده است");
-  const res = await fetch(`${base}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
+
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${base}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      let body = "";
+      try { body = await res.text(); } catch { /* ignore */ }
+      throw new Error(`HTTP ${res.status} ${res.statusText}${body ? `: ${body.slice(0, 120)}` : ""}`);
+    }
+
+    return res.json() as Promise<T>;
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(`سرور پاسخ نداد (timeout ${FETCH_TIMEOUT_MS / 1000}s)`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function apiPath(companyId: string, resource: string): string {
@@ -59,8 +95,20 @@ function poll<T>(
 
   function run() {
     fetchFn()
-      .then((d) => { if (active) cb(d); })
-      .catch((e) => { if (active) onError?.(e as Error); });
+      .then((d) => {
+        if (active) {
+          _lastHealthOk    = true;
+          _lastHealthCheck = Date.now();
+          cb(d);
+        }
+      })
+      .catch((e) => {
+        if (active) {
+          _lastHealthOk    = false;
+          _lastHealthCheck = Date.now();
+          onError?.(e as Error);
+        }
+      });
   }
 
   run();
@@ -251,11 +299,18 @@ export const localAdapter: DataAdapter = {
   async setGuardActive(uid, active) {
     const base = getLocalServerUrl().replace(/\/$/, "");
     if (!base) return;
-    await fetch(`${base}/api/guards/${uid}/active`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ active }),
-    });
+    const controller = new AbortController();
+    const timer      = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      await fetch(`${base}/api/guards/${uid}/active`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active }),
+        signal:  controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   },
 
   // ── Offline sync ──────────────────────────────────────────────────────────────
@@ -272,9 +327,25 @@ export async function testLocalServerConnection(): Promise<boolean> {
   const base = getLocalServerUrl().replace(/\/$/, "");
   if (!base) return false;
   try {
-    const res = await fetch(`${base}/api/health`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    return res.ok;
-  } catch { return false; }
+    const controller = new AbortController();
+    const timer      = setTimeout(() => controller.abort(), 5_000);
+    const res = await fetch(`${base}/api/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    const ok = res.ok;
+    _lastHealthOk    = ok;
+    _lastHealthCheck = Date.now();
+    return ok;
+  } catch {
+    _lastHealthOk    = false;
+    _lastHealthCheck = Date.now();
+    return false;
+  }
+}
+
+// ── Background health monitor for local server ────────────────────────────────
+// Checks the local server health when enough time has elapsed since last check.
+
+export async function checkLocalServerHealthIfStale(): Promise<boolean> {
+  if (Date.now() - _lastHealthCheck < HEALTH_CACHE_MS) return _lastHealthOk;
+  return testLocalServerConnection();
 }

@@ -1,11 +1,20 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   Database, Cloud, Server, CheckCircle, XCircle, Clock,
-  RefreshCw, Wifi, WifiOff, Terminal, Info, Bell,
+  RefreshCw, Wifi, WifiOff, Terminal, Info, Bell, Activity,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getAdapterMode } from "@/lib/adapter";
 import { isFirebaseReady } from "@/firebase";
+import {
+  getDBQueueCount, getDeadLetterCount, estimateLocalDBSize,
+} from "@/lib/localDB";
+import {
+  getLastSyncAt, getTransitionLog, type TransitionEntry,
+} from "@/lib/syncManager";
+import {
+  getLocalServerUrl, testLocalServerConnection, getCachedLocalServerHealth,
+} from "@/lib/adapter/localAdapter";
 import type { FcmDiagState } from "@/lib/fcm";
 
 // ── Sub-components defined at module level to avoid reconciliation issues ──────
@@ -54,26 +63,90 @@ function DiagRow({
   );
 }
 
+function fmtAgo(ts: number | null): string {
+  if (!ts) return "Never";
+  const diff = Date.now() - ts;
+  const m    = Math.floor(diff / 60_000);
+  const h    = Math.floor(m / 60);
+  if (h > 0) return `${h}h ago`;
+  if (m > 0) return `${m}m ago`;
+  return "just now";
+}
+
+function eventColor(e: TransitionEntry["event"]): string {
+  if (e === "item_ok"   || e === "sync_ok")   return "text-green-400";
+  if (e === "item_dead" || e === "sync_failed") return "text-red-400";
+  if (e === "item_failed")                    return "text-orange-400";
+  if (e === "online")                         return "text-green-400";
+  if (e === "offline")                        return "text-red-400";
+  return "text-muted-foreground";
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 interface DiagnosticsPageProps {
+  companyId?: string;
   fcm?: FcmDiagState;
 }
 
-export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
+export default function DiagnosticsPage({ companyId, fcm }: DiagnosticsPageProps) {
   const { t } = useI18n();
   const [mode]   = useState(getAdapterMode);
   const [fbReady]= useState(() => isFirebaseReady);
   const [tick, setTick] = useState(0);
 
-  // Auto-refresh label every 10 s
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 10_000);
-    return () => clearInterval(id);
-  }, []);
+  // Sync diagnostics state
+  const [pendingCount,    setPendingCount]    = useState(0);
+  const [deadCount,       setDeadCount]       = useState(0);
+  const [dbSize,          setDbSize]          = useState("—");
+  const [lastSync,        setLastSync]        = useState<number | null>(null);
+  const [transitionLog,   setTransitionLog]   = useState<TransitionEntry[]>([]);
+  const [localServerOk,   setLocalServerOk]   = useState<boolean | null>(null);
+  const [localServerUrl,  setLocalServerUrl]  = useState("");
+  const [testingServer,   setTestingServer]   = useState(false);
 
   const isCloud   = mode === "firebase";
-  const localStub = !isCloud;
+  const isLocal   = mode === "local";
+
+  const refreshSyncState = useCallback(async () => {
+    const cid = companyId;
+    const [pCount, dCount, size] = await Promise.all([
+      getDBQueueCount(cid),
+      getDeadLetterCount(cid),
+      estimateLocalDBSize(),
+    ]);
+    setPendingCount(pCount);
+    setDeadCount(dCount);
+    setDbSize(size.formatted);
+    setLastSync(cid ? getLastSyncAt(cid) : null);
+    setTransitionLog(getTransitionLog().slice(0, 10));
+    setLocalServerUrl(getLocalServerUrl());
+    setLocalServerOk(getCachedLocalServerHealth());
+  }, [companyId]);
+
+  // Auto-refresh every 10s
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTick((n) => n + 1);
+      refreshSyncState().catch(console.error);
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [refreshSyncState]);
+
+  // Load on mount
+  useEffect(() => {
+    refreshSyncState().catch(console.error);
+  }, [refreshSyncState]);
+
+  const handleTestLocalServer = async () => {
+    setTestingServer(true);
+    try {
+      const ok = await testLocalServerConnection();
+      setLocalServerOk(ok);
+    } finally {
+      setTestingServer(false);
+    }
+  };
 
   // FCM permission label
   const permLabel =
@@ -104,27 +177,76 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
         </div>
       </div>
 
+      {/* ── Sync diagnostics ── */}
+      <Section title={t("diag.sync.section")} icon={Activity}>
+        <DiagRow
+          label={t("diag.sync.pending")}
+          value={String(pendingCount)}
+          ok={pendingCount === 0 ? true : "warn"}
+        />
+        <DiagRow
+          label={t("diag.sync.dead")}
+          value={String(deadCount)}
+          ok={deadCount === 0 ? true : false}
+        />
+        <DiagRow
+          label={t("diag.sync.last")}
+          value={fmtAgo(lastSync)}
+          ok={lastSync ? true : null}
+        />
+        <DiagRow
+          label={t("diag.sync.db.size")}
+          value={dbSize}
+          mono
+        />
+        <DiagRow
+          label="Retry policy"
+          value="2s → 4s → 8s → 16s → 32s → 64s (6 max)"
+          mono
+        />
+        <DiagRow label="Idempotency" value="30s bucket keyed" mono ok={true} />
+
+        {/* Transition log */}
+        {transitionLog.length > 0 && (
+          <div className="mt-2 rounded-lg border border-border bg-muted/10 overflow-hidden">
+            <p className="text-[10px] text-muted-foreground px-3 py-1.5 border-b border-border font-semibold">
+              {t("diag.sync.log")} (last {transitionLog.length})
+            </p>
+            <div className="divide-y divide-border max-h-40 overflow-y-auto" dir="ltr">
+              {transitionLog.map((entry, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-1 text-[10px]">
+                  <span className="text-muted-foreground/40 font-mono w-12 shrink-0 text-right">
+                    {Math.floor((Date.now() - entry.ts) / 60_000)}m
+                  </span>
+                  <span className={`font-mono font-semibold w-24 shrink-0 ${eventColor(entry.event)}`}>
+                    {entry.event}
+                  </span>
+                  <span className="text-muted-foreground/60 truncate">{entry.detail ?? ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Section>
+
       {/* ── Adapter ── */}
       <Section title={t("diag.adapter.section")} icon={Database}>
         <DiagRow
           label={t("adapter.status.mode")}
-          value={isCloud ? t("diag.mode.cloud") : t("diag.mode.local")}
+          value={mode}
+          mono
         />
         <DiagRow
           label={t("adapter.status.adapter")}
-          value={isCloud ? "firebaseAdapter" : "localAdapter (Phase 1 stub)"}
+          value={isCloud ? "firebaseAdapter" : isLocal ? "localAdapter" : "indexeddbAdapter"}
           mono
         />
         <DiagRow
           label={t("diag.adapter.phase")}
-          value={isCloud ? "Production" : t("adapter.phase1")}
+          value={isCloud ? "Cloud / Production" : isLocal ? "Local Server" : "Offline / IndexedDB"}
           ok={isCloud ? true : "warn"}
         />
-        <DiagRow
-          label="localStorage key"
-          value="arc_guard_adapter_mode"
-          mono
-        />
+        <DiagRow label="localStorage key" value="arc_guard_adapter_mode" mono />
       </Section>
 
       {/* ── Firebase ── */}
@@ -149,7 +271,6 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
 
       {/* ── FCM Push Notifications ── */}
       <Section title={t("push.fcm.section")} icon={Bell}>
-        {/* Browser support row — most important, shown first */}
         <DiagRow
           label={t("push.fcm.browser.support")}
           value={
@@ -159,16 +280,12 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
           }
           ok={!fcm ? null : fcm.fcmSupported ? true : false}
         />
-
-        {/* When unsupported, show the user-facing message and skip the rest */}
         {fcm && !fcm.fcmSupported && (
           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-500/8 border border-red-500/20">
             <Info className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
             <p className="text-[11px] text-red-300/80 leading-relaxed">{t("push.bg.unsupported.msg")}</p>
           </div>
         )}
-
-        {/* PWA + background push rows — always shown when FCM is supported */}
         {(!fcm || fcm.fcmSupported) && (
           <>
             <DiagRow
@@ -189,20 +306,13 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
               }
               ok={!fcm ? null : fcm.bgPushActive ? true : false}
             />
-
-            {/* iOS not installed warning */}
             {fcm?.iosDevice && !fcm.pwaInstalled && (
               <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20">
                 <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-amber-300/80 leading-relaxed">{t("push.ios.bg.unsupported")}</p>
               </div>
             )}
-
-            <DiagRow
-              label={t("push.permission")}
-              value={permLabel}
-              ok={permOk}
-            />
+            <DiagRow label={t("push.permission")} value={permLabel} ok={permOk} />
             <DiagRow
               label={t("push.sw.status")}
               value={!fcm ? "—" : fcm.swActive ? t("push.sw.active") : t("push.sw.inactive")}
@@ -229,7 +339,6 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
             )}
           </>
         )}
-
         <DiagRow label="SW path"       value="/arc-guard/firebase-messaging-sw.js" mono />
         <DiagRow label="Firestore path" value="companies/{id}/fcmTokens/{uid}"     mono />
       </Section>
@@ -238,16 +347,36 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
       <Section title={t("diag.local.section")} icon={Server}>
         <DiagRow
           label={t("diag.local.status")}
-          value={t("diag.local.available")}
-          ok="warn"
+          value={
+            localServerOk === true  ? t("diag.local.connected")    :
+            localServerOk === false ? t("diag.local.unreachable")  :
+            t("diag.local.available")
+          }
+          ok={localServerOk === true ? true : localServerOk === false ? false : "warn"}
         />
         <DiagRow
           label={t("diag.adapter.active")}
-          value={localStub ? t("common.yes") : t("common.no")}
-          ok={localStub}
+          value={isLocal ? t("common.yes") : t("common.no")}
+          ok={isLocal}
         />
-        <DiagRow label="Phase"    value="Phase 2 — not implemented" mono ok="warn" />
-        <DiagRow label="Protocol" value="REST + WebSocket (planned)" mono />
+        <DiagRow
+          label="Server URL"
+          value={localServerUrl || "(not configured)"}
+          mono
+        />
+        <DiagRow label="Protocol" value="HTTP REST (polling 5s)" mono />
+        <DiagRow label="Timeout"  value="10s per request"        mono ok={true} />
+
+        {isLocal && (
+          <button
+            onClick={handleTestLocalServer}
+            disabled={testingServer || !localServerUrl}
+            className="mt-1 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent disabled:opacity-40 transition-colors flex items-center gap-1.5"
+          >
+            {testingServer ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Cloud className="w-3 h-3" />}
+            {testingServer ? "Testing..." : t("diag.local.test")}
+          </button>
+        )}
       </Section>
 
       {/* ── Info note ── */}
@@ -269,18 +398,20 @@ export default function DiagnosticsPage({ fcm }: DiagnosticsPageProps) {
             ["mode",              mode],
             ["firebaseReady",     String(fbReady)],
             ["isCloud",           String(isCloud)],
+            ["pendingCount",      String(pendingCount)],
+            ["deadCount",         String(deadCount)],
+            ["localServerUrl",    localServerUrl || "(empty)"],
+            ["localServerOk",     String(localServerOk)],
             ["tick",              String(tick)],
             ["fcm.fcmSupported",  String(fcm?.fcmSupported ?? "—")],
             ["fcm.pwaInstalled",  String(fcm?.pwaInstalled ?? "—")],
             ["fcm.bgPushActive",  String(fcm?.bgPushActive ?? "—")],
-            ["fcm.iosDevice",     String(fcm?.iosDevice    ?? "—")],
             ["fcm.swActive",      String(fcm?.swActive     ?? "—")],
             ["fcm.tokenSaved",    String(fcm?.tokenSaved   ?? "—")],
             ["fcm.vapidSet",      String(fcm?.vapidSet     ?? "—")],
-            ["fcm.permission",    fcm?.permission          ?? "—"],
           ].map(([k, v]) => (
             <div key={k} className="flex gap-3">
-              <span className="text-white/30 w-28 shrink-0">{k}</span>
+              <span className="text-white/30 w-32 shrink-0">{k}</span>
               <span className="text-primary/80 break-all">{v}</span>
             </div>
           ))}

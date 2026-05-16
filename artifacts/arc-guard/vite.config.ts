@@ -51,6 +51,11 @@ const envDefine = {
   // "guard"   → Guard APK auto-navigates to /guard on launch.
   // ""        → web build / unspecified — LandingPage shows the chooser.
   __APP_FLAVOR__: JSON.stringify(process.env.APP_FLAVOR ?? ""),
+  // Version label and build type injected by CI (see android-apk.yml).
+  // APP_BUILD_TYPE: "stable" | "test" | "dev"
+  // APP_VERSION:    semver string e.g. "1.0", "1.1"
+  __APP_VERSION__:    JSON.stringify(process.env.APP_VERSION    ?? "1.0"),
+  __APP_BUILD_TYPE__: JSON.stringify(process.env.APP_BUILD_TYPE ?? "dev"),
 };
 
 // ── Firebase Messaging Service Worker generator ────────────────────────────

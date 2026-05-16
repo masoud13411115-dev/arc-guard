@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """
-patch_gradle.py — Injects Android productFlavors into Capacitor-generated build.gradle.
+patch_gradle.py — Injects Android productFlavors + release signingConfig
+                  into Capacitor-generated build.gradle.
 
 Run from artifacts/arc-guard/ after `npx cap add android` + `npx cap sync android`:
     python3 android-config/patch_gradle.py
 
-Strategy:
-  Locates the `buildTypes { ... }` block inside android { } using brace-depth
-  tracking, then inserts flavorDimensions + productFlavors immediately AFTER it
-  (still inside the android { } block).  This is correct regardless of how many
-  additional blocks (repositories, try/catch) appear later in the file.
+What this script does
+─────────────────────
+1. Injects a `signingConfigs { release { ... } }` block that reads the
+   keystore path/password from environment variables set in CI:
+     KEYSTORE_FILE   — path to the .jks/.keystore file
+     KEYSTORE_PASS   — keystore + key password (same for simplicity)
+     KEY_ALIAS       — key alias (default: "arcguard")
 
-  Also removes <string name="app_name"> from strings.xml so that each flavor's
-  resValue "string", "app_name", "..." can supply it without aapt conflict.
+2. Replaces the stub `release { }` buildType with one that:
+   • enables minification (R8 / ProGuard)
+   • references proguard-android-optimize.txt
+   • wires up the release signingConfig (only when KEYSTORE_FILE is set)
+
+3. Injects `flavorDimensions + productFlavors` for Manager / Guard variants
+   AFTER the buildTypes block (unchanged from before).
+
+4. Removes <string name="app_name"> from strings.xml so each flavor can
+   supply it via resValue without aapt conflict.
 """
 
 import re
@@ -22,6 +33,32 @@ import sys
 GRADLE_PATH  = "android/app/build.gradle"
 STRINGS_PATH = "android/app/src/main/res/values/strings.xml"
 
+# ── Signing config injected BEFORE buildTypes ──────────────────────────────
+SIGNING_CONFIG_BLOCK = (
+    "\n"
+    "    signingConfigs {\n"
+    "        release {\n"
+    "            def ksPath = System.getenv(\"KEYSTORE_FILE\")\n"
+    "            storeFile ksPath ? file(ksPath) : null\n"
+    "            storePassword System.getenv(\"KEYSTORE_PASS\") ?: \"\"\n"
+    "            keyAlias System.getenv(\"KEY_ALIAS\") ?: \"arcguard\"\n"
+    "            keyPassword System.getenv(\"KEYSTORE_PASS\") ?: \"\"\n"
+    "        }\n"
+    "    }\n"
+)
+
+# ── Replacement release buildType (replaces the stub from cap add) ─────────
+RELEASE_BUILD_TYPE_REPLACEMENT = (
+    "        release {\n"
+    "            minifyEnabled true\n"
+    "            shrinkResources false\n"
+    "            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'\n"
+    "            def ksPath = System.getenv(\"KEYSTORE_FILE\")\n"
+    "            signingConfig ksPath ? signingConfigs.release : null\n"
+    "        }"
+)
+
+# ── productFlavors injected AFTER buildTypes ───────────────────────────────
 FLAVORS_BLOCK = (
     "\n"
     "\n"
@@ -60,55 +97,110 @@ def find_block_end(text, search_from):
     return -1
 
 
+def patch_signing_config(content):
+    """
+    Inject signingConfigs block immediately BEFORE the buildTypes block
+    (but still inside android { }).
+    Skip if already present.
+    """
+    if "signingConfigs" in content:
+        print("signingConfigs already present — skipping injection")
+        return content
+
+    android_match = re.search(r"\bandroid\s*\{", content)
+    if not android_match:
+        print("ERROR: could not find 'android {' block")
+        sys.exit(1)
+
+    android_end = find_block_end(content, android_match.start())
+    android_inner = content[android_match.end():android_end]
+
+    bt_match = re.search(r"\bbuildTypes\s*\{", android_inner)
+    if not bt_match:
+        print("WARNING: buildTypes block not found — inserting signingConfigs before android block end")
+        insert_at = android_end
+    else:
+        # Absolute offset of 'buildTypes' keyword in the full file
+        bt_abs = android_match.end() + bt_match.start()
+        insert_at = bt_abs
+
+    new_content = content[:insert_at] + SIGNING_CONFIG_BLOCK + content[insert_at:]
+    print("signingConfigs block injected before buildTypes in {}".format(GRADLE_PATH))
+    return new_content
+
+
+def patch_release_build_type(content):
+    """
+    Replace the stub `release { minifyEnabled false ... }` buildType with
+    the hardened version that enables minification and wires signingConfig.
+    Skip if already patched.
+    """
+    if "signingConfig ksPath ?" in content:
+        print("release buildType already patched — skipping")
+        return content
+
+    # Find `release {` inside the file
+    rel_match = re.search(r"\brelease\s*\{", content)
+    if not rel_match:
+        print("WARNING: release buildType not found — skipping patch")
+        return content
+
+    rel_end = find_block_end(content, rel_match.start())
+    if rel_end < 0:
+        print("WARNING: could not find end of release block — skipping")
+        return content
+
+    old_block = content[rel_match.start():rel_end + 1]
+    new_content = content.replace(old_block, RELEASE_BUILD_TYPE_REPLACEMENT, 1)
+    print("release buildType patched (minifyEnabled=true, signingConfig wired)")
+    return new_content
+
+
+def patch_product_flavors(content):
+    """
+    Inject flavorDimensions + productFlavors AFTER the buildTypes block.
+    Skip if already present.
+    """
+    if "productFlavors" in content:
+        print("productFlavors already present — skipping")
+        return content
+
+    android_match = re.search(r"\bandroid\s*\{", content)
+    if not android_match:
+        print("ERROR: could not find 'android {' block")
+        sys.exit(1)
+
+    android_end = find_block_end(content, android_match.start())
+    android_inner = content[android_match.end():android_end]
+
+    bt_match = re.search(r"\bbuildTypes\s*\{", android_inner)
+    if bt_match:
+        bt_abs_start = android_match.end() + bt_match.start()
+        bt_end = find_block_end(content, bt_abs_start)
+        insert_at = bt_end + 1 if bt_end >= 0 else android_end
+    else:
+        print("WARNING: buildTypes not found; inserting flavors before android block end")
+        insert_at = android_end
+
+    new_content = content[:insert_at] + FLAVORS_BLOCK + content[insert_at:]
+    print("productFlavors injected after buildTypes in {}".format(GRADLE_PATH))
+    return new_content
+
+
 def patch_build_gradle():
     if not os.path.exists(GRADLE_PATH):
-        print("ERROR: {} not found — run cap add android first".format(GRADLE_PATH))
+        print("ERROR: {} not found — run 'npx cap add android' first".format(GRADLE_PATH))
         sys.exit(1)
 
     with open(GRADLE_PATH) as f:
         content = f.read()
 
-    if "productFlavors" in content:
-        print("productFlavors already present in {} — skipping".format(GRADLE_PATH))
-        return
-
-    # ── Step 1: find the android { } block ───────────────────────────────────
-    android_match = re.search(r"\bandroid\s*\{", content)
-    if not android_match:
-        print("ERROR: could not find 'android {' block in build.gradle")
-        sys.exit(1)
-
-    android_end = find_block_end(content, android_match.start())
-    if android_end < 0:
-        print("ERROR: could not find closing brace of android { } block")
-        sys.exit(1)
-
-    android_inner = content[android_match.end():android_end]   # text inside android {}
-
-    # ── Step 2: find the buildTypes { } block inside android { } ─────────────
-    bt_match = re.search(r"\bbuildTypes\s*\{", android_inner)
-    if bt_match:
-        # Absolute offset of buildTypes { in the full file
-        bt_abs_start = android_match.end() + bt_match.start()
-        bt_end = find_block_end(content, bt_abs_start)
-
-        if bt_end < 0:
-            print("WARNING: could not find end of buildTypes block; falling back to android block end")
-            insert_at = android_end
-        else:
-            # Insert AFTER the buildTypes closing }
-            insert_at = bt_end + 1
-    else:
-        # No buildTypes block found — insert just before android block closes
-        print("WARNING: buildTypes block not found; inserting before android block end")
-        insert_at = android_end
-
-    new_content = content[:insert_at] + FLAVORS_BLOCK + content[insert_at:]
+    content = patch_signing_config(content)
+    content = patch_release_build_type(content)
+    content = patch_product_flavors(content)
 
     with open(GRADLE_PATH, "w") as f:
-        f.write(new_content)
-
-    print("productFlavors injected after buildTypes block in {}".format(GRADLE_PATH))
+        f.write(content)
 
 
 def patch_strings_xml():
@@ -134,19 +226,33 @@ def show_result():
         return
     with open(GRADLE_PATH) as f:
         patched = f.read()
+
     print("\n=== Patched {} ===".format(GRADLE_PATH))
     print(patched)
-    if "productFlavors" in patched:
-        print("\nVERIFY: 'productFlavors' present in build.gradle")
-    else:
-        print("\nERROR: 'productFlavors' NOT found after patching!")
+
+    checks = {
+        "signingConfigs":   "signingConfigs" in patched,
+        "productFlavors":   "productFlavors" in patched,
+        "minifyEnabled true": "minifyEnabled true" in patched,
+    }
+    all_ok = True
+    for label, ok in checks.items():
+        print("  {} {}".format("OK  " if ok else "MISS", label))
+        if not ok:
+            all_ok = False
+
+    if not all_ok:
+        print("\nERROR: patch verification failed!")
         sys.exit(1)
+
+    print("\nPatch complete. Build with:")
+    print("  ./gradlew assembleManagerDebug    ->  com.arcguard.manager (debug)")
+    print("  ./gradlew assembleGuardDebug      ->  com.arcguard.guard   (debug)")
+    print("  ./gradlew assembleManagerRelease  ->  com.arcguard.manager (release, signed if KEYSTORE_FILE set)")
+    print("  ./gradlew assembleGuardRelease    ->  com.arcguard.guard   (release, signed if KEYSTORE_FILE set)")
 
 
 if __name__ == "__main__":
     patch_build_gradle()
     patch_strings_xml()
     show_result()
-    print("\nPatch complete. Build with:")
-    print("  ./gradlew assembleManagerDebug  ->  com.arcguard.manager")
-    print("  ./gradlew assembleGuardDebug    ->  com.arcguard.guard")

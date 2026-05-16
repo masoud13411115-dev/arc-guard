@@ -8,7 +8,9 @@ import {
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
-import { haversineDistance, detectGpsFraud, recordScanGps } from "@/lib/gps";
+import { haversineDistance, detectGpsFraud, recordScanGps, recordBackgroundGps } from "@/lib/gps";
+import { runSecurityChecks } from "@/lib/securityChecks";
+import { checkAndBindDevice } from "@/lib/deviceBinding";
 import { validateDynamicQr, isDynamicWindowUsed, markDynamicWindowUsed, extractDynamicQrWindow } from "@/lib/dynamicQr";
 import { parseDynamicQrCode } from "@/lib/scanProtection";
 import { cacheCheckpoints, getCachedCheckpoints, getDBQueueCount } from "@/lib/localDB";
@@ -191,6 +193,21 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   // Keep gpsRef in sync so callbacks see fresh GPS without stale closure
   useEffect(() => { gpsRef.current = gps; }, [gps]);
 
+  // ── Security checks on mount + device binding ──────────────────────────────
+  useEffect(() => {
+    // Run environment security scan (emulator, iframe, debugger detection)
+    const report = runSecurityChecks();
+    if (!report.passed) {
+      const critical = report.flags.filter(f => f.severity === 'critical' || f.severity === 'high');
+      if (import.meta.env.DEV) {
+        console.warn('[ARC Guard Security] Flags detected:', critical.map(f => f.code).join(', '));
+      }
+    }
+
+    // Bind device fingerprint to this guard account (silent, fail-open)
+    checkAndBindDevice(companyId, guardId).catch(() => {});
+  }, [companyId, guardId]);
+
   // ── GPS watch (continuous background) ─────────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) { setGpsError(true); return; }
@@ -210,6 +227,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           setGps(coords);
           gpsRef.current = coords;
           setGpsError(false);
+          recordBackgroundGps(coords);
           if (db) {
             updateGuardSession({
               guardId, guardName, companyId,

@@ -1,0 +1,175 @@
+rules_version = '2';
+// ──────────────────────────────────────────────────────────────────────────────
+// ARC Guard — Firestore Security Rules
+// Deploy: firebase deploy --only firestore:rules
+//
+// Role model:
+//   super_admin — can read/write all companies
+//   manager     — can read/write their own company's data
+//   guard       — can read checkpoints, write their own patrol logs / sessions / alerts
+//
+// All collections are scoped under companies/{companyId}.
+// Cross-company access is denied at every level.
+// ──────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ────────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    // Read the caller's user profile (cached by Firestore — not an extra read)
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(uid())).data;
+    }
+
+    function myRole() {
+      return myProfile().role;
+    }
+
+    function myCompanyId() {
+      return myProfile().companyId;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && myRole() == 'super_admin';
+    }
+
+    function isManager(companyId) {
+      return isAuthenticated()
+          && myRole() in ['manager', 'super_admin']
+          && (myCompanyId() == companyId || myRole() == 'super_admin');
+    }
+
+    function isGuard(companyId) {
+      return isAuthenticated()
+          && myRole() == 'guard'
+          && myCompanyId() == companyId;
+    }
+
+    function belongsToCompany(companyId) {
+      return isAuthenticated() && myCompanyId() == companyId;
+    }
+
+    // ── User profiles ───────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      // Users can read their own profile; super_admin can read any
+      allow read: if isAuthenticated()
+                  && (uid() == userId || isSuperAdmin());
+
+      // Any authenticated user can create their own profile (registration)
+      allow create: if isAuthenticated() && uid() == userId;
+
+      // Users can update their own profile; managers can update guards in their company
+      allow update: if isAuthenticated()
+                    && (uid() == userId
+                        || (myRole() in ['manager', 'super_admin']
+                            && resource.data.companyId == myCompanyId()));
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── Companies ───────────────────────────────────────────────────────────
+
+    match /companies/{companyId} {
+      allow read: if belongsToCompany(companyId) || isSuperAdmin();
+      allow create: if isAuthenticated();   // manager creating their own company
+      allow update: if isManager(companyId);
+      allow delete: if isSuperAdmin();
+
+      // ── Checkpoints ──────────────────────────────────────────────────────
+
+      match /checkpoints/{checkpointId} {
+        allow read: if belongsToCompany(companyId);
+        allow create, update, delete: if isManager(companyId);
+      }
+
+      // ── Patrol logs ──────────────────────────────────────────────────────
+
+      match /patrolLogs/{logId} {
+        // Only managers and super_admin can read patrol logs
+        allow read: if isManager(companyId);
+
+        // Guards can only create logs for themselves
+        allow create: if belongsToCompany(companyId)
+                      && request.resource.data.guardId == uid();
+
+        // Managers can update (e.g. to flag anomalies) or delete
+        allow update, delete: if isManager(companyId);
+      }
+
+      // ── Guard sessions ───────────────────────────────────────────────────
+
+      match /guardSessions/{sessionId} {
+        allow read: if belongsToCompany(companyId);
+
+        // Guards create / update their own sessions; managers can also write
+        allow create: if belongsToCompany(companyId)
+                      && request.resource.data.guardId == uid();
+
+        allow update: if belongsToCompany(companyId)
+                      && (resource.data.guardId == uid() || isManager(companyId));
+
+        allow delete: if isManager(companyId);
+      }
+
+      // ── Alerts (SOS + anomaly) ───────────────────────────────────────────
+
+      match /alerts/{alertId} {
+        allow read: if belongsToCompany(companyId);
+
+        // Any company member can create an alert (guards trigger SOS)
+        allow create: if belongsToCompany(companyId);
+
+        // Only managers can resolve / delete alerts
+        allow update: if isManager(companyId);
+        allow delete: if isManager(companyId);
+      }
+
+      // ── FCM push tokens ──────────────────────────────────────────────────
+
+      match /fcmTokens/{tokenUserId} {
+        allow read: if isAuthenticated()
+                    && (uid() == tokenUserId || isManager(companyId));
+        allow write: if isAuthenticated()
+                     && (uid() == tokenUserId || isManager(companyId));
+      }
+
+      // ── Device bindings ──────────────────────────────────────────────────
+
+      match /deviceBindings/{boundUserId} {
+        allow read: if isAuthenticated()
+                    && (uid() == boundUserId || isManager(companyId));
+        allow write: if isAuthenticated()
+                     && (uid() == boundUserId || isManager(companyId));
+      }
+
+      // ── Guards list (company roster) ─────────────────────────────────────
+
+      match /guards/{guardId} {
+        allow read: if belongsToCompany(companyId);
+        allow write: if isManager(companyId);
+      }
+
+      // ── Invite codes ─────────────────────────────────────────────────────
+
+      match /inviteCodes/{code} {
+        allow read: if isAuthenticated();   // guards read during registration
+        allow write: if isManager(companyId);
+      }
+    }
+
+    // ── Deny all other paths ────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

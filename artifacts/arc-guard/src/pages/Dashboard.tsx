@@ -40,6 +40,19 @@ import firebaseConfig from "@/firebaseConfig";
 import { isAndroid } from "@/lib/platform";
 import { initNativePush } from "@/lib/nativePush";
 import type { UserProfile, PatrolLog, GuardSession, Alert, Checkpoint } from "@/types";
+import { buildLabel, isStable, isTest } from "@/version";
+
+function VersionBadge() {
+  return (
+    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${
+      isStable ? "bg-green-500/10 text-green-400 border-green-500/20"
+      : isTest  ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+      : "bg-muted text-muted-foreground border-border"
+    }`}>
+      {buildLabel()}
+    </span>
+  );
+}
 
 interface DashboardProps {
   profile: UserProfile;
@@ -450,8 +463,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
       </nav>
 
       <div className="pt-3 border-t border-border mt-2">
-        <div className="px-2 mb-2">
+        <div className="px-2 mb-2 flex items-center justify-between gap-2">
           <p className="text-[10px] text-muted-foreground truncate">@{profile.username}</p>
+          <VersionBadge />
         </div>
         <button onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors">

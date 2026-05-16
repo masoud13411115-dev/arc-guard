@@ -1,11 +1,15 @@
 name: Build Android APK
-# Builds Manager and Guard debug APKs on every push to main.
-# Uses Android productFlavors (manager + guard) so both APKs come from one
-# Gradle project with different applicationId values. No config-file swapping.
+# Builds Manager and Guard debug APKs.
+#
+# Branch strategy:
+#   main  → Stable builds  (BUILD_TYPE=stable, default version 1.0)
+#   dev   → Test builds    (BUILD_TYPE=test,   default version 1.0)
+#
+# Manual dispatch lets you choose build_type and version_number explicitly.
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "artifacts/arc-guard/**"
       - ".github/workflows/android-apk.yml"
@@ -24,6 +28,20 @@ on:
           - both
           - manager
           - guard
+      build_type:
+        description: "Build type (stable = main release, test = dev branch preview)"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - stable
+          - test
+      version_number:
+        description: "Version number e.g. 1.0 or 1.1. Leave blank for branch default."
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -39,6 +57,43 @@ jobs:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ── 1b. Compute build metadata ───────────────────────────────────────────
+      # Sets APP_BUILD_TYPE, APP_VERSION, BUILD_LABEL, BUILD_REF env vars
+      # for use in all later steps.
+      # Priority: manual input > branch name > default.
+      - name: Compute build metadata
+        run: |
+          # Determine build type
+          if [ -n "${{ github.event.inputs.build_type }}" ]; then
+            TYPE="${{ github.event.inputs.build_type }}"
+          elif [ "${{ github.ref_name }}" = "dev" ]; then
+            TYPE="test"
+          else
+            TYPE="stable"
+          fi
+
+          # Determine version
+          if [ -n "${{ github.event.inputs.version_number }}" ]; then
+            VER="${{ github.event.inputs.version_number }}"
+          else
+            VER="1.0"
+          fi
+
+          # Capitalize label: stable → Stable, test → Test
+          if [ "$TYPE" = "stable" ]; then LABEL="Stable"; else LABEL="Test"; fi
+
+          echo "APP_BUILD_TYPE=$TYPE"         >> $GITHUB_ENV
+          echo "APP_VERSION=$VER"             >> $GITHUB_ENV
+          echo "BUILD_LABEL=$LABEL"           >> $GITHUB_ENV
+          echo "BUILD_REF=${{ github.ref_name }}" >> $GITHUB_ENV
+
+          echo "┌─ Build Metadata ──────────────────────────"
+          echo "│ Branch:      ${{ github.ref_name }}"
+          echo "│ Build type:  $TYPE  ($LABEL)"
+          echo "│ Version:     $VER"
+          echo "│ Flavor:      ${{ github.event.inputs.flavor || 'both' }}"
+          echo "└───────────────────────────────────────────"
 
       # ── 2. Node.js ───────────────────────────────────────────────────────────
       - name: Set up Node.js 22
@@ -96,9 +151,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       # ── 8. Build Manager web assets ───────────────────────────────────────────
-      # APP_FLAVOR=manager → __APP_FLAVOR__ = "manager" is baked into the JS
-      # bundle so the Manager APK auto-navigates to /manager on launch and
-      # shows native tap buttons instead of the web link-card UI.
+      # APP_FLAVOR=manager → __APP_FLAVOR__ baked into bundle.
+      # APP_VERSION / APP_BUILD_TYPE → version badge baked into the UI.
       - name: Build Manager web assets
         working-directory: artifacts/arc-guard
         run: pnpm build
@@ -108,6 +162,8 @@ jobs:
           BASE_PATH: /arc-guard/
           CAP_ANDROID: "1"
           APP_FLAVOR: manager
+          APP_VERSION: ${{ env.APP_VERSION }}
+          APP_BUILD_TYPE: ${{ env.APP_BUILD_TYPE }}
           VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
           VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
           VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
@@ -118,7 +174,6 @@ jobs:
           VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
 
       # ── 9. Bootstrap Android project (cap add + cap sync) ─────────────────────
-      # android/ is not committed — scaffold fresh from Capacitor each run.
       - name: Bootstrap Android project
         working-directory: artifacts/arc-guard
         run: |
@@ -148,10 +203,6 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
       # ── 10b. Verify assets copied by cap sync ─────────────────────────────────
-      # Confirms that Capacitor copied the Vite build output into the WebView
-      # assets directory. Prints the first 25 lines of index.html so we can
-      # verify that Vite replaced /src/main.tsx with the real hashed bundle path
-      # and that base URLs are relative ('./' not '/arc-guard/').
       - name: Verify Capacitor assets
         working-directory: artifacts/arc-guard/android
         run: |
@@ -165,21 +216,12 @@ jobs:
           echo "=== assets/ JS files ==="
           ls "$ASSETS/assets/" 2>/dev/null | grep '\.js$' | head -10 || echo "(no JS files found)"
 
-      # ── 10c. Patch AndroidManifest — inject CAMERA permission ─────────────────
-      # html5-qrcode relies on the WebView's getUserMedia() API, which requires
-      # android.permission.CAMERA to be declared in the manifest AND granted at
-      # runtime. Capacitor does NOT add this automatically unless
-      # @capacitor/camera is installed. The script also declares the camera
-      # hardware features so the Play Store filters correctly.
+      # ── 10c. Inject CAMERA permission ─────────────────────────────────────────
       - name: Inject CAMERA permission into AndroidManifest
         working-directory: artifacts/arc-guard
         run: python3 android-config/patch_manifest.py
 
       # ── 11. Patch build.gradle — inject productFlavors ────────────────────────
-      # Calls the committed Python script (android-config/patch_gradle.py) which:
-      #   - Inserts flavorDimensions + productFlavors (manager / guard) into
-      #     android/app/build.gradle so both APKs get the right applicationId.
-      #   - Removes app_name from strings.xml to avoid resValue duplicate conflict.
       - name: Inject productFlavors into build.gradle
         working-directory: artifacts/arc-guard
         run: python3 android-config/patch_gradle.py
@@ -188,14 +230,12 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x artifacts/arc-guard/android/gradlew
 
-      # ── 13. Build Manager APK — assembleManagerDebug ──────────────────────────
-      # productFlavor "manager" -> applicationId "com.arcguard.manager"
-      # Output: app/build/outputs/apk/manager/debug/app-manager-debug.apk
+      # ── 13. Build Manager APK ─────────────────────────────────────────────────
       - name: Build Manager debug APK
         if: ${{ github.event.inputs.flavor != 'guard' }}
         working-directory: artifacts/arc-guard/android
         run: |
-          echo "Building Manager APK (com.arcguard.manager)..."
+          echo "Building Manager APK (com.arcguard.manager) — ${BUILD_LABEL} v${APP_VERSION}..."
           ./gradlew assembleManagerDebug --no-daemon
           APK="app/build/outputs/apk/manager/debug/app-manager-debug.apk"
           if [ ! -f "$APK" ]; then
@@ -203,15 +243,13 @@ jobs:
             ls -R app/build/outputs/apk/ 2>/dev/null || echo "(no apk output)"
             exit 1
           fi
-          cp "$APK" "app/build/outputs/apk/ARC-Guard-Manager-debug.apk"
-          echo "Manager APK: $(du -sh "$APK" | cut -f1)"
+          OUTNAME="ARC-Guard-Manager-${BUILD_LABEL}-v${APP_VERSION}-debug.apk"
+          cp "$APK" "app/build/outputs/apk/${OUTNAME}"
+          echo "Manager APK: $(du -sh "$APK" | cut -f1) → ${OUTNAME}"
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       # ── 13b. Build Guard web assets ───────────────────────────────────────────
-      # Rebuild the Vite bundle with APP_FLAVOR=guard so __APP_FLAVOR__ = "guard"
-      # is baked into the Guard APK's JS. This is a second Vite build — the
-      # output overwrites dist/public/ and the next step syncs it into android/.
       - name: Build Guard web assets
         if: ${{ github.event.inputs.flavor != 'manager' }}
         working-directory: artifacts/arc-guard
@@ -222,6 +260,8 @@ jobs:
           BASE_PATH: /arc-guard/
           CAP_ANDROID: "1"
           APP_FLAVOR: guard
+          APP_VERSION: ${{ env.APP_VERSION }}
+          APP_BUILD_TYPE: ${{ env.APP_BUILD_TYPE }}
           VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
           VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
           VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
@@ -232,8 +272,6 @@ jobs:
           VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
 
       # ── 13c. Sync Guard web assets into Android ────────────────────────────────
-      # cap sync (without cap add) updates android/app/src/main/assets/public/
-      # with the new Guard bundle. The android/ scaffold is already in place.
       - name: Sync Guard web assets into Android
         if: ${{ github.event.inputs.flavor != 'manager' }}
         working-directory: artifacts/arc-guard
@@ -246,23 +284,18 @@ jobs:
           PORT: "3000"
           BASE_PATH: /arc-guard/
 
-      # ── 13d. Re-patch AndroidManifest after Guard cap sync ─────────────────────
-      # cap sync overwrites AndroidManifest.xml, removing the CAMERA permission
-      # injected in step 10c. Re-run patch_manifest.py so the Guard APK also
-      # declares android.permission.CAMERA for html5-qrcode WebView access.
+      # ── 13d. Re-inject CAMERA permission after Guard cap sync ──────────────────
       - name: Re-inject CAMERA permission after Guard cap sync
         if: ${{ github.event.inputs.flavor != 'manager' }}
         working-directory: artifacts/arc-guard
         run: python3 android-config/patch_manifest.py
 
-      # ── 14. Build Guard APK — assembleGuardDebug ──────────────────────────────
-      # productFlavor "guard" -> applicationId "com.arcguard.guard"
-      # Output: app/build/outputs/apk/guard/debug/app-guard-debug.apk
+      # ── 14. Build Guard APK ───────────────────────────────────────────────────
       - name: Build Guard debug APK
         if: ${{ github.event.inputs.flavor != 'manager' }}
         working-directory: artifacts/arc-guard/android
         run: |
-          echo "Building Guard APK (com.arcguard.guard)..."
+          echo "Building Guard APK (com.arcguard.guard) — ${BUILD_LABEL} v${APP_VERSION}..."
           ./gradlew assembleGuardDebug --no-daemon
           APK="app/build/outputs/apk/guard/debug/app-guard-debug.apk"
           if [ ! -f "$APK" ]; then
@@ -270,20 +303,16 @@ jobs:
             ls -R app/build/outputs/apk/ 2>/dev/null || echo "(no apk output)"
             exit 1
           fi
-          cp "$APK" "app/build/outputs/apk/ARC-Guard-Guard-debug.apk"
-          echo "Guard APK: $(du -sh "$APK" | cut -f1)"
+          OUTNAME="ARC-Guard-Guard-${BUILD_LABEL}-v${APP_VERSION}-debug.apk"
+          cp "$APK" "app/build/outputs/apk/${OUTNAME}"
+          echo "Guard APK: $(du -sh "$APK" | cut -f1) → ${OUTNAME}"
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       # ── 15. Verify package IDs with aapt ─────────────────────────────────────
-      # Informational: prints the package name and label from aapt dump badging.
-      # Uses aapt2 (always present in build-tools 34) and anchored sed so
-      # greedy matching cannot land on versionName= instead of name=.
-      # This step does NOT fail the job — uploads always proceed.
       - name: Verify APK package IDs
         if: always()
         run: |
-          # Prefer aapt2 (always present); fall back to aapt v1 if available
           if [ -x "$ANDROID_HOME/build-tools/34.0.0/aapt2" ]; then
             AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt2"
           else
@@ -292,7 +321,7 @@ jobs:
           BASE="artifacts/arc-guard/android/app/build/outputs/apk"
           PASS=true
 
-          for ENTRY in "ARC-Guard-Manager-debug.apk:com.arcguard.manager" "ARC-Guard-Guard-debug.apk:com.arcguard.guard"; do
+          for ENTRY in "ARC-Guard-Manager-${BUILD_LABEL}-v${APP_VERSION}-debug.apk:com.arcguard.manager" "ARC-Guard-Guard-${BUILD_LABEL}-v${APP_VERSION}-debug.apk:com.arcguard.guard"; do
             FILE="${ENTRY%%:*}"
             WANT="${ENTRY##*:}"
             APK="$BASE/$FILE"
@@ -300,24 +329,21 @@ jobs:
               echo "SKIP $FILE (not built this run)"
               continue
             fi
-            # Dump raw first line for transparency, then parse with anchored sed
             echo "--- aapt badging (first 3 lines) ---"
             "$AAPT" dump badging "$APK" 2>&1 | head -3 || true
             echo "------------------------------------"
             BADGE=$("$AAPT" dump badging "$APK" 2>/dev/null)
-            # Anchored at ^package: name=' so versionName= is never matched
             GOT=$(printf '%s' "$BADGE" | grep "^package:" | sed "s/^package: name='\([^']*\)'.*/\1/")
             LBL=$(printf '%s' "$BADGE" | grep "^application-label:" | sed "s/application-label:'\([^']*\)'/\1/")
             echo "$FILE -> package='$GOT'  label='$LBL'"
             if [ "$GOT" = "$WANT" ]; then
               echo "  PASS: package ID is correct"
             else
-              echo "  INFO: got='$GOT' expected='$WANT' (may be aapt parsing artifact — check label above)"
+              echo "  INFO: got='$GOT' expected='$WANT' (may be aapt parsing artifact)"
               PASS=false
             fi
           done
 
-          # Print result but do NOT exit 1 — uploads must proceed regardless
           if $PASS; then
             echo "All package IDs verified OK"
           else
@@ -325,13 +351,12 @@ jobs:
           fi
 
       # ── 16. Upload Manager APK ────────────────────────────────────────────────
-      # always() so the upload happens even if the verification step warns
       - name: Upload Manager APK
         if: ${{ always() && github.event.inputs.flavor != 'guard' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ARC-Guard-Manager-debug
-          path: artifacts/arc-guard/android/app/build/outputs/apk/ARC-Guard-Manager-debug.apk
+          name: ARC-Guard-Manager-${{ env.BUILD_LABEL }}-v${{ env.APP_VERSION }}
+          path: artifacts/arc-guard/android/app/build/outputs/apk/ARC-Guard-Manager-${{ env.BUILD_LABEL }}-v${{ env.APP_VERSION }}-debug.apk
           if-no-files-found: warn
           retention-days: 30
 
@@ -340,8 +365,8 @@ jobs:
         if: ${{ always() && github.event.inputs.flavor != 'manager' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ARC-Guard-Guard-debug
-          path: artifacts/arc-guard/android/app/build/outputs/apk/ARC-Guard-Guard-debug.apk
+          name: ARC-Guard-Guard-${{ env.BUILD_LABEL }}-v${{ env.APP_VERSION }}
+          path: artifacts/arc-guard/android/app/build/outputs/apk/ARC-Guard-Guard-${{ env.BUILD_LABEL }}-v${{ env.APP_VERSION }}-debug.apk
           if-no-files-found: warn
           retention-days: 30
 
@@ -357,9 +382,15 @@ jobs:
           BASE="artifacts/arc-guard/android/app/build/outputs/apk"
           echo "## ARC Guard Android Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build type | **${BUILD_LABEL}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version    | **v${APP_VERSION}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch     | \`${BUILD_REF}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Variant | Package ID | App Name | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-----------|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          for ENTRY in "Manager:ARC-Guard-Manager-debug.apk" "Guard:ARC-Guard-Guard-debug.apk"; do
+          for ENTRY in "Manager:ARC-Guard-Manager-${BUILD_LABEL}-v${APP_VERSION}-debug.apk" "Guard:ARC-Guard-Guard-${BUILD_LABEL}-v${APP_VERSION}-debug.apk"; do
             LABEL="${ENTRY%%:*}"
             FILE="${ENTRY##*:}"
             APK="$BASE/$FILE"
@@ -367,10 +398,11 @@ jobs:
               BADGE=$("$AAPT" dump badging "$APK" 2>/dev/null)
               PKG=$(printf '%s' "$BADGE" | grep "^package:" | sed "s/^package: name='\([^']*\)'.*/\1/")
               NM=$(printf '%s' "$BADGE" | grep "^application-label:" | sed "s/application-label:'\([^']*\)'/\1/")
-              echo "| $LABEL | \`$PKG\` | $NM | Built |" >> $GITHUB_STEP_SUMMARY
+              echo "| $LABEL | \`$PKG\` | $NM | ✅ Built |" >> $GITHUB_STEP_SUMMARY
             else
-              echo "| $LABEL | -- | -- | Not built |" >> $GITHUB_STEP_SUMMARY
+              echo "| $LABEL | -- | -- | ⏭ Not built |" >> $GITHUB_STEP_SUMMARY
             fi
           done
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_APKs uploaded as GitHub Actions artifacts (30-day retention)._" >> $GITHUB_STEP_SUMMARY
+          echo "_Names: \`ARC-Guard-Manager-${BUILD_LABEL}-v${APP_VERSION}\` / \`ARC-Guard-Guard-${BUILD_LABEL}-v${APP_VERSION}\`_" >> $GITHUB_STEP_SUMMARY

@@ -21,7 +21,13 @@ import { localAdapter }                  from "./localAdapter";
 
 export type { AdapterMode, DataAdapter };
 export { firebaseAdapter, indexeddbAdapter, localAdapter };
-export { getLocalServerUrl, setLocalServerUrl, testLocalServerConnection } from "./localAdapter";
+export {
+  getLocalServerUrl, setLocalServerUrl, testLocalServerConnection,
+  getCachedLocalServerHealth, checkLocalServerHealthIfStale,
+  getLocalCompanyId, setLocalCompanyId,
+  getServerInfo, authenticateGuardWithServer, registerGuardWithServer,
+  type LanAuthResult,
+} from "./localAdapter";
 
 // ── Mode persistence ──────────────────────────────────────────────────────────
 const MODE_KEY        = "arc_guard_adapter_mode";

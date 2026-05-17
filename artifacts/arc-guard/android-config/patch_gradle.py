@@ -252,7 +252,25 @@ def show_result():
     print("  ./gradlew assembleGuardRelease    ->  com.arcguard.guard   (release, signed if KEYSTORE_FILE set)")
 
 
+def copy_proguard_rules():
+    """
+    Copy android-config/proguard-rules.pro → android/app/proguard-rules.pro
+    so the custom keep rules are available to the R8/ProGuard release build.
+    Capacitor creates a minimal proguard-rules.pro on 'cap add android';
+    we overwrite it with our hardened version.
+    """
+    import shutil
+    src = "android-config/proguard-rules.pro"
+    dst = "android/app/proguard-rules.pro"
+    if not os.path.exists(src):
+        print("android-config/proguard-rules.pro not found — skipping copy")
+        return
+    shutil.copy(src, dst)
+    print("proguard-rules.pro copied from android-config/ to android/app/")
+
+
 if __name__ == "__main__":
+    copy_proguard_rules()
     patch_build_gradle()
     patch_strings_xml()
     show_result()

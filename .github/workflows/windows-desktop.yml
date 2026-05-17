@@ -1,0 +1,101 @@
+name: Windows Desktop (Electron)
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "App version (e.g. 1.0)"
+        required: false
+        default: "1.0"
+      build_type:
+        description: "Build type: stable | test | dev"
+        required: false
+        default: "stable"
+
+jobs:
+  build:
+    name: Build Windows Installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+          run_install: false
+
+      - name: Get pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Wine (for NSIS cross-compilation)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends wine wine32 wine64 2>/dev/null || true
+          wine --version 2>/dev/null || echo "Wine not available — electron-builder will use built-in NSIS"
+
+      - name: Build arc-guard (Electron target)
+        env:
+          CAP_ELECTRON: "1"
+          APP_FLAVOR: "manager"
+          APP_VERSION: ${{ github.event.inputs.app_version || '1.0' }}
+          APP_BUILD_TYPE: ${{ github.event.inputs.build_type || 'stable' }}
+          VITE_ARC_GUARD_API_KEY: ${{ secrets.VITE_ARC_GUARD_API_KEY }}
+          VITE_ARC_GUARD_AUTH_DOMAIN: ${{ secrets.VITE_ARC_GUARD_AUTH_DOMAIN }}
+          VITE_ARC_GUARD_PROJECT_ID: ${{ secrets.VITE_ARC_GUARD_PROJECT_ID }}
+          VITE_ARC_GUARD_STORAGE_BUCKET: ${{ secrets.VITE_ARC_GUARD_STORAGE_BUCKET }}
+          VITE_ARC_GUARD_MESSAGING_SENDER_ID: ${{ secrets.VITE_ARC_GUARD_MESSAGING_SENDER_ID }}
+          VITE_ARC_GUARD_APP_ID: ${{ secrets.VITE_ARC_GUARD_APP_ID }}
+          VITE_ARC_GUARD_MEASUREMENT_ID: ${{ secrets.VITE_ARC_GUARD_MEASUREMENT_ID }}
+          VITE_ARC_GUARD_VAPID_KEY: ${{ secrets.VITE_ARC_GUARD_VAPID_KEY }}
+          NODE_ENV: production
+        run: pnpm --filter @workspace/arc-guard run build:electron
+
+      - name: Copy web assets to arc-guard-windows/dist-web
+        run: pnpm --filter @workspace/arc-guard-windows run copy:web
+
+      - name: Package Windows app (NSIS + portable)
+        working-directory: artifacts/arc-guard-windows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never
+
+      - name: List dist-win contents
+        run: ls -lah artifacts/arc-guard-windows/dist-win/ || echo "(empty)"
+
+      - name: Upload NSIS Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARC-Guard-Manager-${{ github.event.inputs.app_version || '1.0' }}-Windows-Setup
+          path: artifacts/arc-guard-windows/dist-win/*-setup.exe
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Portable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARC-Guard-Manager-${{ github.event.inputs.app_version || '1.0' }}-Windows-Portable
+          path: artifacts/arc-guard-windows/dist-win/*-portable.exe
+          retention-days: 30
+          if-no-files-found: warn

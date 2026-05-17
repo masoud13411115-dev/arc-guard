@@ -133,24 +133,41 @@ def patch_release_build_type(content):
     """
     Replace the stub `release { minifyEnabled false ... }` buildType with
     the hardened version that enables minification and wires signingConfig.
+    Searches only inside the buildTypes block to avoid matching the signingConfigs
+    release block that was just injected above it.
     Skip if already patched.
     """
     if "signingConfig ksPath ?" in content:
         print("release buildType already patched — skipping")
         return content
 
-    # Find `release {` inside the file
-    rel_match = re.search(r"\brelease\s*\{", content)
-    if not rel_match:
-        print("WARNING: release buildType not found — skipping patch")
+    # Scope search to inside the buildTypes { } block only
+    bt_match = re.search(r"\bbuildTypes\s*\{", content)
+    if not bt_match:
+        print("WARNING: buildTypes block not found — skipping release patch")
         return content
 
-    rel_end = find_block_end(content, rel_match.start())
+    bt_end = find_block_end(content, bt_match.start())
+    if bt_end < 0:
+        print("WARNING: could not find end of buildTypes block — skipping")
+        return content
+
+    bt_inner_start = bt_match.end()
+    bt_inner = content[bt_inner_start:bt_end]
+
+    rel_match = re.search(r"\brelease\s*\{", bt_inner)
+    if not rel_match:
+        print("WARNING: release buildType not found inside buildTypes — skipping patch")
+        return content
+
+    # Compute absolute offset in the full file
+    rel_abs_start = bt_inner_start + rel_match.start()
+    rel_end = find_block_end(content, rel_abs_start)
     if rel_end < 0:
         print("WARNING: could not find end of release block — skipping")
         return content
 
-    old_block = content[rel_match.start():rel_end + 1]
+    old_block = content[rel_abs_start:rel_end + 1]
     new_content = content.replace(old_block, RELEASE_BUILD_TYPE_REPLACEMENT, 1)
     print("release buildType patched (minifyEnabled=true, signingConfig wired)")
     return new_content

@@ -11,6 +11,8 @@ import {
 import {
   saveOfflineManagerCred, verifyOfflineManagerCred, hasOfflineManagerCred,
   saveProfileCache, loadProfileCache,
+  saveLastManagerProfile, saveLastGuardProfile,
+  saveGuardOfflineCred, verifyGuardOfflineCred, hasGuardOfflineCred,
 } from "@/lib/offlineAuth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
@@ -148,8 +150,11 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
     if (!username.trim()) { setError("نام کاربری الزامی است."); return; }
     if (!password)        { setError("رمز عبور الزامی است."); return; }
 
-    // ── Offline path ───────────────────────────────────────────────────────
-    if (!online) {
+    // ── Offline / no-Firebase path ──────────────────────────────────────────
+    // Triggered when: (a) no internet, OR (b) Firebase not configured.
+    // In either case we verify the locally cached credential hash and restore
+    // the profile from localStorage — no network required.
+    if (!online || !isFirebaseReady) {
       setLoading(true);
       try {
         const uid = await verifyOfflineManagerCred(username.trim(), password);
@@ -180,7 +185,6 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
     }
 
     // ── Online path (Firebase) ─────────────────────────────────────────────
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است."); return; }
     console.log("[login] manager attempt →", { username: username.trim(), online });
     setLoading(true);
     try {
@@ -190,8 +194,9 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
       if (!profile.active) { setError("حساب شما غیرفعال است. با مدیر تماس بگیرید."); return; }
       if (profile.role === "guard") { setError("این حساب نگهبان است. برای ورود از تب «نگهبان» استفاده کنید."); return; }
 
-      // Persist credential + profile for future offline logins
+      // Persist credentials + profile for future offline / IndexedDB-only logins
       saveProfileCache(profile);
+      saveLastManagerProfile(profile);
       saveOfflineManagerCred(username.trim(), password, user.uid).catch(() => {});
 
       logger.info("login", `Manager success: ${profile.role}`);
@@ -200,15 +205,47 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
     finally { setLoading(false); }
   };
 
-  // ── Guard login (unchanged) ────────────────────────────────────────────────
+  // ── Guard login ────────────────────────────────────────────────────────────
+  // Supports three paths:
+  //  1. Offline (no internet) → verify cached PIN hash → restore cached profile
+  //  2. Firebase not configured + online → same offline path (IndexedDB-only setup)
+  //  3. Online + Firebase ready → full Firebase Auth → save creds for future offline use
   const handleGuardLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isFirebaseReady) { setError("Firebase پیکربندی نشده است."); return; }
+    setOfflineSuccess(false);
     if (!guardCode.trim()) { setError("کد نگهبان الزامی است."); return; }
     if (!pin)              { setError("PIN الزامی است."); return; }
     const normalizedCode = guardCode.trim().toUpperCase();
     setLoading(true);
+
+    // ── Offline / no-Firebase path ─────────────────────────────────────────
+    if (!online || !isFirebaseReady) {
+      try {
+        const creds = await verifyGuardOfflineCred(normalizedCode, pin);
+        if (!creds) {
+          setError(
+            hasGuardOfflineCred(normalizedCode)
+              ? "کد نگهبان یا PIN اشتباه است."
+              : "برای اولین ورود، اتصال اینترنت لازم است.",
+          );
+          return;
+        }
+        const profile = loadProfileCache(creds.uid);
+        if (!profile) {
+          setError("برای اولین ورود، اتصال اینترنت لازم است.");
+          return;
+        }
+        logger.info("login", "Guard offline login success");
+        setOfflineSuccess(true);
+        setTimeout(() => onLogin(profile), 900);
+      } catch {
+        setError("خطا در تأیید هویت آفلاین. دوباره تلاش کنید.");
+      } finally { setLoading(false); }
+      return;
+    }
+
+    // ── Online path (Firebase) ─────────────────────────────────────────────
     try {
       const companyId = await lookupGuardCompanyId(normalizedCode);
       if (!companyId) { setError("کد نگهبان ثبت نشده است. ابتدا با کد دعوت شرکت ثبت‌نام کنید."); return; }
@@ -216,6 +253,12 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
       const profile = await getUserProfile(user.uid);
       if (!profile) { setError("پروفایل نگهبان یافت نشد."); return; }
       if (!profile.active) { setError("حساب نگهبان غیرفعال است. با مدیر تماس بگیرید."); return; }
+
+      // Cache credentials + profile for future offline / IndexedDB-only sessions
+      saveProfileCache(profile);
+      saveLastGuardProfile(profile);
+      saveGuardOfflineCred(normalizedCode, pin, user.uid, companyId).catch(() => {});
+
       logger.info("login", `Guard success: ${profile.displayName}`);
       onLogin(profile);
     } catch (err: unknown) {

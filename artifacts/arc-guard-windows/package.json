@@ -1,0 +1,18 @@
+{
+  "name": "@workspace/arc-guard-windows",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "build:web": "pnpm --filter @workspace/arc-guard run build:electron",
+    "copy:web": "node scripts/copy-web.mjs",
+    "build": "pnpm run build:web && pnpm run copy:web",
+    "package:win": "pnpm run build && electron-builder --win",
+    "package:dir": "pnpm run build && electron-builder --dir",
+    "dev": "pnpm run build && electron ."
+  },
+  "devDependencies": {
+    "electron": "^35.2.1",
+    "electron-builder": "^25.1.8"
+  }
+}

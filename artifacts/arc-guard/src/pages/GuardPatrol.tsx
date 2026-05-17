@@ -3,23 +3,26 @@ import {
   QrCode, MapPin, CheckCircle, AlertTriangle, XCircle,
   Shield, LogOut, Wifi, WifiOff, Clock, Camera,
   PhoneOff, Loader2, ChevronDown, ChevronUp, RefreshCw,
-  Navigation, HelpCircle, Nfc,
+  Navigation, HelpCircle, Nfc, Server, Check,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import { doc, getDoc } from "firebase/firestore";
-import { haversineDistance, detectGpsFraud, recordScanGps } from "@/lib/gps";
+import { haversineDistance, detectGpsFraud, recordScanGps, recordBackgroundGps } from "@/lib/gps";
+import { runSecurityChecks } from "@/lib/securityChecks";
+import { checkAndBindDevice } from "@/lib/deviceBinding";
 import { validateDynamicQr, isDynamicWindowUsed, markDynamicWindowUsed, extractDynamicQrWindow } from "@/lib/dynamicQr";
 import { parseDynamicQrCode } from "@/lib/scanProtection";
 import { cacheCheckpoints, getCachedCheckpoints, getDBQueueCount } from "@/lib/localDB";
 import { queuePatrolLog, queueSosAlert, syncAll } from "@/lib/syncManager";
-import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert, getCompany } from "@/lib/adapter";
+import { savePatrolLog, updateGuardSession, subscribeCheckpoints, saveAlert, getCompany, getAdapterMode, setAdapterMode, getLocalServerUrl, setLocalServerUrl, testLocalServerConnection, setLocalCompanyId } from "@/lib/adapter";
 import type { VerificationMode, ScanMode } from "@/types";
 import { playSuccess, playOutside, playFail, playCooldown, playEmergency } from "@/lib/audioFeedback";
 import { isValidQrFormat, parseQrCode, canScan, recordScan, secondsUntilNextScan, formatCountdown } from "@/lib/scanProtection";
 import { buildLabel, isStable, isTest } from "@/version";
 import { requestCameraPermission, requestGpsPermission } from "@/lib/permissions";
 import HelpPage from "@/pages/HelpPage";
+import LanModeIndicator from "@/components/LanModeIndicator";
 import { db } from "@/firebase";
 import type { Checkpoint, PatrolLog, GpsCoords, ScanStatus } from "@/types";
 
@@ -148,6 +151,41 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
   const [sosWritePath, setSosWritePath] = useState<string | null>(null);
   const [showSosDebug, setShowSosDebug] = useState(false);
 
+  // LAN server settings panel
+  const [showLanPanel, setShowLanPanel] = useState(false);
+  const [lanUrlInput,  setLanUrlInput]  = useState(() => getLocalServerUrl());
+  const [lanTesting,   setLanTesting]   = useState(false);
+  const [lanHealthy,   setLanHealthy]   = useState<boolean | null>(null);
+  const [lanSaved,     setLanSaved]     = useState(false);
+
+  const handleLanSave = useCallback(async () => {
+    let url = lanUrlInput.trim();
+    // If the guard scanned the Manager's QR, it may contain ?company=COMPANYID.
+    // Extract and store the companyId, then strip it from the saved server URL.
+    try {
+      const parsed = new URL(url.startsWith("http") ? url : `http://${url}`);
+      const companyParam = parsed.searchParams.get("company");
+      if (companyParam) {
+        setLocalCompanyId(companyParam);
+        url = parsed.origin; // keep only scheme + host + port
+      }
+    } catch { /* not a parseable URL — continue as-is */ }
+
+    // Normalize: prepend http:// if no scheme given
+    const normalized = url && !url.startsWith("http") ? `http://${url}` : url;
+    setLocalServerUrl(normalized);
+    setLanUrlInput(normalized);
+    if (normalized) {
+      setAdapterMode("local");
+      setLanTesting(true);
+      const ok = await testLocalServerConnection();
+      setLanHealthy(ok);
+      setLanTesting(false);
+    }
+    setLanSaved(true);
+    setTimeout(() => setLanSaved(false), 2000);
+  }, [lanUrlInput]);
+
   // NFC phase state
   const [nfcWaiting, setNfcWaiting]   = useState(false);
   const nfcReaderRef   = useRef<any>(null);
@@ -164,6 +202,21 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
 
   // Keep gpsRef in sync so callbacks see fresh GPS without stale closure
   useEffect(() => { gpsRef.current = gps; }, [gps]);
+
+  // ── Security checks on mount + device binding ──────────────────────────────
+  useEffect(() => {
+    // Run environment security scan (emulator, iframe, debugger detection)
+    const report = runSecurityChecks();
+    if (!report.passed) {
+      const critical = report.flags.filter(f => f.severity === 'critical' || f.severity === 'high');
+      if (import.meta.env.DEV) {
+        console.warn('[ARC Guard Security] Flags detected:', critical.map(f => f.code).join(', '));
+      }
+    }
+
+    // Bind device fingerprint to this guard account (silent, fail-open)
+    checkAndBindDevice(companyId, guardId).catch(() => {});
+  }, [companyId, guardId]);
 
   // ── GPS watch (continuous background) ─────────────────────────────────────
   useEffect(() => {
@@ -184,6 +237,7 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           setGps(coords);
           gpsRef.current = coords;
           setGpsError(false);
+          recordBackgroundGps(coords);
           if (db) {
             updateGuardSession({
               guardId, guardName, companyId,
@@ -1078,6 +1132,17 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           <div className="flex items-center gap-2">
             <LanguageSelector variant="compact" />
             <button
+              onClick={() => setShowLanPanel((v) => !v)}
+              className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-colors ${
+                showLanPanel
+                  ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                  : "border-border text-muted-foreground hover:text-amber-400 hover:border-amber-400/40 hover:bg-amber-400/10"
+              }`}
+              title={t("lan.guard.settings")}
+            >
+              <Server className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => setShowHelp(true)}
               className="w-8 h-8 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-green-400 hover:border-green-400/40 hover:bg-green-400/10 transition-colors"
               title="Help"
@@ -1094,6 +1159,9 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
             </button>
           </div>
         </div>
+
+        {/* LAN mode indicator row */}
+        <LanModeIndicator />
 
         {/* Bottom row: guard identity + online status */}
         <div className="flex items-center justify-between">
@@ -1124,6 +1192,69 @@ export default function GuardPatrol({ guardId, guardName, guardCode, companyId, 
           </div>
         </div>
       </header>
+
+      {/* ── LAN settings panel (slide-down) ── */}
+      {showLanPanel && (
+        <div className="mx-4 mb-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3" dir={dir}>
+          <div className={`flex items-center gap-2 ${dir === "rtl" ? "flex-row-reverse" : ""}`}>
+            <Server className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="text-sm font-semibold text-amber-300 flex-1">{t("lan.guard.title")}</span>
+            <LanModeIndicator showLabel={false} />
+          </div>
+
+          <div className="space-y-2">
+            <label className={`block text-[11px] text-muted-foreground ${dir === "rtl" ? "text-right" : ""}`}>
+              {t("lan.guard.ip.label")}
+            </label>
+            <div className={`flex gap-2 ${dir === "rtl" ? "flex-row-reverse" : ""}`}>
+              <input
+                type="text"
+                dir="ltr"
+                value={lanUrlInput}
+                onChange={(e) => setLanUrlInput(e.target.value)}
+                placeholder={t("lan.guard.ip.placeholder")}
+                onKeyDown={(e) => { if (e.key === "Enter") handleLanSave(); }}
+                className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30"
+              />
+              <button
+                onClick={handleLanSave}
+                disabled={lanTesting}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all shrink-0 ${
+                  lanSaved
+                    ? "bg-green-500/10 border-green-500/30 text-green-400"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+                }`}
+              >
+                {lanTesting
+                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  : lanSaved
+                  ? <Check className="w-3.5 h-3.5" />
+                  : <Server className="w-3.5 h-3.5" />
+                }
+                {lanTesting
+                  ? "..."
+                  : lanSaved
+                  ? t("lan.guard.connected")
+                  : t("lan.guard.ip.save")
+                }
+              </button>
+            </div>
+          </div>
+
+          {lanHealthy === false && (
+            <div className="flex items-center gap-2 text-xs text-red-400">
+              <WifiOff className="w-3.5 h-3.5 shrink-0" />
+              <span>{t("lan.panel.disconnected")}</span>
+            </div>
+          )}
+          {lanHealthy === true && (
+            <div className="flex items-center gap-2 text-xs text-green-400">
+              <Wifi className="w-3.5 h-3.5 shrink-0" />
+              <span>{t("lan.panel.connected")}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Status bar ── */}
       <div className="flex flex-wrap items-center gap-2 px-5 pb-5">

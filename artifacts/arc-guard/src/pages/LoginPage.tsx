@@ -11,10 +11,14 @@ import {
 import {
   saveOfflineManagerCred, verifyOfflineManagerCred, hasOfflineManagerCred,
   saveProfileCache, loadProfileCache,
-  saveLastManagerProfile, saveLastGuardProfile,
+  saveLastManagerProfile, saveLastGuardProfile, loadLastGuardProfile,
   saveGuardOfflineCred, verifyGuardOfflineCred, hasGuardOfflineCred,
 } from "@/lib/offlineAuth";
 import { isFirebaseReady } from "@/firebase";
+import {
+  getAdapterMode, getLocalServerUrl, getLocalCompanyId, setLocalCompanyId,
+  getServerInfo, authenticateGuardWithServer, registerGuardWithServer,
+} from "@/lib/adapter";
 import { logger } from "@/lib/logger";
 import type { UserProfile } from "@/types";
 import { useI18n } from "@/lib/i18n";
@@ -207,6 +211,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
 
   // ── Guard login ────────────────────────────────────────────────────────────
   // Supports three paths:
+  //  0. LAN server path (Local Server mode) — no Firebase required
   //  1. Offline (no internet) → verify cached PIN hash → restore cached profile
   //  2. Firebase not configured + online → same offline path (IndexedDB-only setup)
   //  3. Online + Firebase ready → full Firebase Auth → save creds for future offline use
@@ -218,6 +223,77 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
     if (!pin)              { setError("PIN الزامی است."); return; }
     const normalizedCode = guardCode.trim().toUpperCase();
     setLoading(true);
+
+    // ── LAN server path (Local Server mode — Firebase NOT required) ──────────
+    if (getAdapterMode() === "local" && getLocalServerUrl()) {
+      try {
+        // Step 1: discover companyId from the server (GET /api/info)
+        const info = await getServerInfo();
+        const cid  = info?.companies?.[0]?.id ?? getLocalCompanyId();
+        if (!cid) {
+          setError("شناسه شرکت از سرور دریافت نشد. سرور را راه‌اندازی کنید.");
+          return;
+        }
+        setLocalCompanyId(cid);
+
+        // Step 2: try direct LAN server authentication
+        const authResult = await authenticateGuardWithServer(cid, normalizedCode, pin);
+
+        if (authResult.ok) {
+          saveProfileCache(authResult.profile);
+          saveLastGuardProfile(authResult.profile);
+          saveGuardOfflineCred(normalizedCode, pin, authResult.profile.uid, cid).catch(() => {});
+          logger.info("login", "Guard LAN auth success");
+          onLogin(authResult.profile);
+          return;
+        }
+
+        if (authResult.reason === "not_registered") {
+          // Guard not yet on this server (e.g. server restarted and lost memory).
+          // Auto-register using any available cached profile for the display name.
+          const cached      = loadLastGuardProfile();
+          const displayName = (cached?.guardCode === normalizedCode ? cached?.displayName : null)
+            ?? normalizedCode;
+          const companyName = (info?.companies?.[0] as { name?: string } | undefined)?.name;
+          const registered  = await registerGuardWithServer(cid, normalizedCode, pin, displayName, companyName);
+          if (registered) {
+            saveProfileCache(registered);
+            saveLastGuardProfile(registered);
+            saveGuardOfflineCred(normalizedCode, pin, registered.uid, cid).catch(() => {});
+            logger.info("login", "Guard auto-registered on LAN server");
+            onLogin(registered);
+            return;
+          }
+          // Server unreachable during registration — fall through to offline cache
+        }
+
+        if (authResult.reason === "invalid_pin") {
+          setError("کد نگهبان یا PIN اشتباه است.");
+          return;
+        }
+
+        // Server unreachable or registration failed — try offline PIN cache
+        const cached = await verifyGuardOfflineCred(normalizedCode, pin);
+        if (cached) {
+          const profile = loadProfileCache(cached.uid) ?? loadLastGuardProfile();
+          if (profile) {
+            logger.info("login", "Guard LAN: using offline PIN cache fallback");
+            setOfflineSuccess(true);
+            setTimeout(() => onLogin(profile), 900);
+            return;
+          }
+        }
+        setError(
+          hasGuardOfflineCred(normalizedCode)
+            ? "کد نگهبان یا PIN اشتباه است."
+            : "سرور در دسترس نیست. اتصال شبکه را بررسی کنید.",
+        );
+        return;
+      } catch {
+        setError("خطا در اتصال به سرور شبکه. آدرس سرور را بررسی کنید.");
+        return;
+      } finally { setLoading(false); }
+    }
 
     // ── Offline / no-Firebase path ─────────────────────────────────────────
     if (!online || !isFirebaseReady) {
@@ -277,6 +353,13 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
   // Form inputs for manager are disabled only when Firebase isn't ready AND we're online
   // (i.e. demo mode). When offline, inputs are always enabled so offline login works.
   const managerInputsDisabled = !isFirebaseReady && online;
+
+  // Guard form: enabled when Firebase ready, OR offline (cache login), OR in LAN server mode
+  const guardFormEnabled =
+    isFirebaseReady ||
+    !online ||
+    (getAdapterMode() === "local" && !!getLocalServerUrl());
+  const guardFormDisabled = !guardFormEnabled;
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background arc-grid-bg" dir={dir}>
@@ -464,7 +547,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
                       autoComplete="username"
                       autoCapitalize="characters"
                       spellCheck={false}
-                      disabled={!isFirebaseReady}
+                      disabled={guardFormDisabled}
                       dir="ltr"
                       className={`w-full bg-muted border border-border rounded-lg ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"} py-2.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors tracking-wider`}
                     />
@@ -482,7 +565,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
                       onChange={e => setPin(e.target.value)}
                       placeholder={t("login.pin.placeholder")}
                       autoComplete="current-password"
-                      disabled={!isFirebaseReady}
+                      disabled={guardFormDisabled}
                       dir="ltr"
                       className={`w-full bg-muted border border-border rounded-lg ${isRTL ? "pr-10 pl-10" : "pl-10 pr-10"} py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
                     />
@@ -493,7 +576,7 @@ export default function LoginPage({ onLogin, onRegister, lockedMode }: Props) {
                   </div>
                 </div>
                 {error && <ErrorBanner msg={error} />}
-                <button type="submit" disabled={loading || !isFirebaseReady}
+                <button type="submit" disabled={loading || guardFormDisabled}
                   className="w-full bg-green-500 text-white rounded-lg py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all select-none">
                   {loading
                     ? <span className="flex items-center justify-center gap-2">{spinnerSvg}{t("login.btn.loading")}</span>

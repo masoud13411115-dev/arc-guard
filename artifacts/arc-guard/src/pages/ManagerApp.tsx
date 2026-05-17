@@ -9,7 +9,10 @@ import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
 import { logger } from "@/lib/logger";
 import { useI18n } from "@/lib/i18n";
-import { saveProfileCache, loadProfileCache } from "@/lib/offlineAuth";
+import {
+  saveProfileCache, loadProfileCache,
+  saveLastManagerProfile, loadLastManagerProfile, clearLastManagerProfile,
+} from "@/lib/offlineAuth";
 import type { UserProfile } from "@/types";
 
 type Screen = "loading" | "login" | "setup" | "dashboard" | "super-admin";
@@ -28,9 +31,20 @@ export default function ManagerApp() {
 
   useEffect(() => {
     if (!isFirebaseReady) {
-      setScreen("login");
+      // Firebase not configured (IndexedDB-only or no secrets set).
+      // Try to restore the last manager session from the uid-agnostic cache
+      // so the manager doesn't have to log in again on every app start.
+      const cached = loadLastManagerProfile();
+      if (cached) {
+        setProfile(cached);
+        setScreen(screenForRole(cached.role));
+        logger.info("manager-app", "Restored from last-session cache (no Firebase)");
+      } else {
+        setScreen("login");
+      }
       return;
     }
+
     const unsub = onAuthChange(async (user) => {
       if (user) {
         try {
@@ -40,33 +54,32 @@ export default function ManagerApp() {
               navigate("/guard");
               return;
             }
+            // Keep both caches fresh on every successful Firestore read
             saveProfileCache(p);
+            saveLastManagerProfile(p);
             setProfile(p);
             setScreen(screenForRole(p.role));
             logger.info("manager-app", `Auth restored: ${p.role}`);
           } else {
-            // No profile in Firestore — check localStorage cache when offline
-            if (!navigator.onLine) {
-              const cached = loadProfileCache(user.uid);
-              if (cached) {
-                setProfile(cached);
-                setScreen(screenForRole(cached.role));
-                logger.info("manager-app", "Restored profile from localStorage cache (offline)");
-                return;
-              }
+            // No Firestore profile — fall back to cache before sending to setup
+            const cached = loadProfileCache(user.uid) ?? loadLastManagerProfile();
+            if (cached) {
+              setProfile(cached);
+              setScreen(screenForRole(cached.role));
+              logger.info("manager-app", "Restored profile from cache (Firestore empty)");
+              return;
             }
             setScreen("setup");
           }
         } catch (err) {
-          // Firestore failed — if offline, try to restore from localStorage cache
-          if (!navigator.onLine) {
-            const cached = loadProfileCache(user.uid);
-            if (cached) {
-              setProfile(cached);
-              setScreen(screenForRole(cached.role));
-              logger.info("manager-app", "Auth restored from cache (offline)");
-              return;
-            }
+          // Firestore failed (offline, quota, rules, etc.) — use cache.
+          // Do NOT gate on navigator.onLine: Firestore can fail even when online.
+          const cached = loadProfileCache(user.uid) ?? loadLastManagerProfile();
+          if (cached) {
+            setProfile(cached);
+            setScreen(screenForRole(cached.role));
+            logger.info("manager-app", "Auth restored from cache (Firestore error)");
+            return;
           }
           logger.error("manager-app", "Failed to restore auth", err);
           setScreen("login");
@@ -101,6 +114,7 @@ export default function ManagerApp() {
   const handleLogout = useCallback(async () => {
     logger.info("manager-app", "Logout");
     if (isFirebaseReady) await signOut().catch(() => {});
+    clearLastManagerProfile();
     setProfile(null);
     setScreen("login");
     navigate("/manager");

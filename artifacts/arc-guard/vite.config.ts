@@ -7,21 +7,24 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { VitePWA } from "vite-plugin-pwa";
 
 // ── Build target detection ─────────────────────────────────────────────────
-// CAP_ANDROID=1 → Capacitor/Android build: use base './' so that
-// file:///android_asset/public/... paths resolve correctly in the WebView.
-// Web builds keep the usual absolute base path for proxy routing.
-const isAndroidBuild = process.env.CAP_ANDROID === "1";
+// CAP_ANDROID=1  → Capacitor/Android build: relative base for WebView file:// URLs.
+// CAP_ELECTRON=1 → Electron desktop build: relative base for file:// URLs,
+//                  outDir=dist-electron, Manager flavor baked in, no PWA/SW.
+// Web builds keep the absolute base path for proxy routing.
+const isAndroidBuild  = process.env.CAP_ANDROID  === "1";
+const isElectronBuild = process.env.CAP_ELECTRON === "1";
+const isNativeBuild   = isAndroidBuild || isElectronBuild;
 
 const rawPort = process.env.PORT;
-if (!isAndroidBuild && !rawPort) throw new Error("PORT environment variable is required but was not provided.");
+if (!isNativeBuild && !rawPort) throw new Error("PORT environment variable is required but was not provided.");
 const port = rawPort ? Number(rawPort) : 3000;
-if (!isAndroidBuild && (Number.isNaN(port) || port <= 0)) throw new Error(`Invalid PORT value: "${rawPort}"`);
+if (!isNativeBuild && (Number.isNaN(port) || port <= 0)) throw new Error(`Invalid PORT value: "${rawPort}"`);
 
 const basePath = process.env.BASE_PATH ?? "/arc-guard/";
-if (!isAndroidBuild && !process.env.BASE_PATH) throw new Error("BASE_PATH environment variable is required but was not provided.");
+if (!isNativeBuild && !process.env.BASE_PATH) throw new Error("BASE_PATH environment variable is required but was not provided.");
 
-// Android WebView file:// origin — relative base is required.
-const effectiveBase = isAndroidBuild ? "./" : basePath;
+// Native (Android/Electron) builds use relative base for file:// URLs.
+const effectiveBase = isNativeBuild ? "./" : basePath;
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -47,11 +50,12 @@ for (const [k, v] of Object.entries(arcGuardConfig)) {
 const envDefine = {
   __ARC_GUARD_CONFIG__: JSON.stringify(arcGuardConfig),
   // Baked-in at build time via CI env var APP_FLAVOR.
-  // "manager" → Manager APK auto-navigates to /manager on launch.
-  // "guard"   → Guard APK auto-navigates to /guard on launch.
+  // "manager" → Manager APK/desktop auto-navigates to Manager login on launch.
+  // "guard"   → Guard APK auto-navigates to Guard login on launch.
   // ""        → web build / unspecified — LandingPage shows the chooser.
-  __APP_FLAVOR__: JSON.stringify(process.env.APP_FLAVOR ?? ""),
-  // Version label and build type injected by CI (see android-apk.yml).
+  // Electron builds always bake in "manager" (Windows app is Manager-only).
+  __APP_FLAVOR__: JSON.stringify(isElectronBuild ? "manager" : (process.env.APP_FLAVOR ?? "")),
+  // Version label and build type injected by CI.
   // APP_BUILD_TYPE: "stable" | "test" | "dev"
   // APP_VERSION:    semver string e.g. "1.0", "1.1"
   __APP_VERSION__:    JSON.stringify(process.env.APP_VERSION    ?? "1.0"),
@@ -167,8 +171,10 @@ export default defineConfig({
         );
       },
 
-      // Build: write the file into dist/public/ alongside the built assets
+      // Build: write the file into the build output dir alongside the built assets.
+      // Skipped for Electron builds — Electron doesn't use web service workers for FCM.
       closeBundle() {
+        if (isElectronBuild) return;
         const content = generateFcmSwContent(arcGuardConfig);
         const outDir  = path.resolve(import.meta.dirname, "dist/public");
         try { mkdirSync(outDir, { recursive: true }); } catch { /* exists */ }
@@ -178,14 +184,14 @@ export default defineConfig({
     },
 
     // ── PWA / Service Worker ────────────────────────────────────────────────
-    // Skip entirely for Android (Capacitor) builds.
+    // Skip entirely for Android (Capacitor) and Electron desktop builds.
     // Inside Capacitor the app runs at http://localhost with no /arc-guard/
     // prefix, so the SW scope and manifest URLs built for the web don't match.
-    // The registerSW() call from virtual:pwa-register can also interfere with
-    // WebView startup on some Android versions.
+    // In Electron, service workers are sandboxed per renderer and PWA install
+    // makes no sense for a native desktop app.
     // A no-op shim for virtual:pwa-register is injected below so that
     // pwa.ts compiles successfully without the real VitePWA plugin.
-    ...(!isAndroidBuild ? [VitePWA({
+    ...(!isNativeBuild ? [VitePWA({
       registerType: "prompt",
       injectRegister: false,
       strategies: "injectManifest",
@@ -261,11 +267,11 @@ export default defineConfig({
       },
     })] : []),
 
-    // ── Android build: no-op shim for virtual:pwa-register ─────────────────
+    // ── Native build (Android/Electron): no-op shim for virtual:pwa-register ──
     // pwa.ts imports registerSW from virtual:pwa-register which is provided
-    // by vite-plugin-pwa. When VitePWA is skipped (isAndroidBuild), we inject
+    // by vite-plugin-pwa. When VitePWA is skipped (native builds), we inject
     // a tiny no-op so the import resolves and pwa.ts compiles without errors.
-    ...(isAndroidBuild ? [{
+    ...(isNativeBuild ? [{
       name: "arc-guard-nop-pwa-register",
       resolveId(id: string) {
         if (id === "virtual:pwa-register") return "\0virtual:pwa-register-nop";
@@ -297,9 +303,12 @@ export default defineConfig({
   root: path.resolve(import.meta.dirname),
 
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    // Electron → dist-electron/  |  Android → dist/public/  |  Web → dist/public/
+    outDir: isElectronBuild
+      ? path.resolve(import.meta.dirname, "dist-electron")
+      : path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    // Android WebView ~Chromium 89+; web targets modern evergreen browsers
+    // Android WebView ~Chromium 89+; Electron ~Chromium 130+; web = evergreen
     target: isAndroidBuild ? "es2020" : "esnext",
     // Source maps in production for error tracking
     sourcemap: isProd ? "hidden" : true,

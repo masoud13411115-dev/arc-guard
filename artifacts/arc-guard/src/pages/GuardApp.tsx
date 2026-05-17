@@ -5,6 +5,10 @@ import LoginPage from "@/pages/LoginPage";
 import GuardPatrol from "@/pages/GuardPatrol";
 import { onAuthChange, getUserProfile, signOut } from "@/lib/auth";
 import { isFirebaseReady } from "@/firebase";
+import {
+  saveProfileCache, loadProfileCache,
+  saveLastGuardProfile, loadLastGuardProfile, clearLastGuardProfile,
+} from "@/lib/offlineAuth";
 import { logger } from "@/lib/logger";
 import { useI18n } from "@/lib/i18n";
 import type { UserProfile } from "@/types";
@@ -19,9 +23,20 @@ export default function GuardApp() {
 
   useEffect(() => {
     if (!isFirebaseReady) {
-      setScreen("login");
+      // Firebase not configured (IndexedDB-only or no secrets set).
+      // Try to restore the last guard session from the uid-agnostic cache
+      // so the guard doesn't have to re-enter their PIN on every app start.
+      const cached = loadLastGuardProfile();
+      if (cached) {
+        setProfile(cached);
+        setScreen("patrol");
+        logger.info("guard-app", `Restored from last-session cache (no Firebase): ${cached.displayName}`);
+      } else {
+        setScreen("login");
+      }
       return;
     }
+
     const unsub = onAuthChange(async (user) => {
       if (user) {
         try {
@@ -31,6 +46,9 @@ export default function GuardApp() {
               navigate("/manager");
               return;
             }
+            // Keep both caches fresh on every successful Firestore read
+            saveProfileCache(p);
+            saveLastGuardProfile(p);
             setProfile(p);
             setScreen("patrol");
             logger.info("guard-app", `Auth restored: ${p.displayName}`);
@@ -38,8 +56,21 @@ export default function GuardApp() {
             setScreen("login");
           }
         } catch (err) {
-          logger.error("guard-app", "Failed to restore auth", err);
-          setScreen("login");
+          // Firestore failed (offline, quota, rules, etc.) — use cache.
+          // Do NOT gate on navigator.onLine: Firestore can fail even when online.
+          logger.error("guard-app", "Failed to restore auth (trying cache)", err);
+          const cached = loadProfileCache(user.uid) ?? loadLastGuardProfile();
+          if (cached) {
+            logger.info("guard-app", `Cache restore: ${cached.displayName}`);
+            if (cached.role === "manager" || cached.role === "super_admin") {
+              navigate("/manager");
+              return;
+            }
+            setProfile(cached);
+            setScreen("patrol");
+          } else {
+            setScreen("login");
+          }
         }
       } else {
         setProfile(null);
@@ -62,6 +93,7 @@ export default function GuardApp() {
   const handleLogout = useCallback(async () => {
     logger.info("guard-app", "Logout");
     if (isFirebaseReady) await signOut().catch(() => {});
+    clearLastGuardProfile();
     setProfile(null);
     setScreen("login");
     navigate("/guard");

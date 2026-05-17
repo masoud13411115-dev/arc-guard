@@ -15,7 +15,8 @@
     "cap:sync:guard": "cp capacitor.guard.config.ts capacitor.config.ts && npx cap sync android && cp capacitor.config.active.ts capacitor.config.ts",
     "cap:build:manager": "CAP_ANDROID=1 pnpm build && pnpm cap:sync:manager",
     "cap:build:guard": "CAP_ANDROID=1 pnpm build && pnpm cap:sync:guard",
-    "cap:open": "npx cap open android"
+    "cap:open": "npx cap open android",
+    "build:electron": "CAP_ELECTRON=1 APP_VERSION=${APP_VERSION:-1.0} APP_BUILD_TYPE=${APP_BUILD_TYPE:-stable} vite build --config vite.config.ts"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.3.3",

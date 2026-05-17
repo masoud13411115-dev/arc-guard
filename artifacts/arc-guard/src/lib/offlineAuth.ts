@@ -113,3 +113,98 @@ export function loadProfileCache(uid: string): UserProfile | null {
 export function clearProfileCache(uid: string): void {
   try { localStorage.removeItem(profileKey(uid)); } catch { /* ok */ }
 }
+
+// ── Guard offline credential cache ────────────────────────────────────────────
+// Same SHA-256 pattern as manager creds, keyed by guardCode.
+// Saved after every successful Firebase guard login so the guard can
+// re-authenticate on the same device when offline (IndexedDB mode).
+
+const guardCredKey = (code: string) =>
+  `arc_guard_offline_guard_cred_${code.toLowerCase()}`;
+
+async function makeGuardHash(guardCode: string, pin: string): Promise<string> {
+  return sha256(`arc_guard_offline_guard_v1|${guardCode.toLowerCase()}|${pin}`);
+}
+
+export interface OfflineGuardCred {
+  uid:       string;
+  companyId: string;
+  hash:      string;
+  savedAt:   number;
+}
+
+/**
+ * Save a guard's offline credential after a successful Firebase login.
+ * Call this every login so the hash stays current with the guard's PIN.
+ */
+export async function saveGuardOfflineCred(
+  guardCode: string,
+  pin:       string,
+  uid:       string,
+  companyId: string,
+): Promise<void> {
+  const hash = await makeGuardHash(guardCode, pin);
+  const cred: OfflineGuardCred = { uid, companyId, hash, savedAt: Date.now() };
+  try { localStorage.setItem(guardCredKey(guardCode), JSON.stringify(cred)); } catch { /* quota */ }
+}
+
+/** True if this guardCode has a stored offline credential on this device. */
+export function hasGuardOfflineCred(guardCode: string): boolean {
+  return !!localStorage.getItem(guardCredKey(guardCode.toLowerCase()));
+}
+
+/**
+ * Verify guardCode + PIN against the locally stored hash.
+ * Returns { uid, companyId } on success, null on wrong PIN or no cache.
+ */
+export async function verifyGuardOfflineCred(
+  guardCode: string,
+  pin:       string,
+): Promise<{ uid: string; companyId: string } | null> {
+  const raw = localStorage.getItem(guardCredKey(guardCode));
+  if (!raw) return null;
+  try {
+    const cred = JSON.parse(raw) as OfflineGuardCred;
+    const hash = await makeGuardHash(guardCode, pin);
+    return hash === cred.hash ? { uid: cred.uid, companyId: cred.companyId } : null;
+  } catch { return null; }
+}
+
+/** Remove the stored guard offline credential (call on explicit logout). */
+export function clearGuardOfflineCred(guardCode: string): void {
+  try { localStorage.removeItem(guardCredKey(guardCode)); } catch { /* ok */ }
+}
+
+// ── Last-session profile cache (uid-agnostic) ─────────────────────────────────
+// Stored under fixed keys so the app can restore the last session on startup
+// without knowing the uid — essential when Firebase isn't configured
+// (IndexedDB-only setups) and onAuthChange never fires.
+
+const LAST_MGR_KEY   = "arc_guard_last_mgr_profile";
+const LAST_GUARD_KEY = "arc_guard_last_guard_profile";
+
+export function saveLastManagerProfile(p: UserProfile): void {
+  try { localStorage.setItem(LAST_MGR_KEY, JSON.stringify(p)); } catch { /* quota */ }
+}
+export function loadLastManagerProfile(): UserProfile | null {
+  try {
+    const raw = localStorage.getItem(LAST_MGR_KEY);
+    return raw ? (JSON.parse(raw) as UserProfile) : null;
+  } catch { return null; }
+}
+export function clearLastManagerProfile(): void {
+  try { localStorage.removeItem(LAST_MGR_KEY); } catch { /* ok */ }
+}
+
+export function saveLastGuardProfile(p: UserProfile): void {
+  try { localStorage.setItem(LAST_GUARD_KEY, JSON.stringify(p)); } catch { /* quota */ }
+}
+export function loadLastGuardProfile(): UserProfile | null {
+  try {
+    const raw = localStorage.getItem(LAST_GUARD_KEY);
+    return raw ? (JSON.parse(raw) as UserProfile) : null;
+  } catch { return null; }
+}
+export function clearLastGuardProfile(): void {
+  try { localStorage.removeItem(LAST_GUARD_KEY); } catch { /* ok */ }
+}

@@ -3,11 +3,13 @@ import {
   Users, CheckCircle, QrCode, LogOut, Activity, Shield, AlertTriangle,
   Monitor, FileText, Map, MapPin, Radio, Bell, Settings, Crown, Star,
   BellOff, BellRing, ChevronDown, ChevronUp, AlertOctagon, HelpCircle, Terminal, Database, WifiOff,
+  RefreshCw,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import LanguageSelector from "@/components/LanguageSelector";
 import arcGuardLogo from "/arc-guard-logo.png";
 import MobileHeader from "@/components/MobileHeader";
+import LanModeIndicator from "@/components/LanModeIndicator";
 import LiveMonitor from "./LiveMonitor";
 import CheckpointManager from "./CheckpointManager";
 import PatrolLogs from "./PatrolLogs";
@@ -18,6 +20,7 @@ import CompanySettings from "./CompanySettings";
 import HelpPage from "@/pages/HelpPage";
 import DiagnosticsPage from "@/pages/DiagnosticsPage";
 import BackupPage from "@/pages/BackupPage";
+import SyncQueueViewer from "@/components/SyncQueueViewer";
 import {
   subscribePatrolLogs, subscribeGuardSessions, subscribeAlerts,
   subscribeCheckpoints, resolveAlert as fbResolveAlert, getCompany,
@@ -59,7 +62,7 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help" | "diagnostics" | "backup";
+type Tab = "overview" | "map" | "monitor" | "alerts" | "checkpoints" | "logs" | "settings" | "help" | "diagnostics" | "backup" | "sync";
 
 const PLAN_ICON: Record<string, React.ElementType> = {
   basic: Shield,
@@ -411,6 +414,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
     { tab: "logs",        label: t("dash.tab.logs"),         icon: FileText },
     { tab: "settings",    label: t("dash.tab.settings"),      icon: Settings },
     { tab: "backup",      label: t("dash.tab.backup"),        icon: Database },
+    { tab: "sync",        label: t("dash.tab.sync"),          icon: RefreshCw },
     { tab: "help",        label: t("dash.tab.help"),          icon: HelpCircle },
     { tab: "diagnostics", label: t("dash.tab.diagnostics"),   icon: Terminal },
   ];
@@ -466,6 +470,9 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
         <div className="px-2 mb-2 flex items-center justify-between gap-2">
           <p className="text-[10px] text-muted-foreground truncate">@{profile.username}</p>
           <VersionBadge />
+        </div>
+        <div className="px-2 mb-2">
+          <LanModeIndicator />
         </div>
         <button onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors">
@@ -829,6 +836,10 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             />
           )}
 
+          {activeTab === "sync" && (
+            <SyncQueueViewer companyId={profile.companyId} />
+          )}
+
         </main>
       </div>
 
@@ -849,7 +860,7 @@ export default function Dashboard({ profile, onLogout }: DashboardProps) {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
-            <DiagnosticsPage fcm={fcmDiagState ?? undefined} />
+            <DiagnosticsPage companyId={profile.companyId} fcm={fcmDiagState ?? undefined} />
           </div>
         </div>
       )}

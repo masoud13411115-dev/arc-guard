@@ -1,0 +1,52 @@
+appId: com.arcguard.manager
+productName: ARC Guard Manager
+copyright: "Copyright © 2025 ARC Guard"
+
+# ── Directories ──────────────────────────────────────────────────────────────
+directories:
+  output: dist-win
+  buildResources: build-resources
+
+# ── Files to include in the package ─────────────────────────────────────────
+# dist-web/ is copied from arc-guard/dist-electron by the copy:web script.
+files:
+  - electron/**
+  - dist-web/**
+  - package.json
+
+# ── Windows targets ──────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  # Optional: icon path (electron-builder auto-converts PNG to ICO on Linux if
+  # imagemagick is available; otherwise uses the default Electron icon).
+  # icon: build-resources/icon.png
+
+# ── NSIS installer options ───────────────────────────────────────────────────
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "ARC Guard Manager"
+  installerIcon: null
+  uninstallerIcon: null
+  installerHeaderIcon: null
+
+# ── Portable .exe ────────────────────────────────────────────────────────────
+portable:
+  artifactName: "ARC-Guard-Manager-${version}-portable.exe"
+
+# ── Artifact naming ──────────────────────────────────────────────────────────
+artifactName: "ARC-Guard-Manager-${version}-${arch}-setup.exe"
+
+# ── Publishing ───────────────────────────────────────────────────────────────
+# Set to null to skip auto-publish. CI uploads artifacts directly.
+publish: null
